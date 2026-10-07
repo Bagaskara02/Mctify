@@ -3,14 +3,19 @@ import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
 import '../models/artist.dart';
+import '../models/audio_quality.dart';
 
 class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
 
-  /// Resolves direct, full-length YouTube audio stream (3-5+ minutes)
-  Future<String?> resolveFullAudioStream(String title, String artist) async {
-    final cleanKey = '$title $artist'.toLowerCase().trim();
+  /// Resolves direct, full-length YouTube audio stream (3-5+ minutes) based on chosen bitrate
+  Future<String?> resolveFullAudioStream(
+    String title,
+    String artist, [
+    AudioQuality quality = AudioQuality.high,
+  ]) async {
+    final cleanKey = '$title $artist ${quality.name}'.toLowerCase().trim();
     if (_streamCache.containsKey(cleanKey)) {
       return _streamCache[cleanKey];
     }
@@ -46,10 +51,28 @@ class MusicApiService {
           final yt = YoutubeExplode();
           try {
             final manifest = await yt.videos.streamsClient.getManifest(videoId);
-            final audioStream = manifest.audioOnly.withHighestBitrate();
-            final streamUrl = audioStream.url.toString();
-            _streamCache[cleanKey] = streamUrl;
-            return streamUrl;
+            final streams = manifest.audioOnly.toList();
+            if (streams.isNotEmpty) {
+              AudioStreamInfo chosenStream;
+              switch (quality) {
+                case AudioQuality.dataSaver:
+                  streams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+                  chosenStream = streams.first;
+                  break;
+                case AudioQuality.standard:
+                  chosenStream = streams.firstWhere(
+                    (s) => s.bitrate.kiloBitsPerSecond <= 160,
+                    orElse: () => manifest.audioOnly.withHighestBitrate(),
+                  );
+                  break;
+                case AudioQuality.high:
+                  chosenStream = manifest.audioOnly.withHighestBitrate();
+                  break;
+              }
+              final streamUrl = chosenStream.url.toString();
+              _streamCache[cleanKey] = streamUrl;
+              return streamUrl;
+            }
           } finally {
             yt.close();
           }

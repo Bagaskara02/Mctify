@@ -107,10 +107,11 @@ export default function App() {
       return;
     }
 
+    const effectiveDuration = currentTrack.duration || (duration > 5 ? duration : undefined);
     let isSubscribed = true;
     setIsLoadingLyrics(true);
 
-    lyricsService.fetchLyrics(currentTrack.artist, currentTrack.title, currentTrack.duration)
+    lyricsService.fetchLyrics(currentTrack.artist, currentTrack.title, effectiveDuration)
       .then(data => {
         if (isSubscribed) {
           setLyricsData(data);
@@ -127,7 +128,7 @@ export default function App() {
     return () => {
       isSubscribed = false;
     };
-  }, [currentTrack?.title, currentTrack?.artist]);
+  }, [currentTrack?.title, currentTrack?.artist, Math.round(currentTrack?.duration || duration || 0)]);
 
   // Auto-hide bottom player bar in lyrics mode when not hovered or touched
   useEffect(() => {
