@@ -1,0 +1,392 @@
+/**
+ * Music API Service
+ * Handles search, metadata, and full-length YouTube Music resolution.
+ */
+
+export const DEFAULT_ARTWORK = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
+
+export const musicApi = {
+  /**
+   * Resolve Full Song YouTube Video ID & Duration
+   */
+  async resolveYouTubeMatch(title, artist) {
+    try {
+      const q = `${title} ${artist || ''}`.trim();
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data; // { videoId, title, artist, duration, thumbnail }
+      }
+    } catch (e) {
+      console.warn('YouTube resolver lookup failed:', e);
+    }
+    return null;
+  },
+
+  /**
+   * Search both Songs and Artists across YouTube Music and iTunes
+   */
+  async searchAll(query) {
+    if (!query || !query.trim()) return { songs: [], artists: [] };
+
+    try {
+      const q = query.trim();
+      // 1. YouTube Music backend multi-search
+      const ytPromise = fetch(`/api/yt/search-multi?q=${encodeURIComponent(q)}`)
+        .then(r => r.ok ? r.json() : { songs: [], artists: [] })
+        .catch(() => ({ songs: [], artists: [] }));
+
+      // 2. iTunes API with country=ID (Indonesia)
+      const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=ID&entity=song&limit=15`)
+        .then(r => r.ok ? r.json() : { results: [] })
+        .catch(() => ({ results: [] }));
+
+      const [ytData, itunesData] = await Promise.all([ytPromise, itunesPromise]);
+
+      const itunesTracks = (itunesData.results || []).map(item => this.formatTrack(item));
+      const ytSongs = (ytData.songs || []).map(s => ({
+        id: s.videoId || s.id,
+        videoId: s.videoId || s.id,
+        title: s.title,
+        artist: s.artist,
+        album: s.album || 'Single',
+        artwork: s.artwork || DEFAULT_ARTWORK,
+        duration: s.duration || 180,
+        genre: 'Pop',
+        audioUrl: '',
+      }));
+
+      // Combine songs prioritizing YouTube full songs
+      const seen = new Set();
+      const combinedSongs = [];
+
+      for (const s of [...ytSongs, ...itunesTracks]) {
+        const cleanTitle = (s.title || '').toLowerCase().trim();
+        const cleanArtist = (s.artist || '').toLowerCase().trim();
+        const key = `${cleanTitle}-${cleanArtist}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combinedSongs.push(s);
+        }
+      }
+
+      return {
+        songs: combinedSongs,
+        artists: ytData.artists || [],
+      };
+    } catch (e) {
+      console.error('searchAll error:', e);
+      return { songs: [], artists: [] };
+    }
+  },
+
+  /**
+   * Get artist details and their popular singles/songs
+   */
+  async getArtistDetails(artistId, artistName) {
+    try {
+      const res = await fetch(`/api/yt/artist?id=${encodeURIComponent(artistId || '')}&name=${encodeURIComponent(artistName || '')}`);
+      if (res.ok) {
+        const data = await res.json();
+        return data; // { artist, topSongs, allSongs }
+      }
+    } catch (e) {
+      console.error('getArtistDetails error:', e);
+    }
+
+    // Fallback if needed
+    const songs = await this.searchTracks(artistName, 12);
+    return {
+      artist: {
+        id: artistId || 'art-' + encodeURIComponent(artistName),
+        name: artistName,
+        headerBanner: songs[0]?.artwork || DEFAULT_ARTWORK,
+        avatar: songs[0]?.artwork || DEFAULT_ARTWORK,
+        monthlyListeners: '4,9 jt pendengar bulanan',
+        verified: true,
+      },
+      topSongs: songs.slice(0, 5),
+      allSongs: songs,
+    };
+  },
+
+  /**
+   * Search tracks by keyword (uses combined searchAll)
+   */
+  async searchTracks(query, limit = 25) {
+    if (!query || !query.trim()) return [];
+
+    try {
+      const data = await this.searchAll(query);
+      if (data.songs && data.songs.length > 0) {
+        return data.songs.slice(0, limit);
+      }
+    } catch (e) {
+      console.warn('searchTracks combined failed, trying fallback:', e);
+    }
+
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query.trim())}&country=ID&entity=song&limit=${limit}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Search request failed');
+
+      const data = await res.json();
+      return (data.results || [])
+        .map(item => this.formatTrack(item));
+    } catch (e) {
+      console.error('Music search error:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Search for single track to match an imported title/artist
+   */
+  async findTrackMatch(title, artist) {
+    const q = `${title} ${artist || ''}`.trim();
+    const results = await this.searchTracks(q, 5);
+    if (results.length > 0) return results[0];
+
+    // Fallback search with title only
+    const titleOnlyResults = await this.searchTracks(title, 3);
+    return titleOnlyResults[0] || null;
+  },
+
+  /**
+   * Format raw iTunes API track into clean app format
+   */
+  formatTrack(item) {
+    let artwork = DEFAULT_ARTWORK;
+    if (item.artworkUrl100) {
+      artwork = item.artworkUrl100
+        .replace('100x100bb.jpg', '600x600bb.jpg')
+        .replace('100x100bb.png', '600x600bb.png')
+        .replace('100x100bb', '600x600bb');
+    }
+
+    return {
+      id: item.trackId ? item.trackId.toString() : 't-' + Math.random().toString(36).substr(2, 9),
+      title: item.trackName || 'Unknown Title',
+      artist: item.artistName || 'Unknown Artist',
+      album: item.collectionName || 'Single',
+      artwork: artwork,
+      originalArtwork: item.artworkUrl100 || DEFAULT_ARTWORK,
+      audioUrl: item.previewUrl || '',
+      videoId: null, // Will be filled dynamically by YouTube Matcher
+      duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 180,
+      genre: item.primaryGenreName || 'Pop',
+      releaseYear: item.releaseDate ? item.releaseDate.slice(0, 4) : '2024',
+    };
+  },
+
+  /**
+   * Fetch Live Trending Tracks directly from iTunes API
+   */
+  async fetchTrendingTracks() {
+    try {
+      const queries = ['Viral Hits Indonesia', 'Global Top Hits', 'The Weeknd', 'Taylor Swift', 'NIKI', 'Coldplay'];
+      // Shuffle slightly so home is fresh
+      const shuffledQueries = [...queries].sort(() => Math.random() - 0.5).slice(0, 4);
+      const promises = shuffledQueries.map(q => this.searchTracks(q, 4));
+      const resultsArrays = await Promise.all(promises);
+      const combined = resultsArrays.flat();
+
+      if (combined.length > 0) {
+        const unique = [];
+        const seen = new Set();
+        for (const t of combined) {
+          if (!seen.has(t.id)) {
+            seen.add(t.id);
+            unique.push(t);
+          }
+        }
+        return unique.slice(0, 18);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch live trending tracks', e);
+    }
+
+    const fallbackResults = await this.searchTracks('Top Hits', 14);
+    return fallbackResults.length > 0 ? fallbackResults : [];
+  },
+
+  /**
+   * Smart Next / Autoplay: Intelligently finds next tracks related to current track
+   * when a playlist or queue reaches the end.
+   */
+  async getSmartRecommendations(currentTrack, existingQueue = []) {
+    if (!currentTrack) return [];
+
+    const existingIds = new Set(existingQueue.map(t => t.id));
+    const currentTitle = (currentTrack.title || '').toLowerCase().trim();
+    const currentArtist = (currentTrack.artist || '').toLowerCase().trim();
+
+    try {
+      // Step 1: Query by artist to find more songs by same artist
+      const artistTracks = await this.searchTracks(currentTrack.artist, 10);
+
+      // Step 2: Query by genre or top hits in same style
+      const genreQuery = currentTrack.genre ? `${currentTrack.genre} hits` : 'pop hits';
+      const genreTracks = await this.searchTracks(genreQuery, 10);
+
+      const combined = [...artistTracks, ...genreTracks];
+      const recommended = [];
+      const seenTitles = new Set([currentTitle]);
+
+      for (const t of combined) {
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (!existingIds.has(t.id) && !seenTitles.has(cleanT)) {
+          seenTitles.add(cleanT);
+          recommended.push(t);
+        }
+      }
+
+      if (recommended.length >= 3) {
+        return recommended.slice(0, 8);
+      }
+
+      // Step 3: Fallback query if not enough matches
+      const trending = await this.fetchTrendingTracks();
+      for (const t of trending) {
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (!existingIds.has(t.id) && !seenTitles.has(cleanT)) {
+          seenTitles.add(cleanT);
+          recommended.push(t);
+        }
+      }
+
+      return recommended.slice(0, 8);
+    } catch (e) {
+      console.warn('Smart recommendation failed:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Fetch Dynamic Personalized Home Sections based on User Taste Profile
+   */
+  async fetchPersonalizedHome(tasteProfile) {
+    try {
+      if (tasteProfile && tasteProfile.hasHistory) {
+        const topArtist = tasteProfile.topArtists?.[0];
+        const secondaryArtist = tasteProfile.topArtists?.[1];
+        const lastTrack = tasteProfile.lastPlayedTrack;
+
+        // Fetch tracks for top artist, secondary artist & smart recommendations in parallel
+        const [artistTracks, secondaryArtistTracks, similarTracks, trending] = await Promise.all([
+          topArtist ? this.searchTracks(topArtist, 10) : Promise.resolve([]),
+          secondaryArtist ? this.searchTracks(secondaryArtist, 8) : Promise.resolve([]),
+          lastTrack ? this.getSmartRecommendations(lastTrack) : Promise.resolve([]),
+          this.fetchTrendingTracks(),
+        ]);
+
+        // Construct dynamic quick cards from user's actual most played, recent and liked tracks
+        let rawQuick = [
+          ...(tasteProfile.mostPlayedTracks || []),
+          ...(tasteProfile.recentTracks || []),
+          ...(tasteProfile.likedTracks || []),
+        ];
+        const seen = new Set();
+        const quickCards = [];
+        for (const t of rawQuick) {
+          if (!seen.has(t.id)) {
+            seen.add(t.id);
+            quickCards.push(t);
+            if (quickCards.length >= 6) break;
+          }
+        }
+
+        // If fewer than 6, fill with artist tracks or trending
+        if (quickCards.length < 6) {
+          for (const t of [...artistTracks, ...trending]) {
+            if (!seen.has(t.id)) {
+              seen.add(t.id);
+              quickCards.push(t);
+              if (quickCards.length >= 6) break;
+            }
+          }
+        }
+
+        const sections = [
+          ...(topArtist ? [{
+            id: 'top-artist',
+            title: `Karena kamu sering memutar ${topArtist}`,
+            subtitle: `Rekomendasi terbaik dan lagu serupa dengan artis favoritmu`,
+            badge: 'Berdasarkan Selera Musik',
+            tracks: artistTracks.length > 0 ? artistTracks : trending.slice(0, 8),
+          }] : []),
+          ...(lastTrack ? [{
+            id: 'similar-vibe',
+            title: `Lagu serupa dengan "${lastTrack.title}"`,
+            subtitle: `Dipersonalisasi berdasarkan musik yang baru saja kamu dengar`,
+            badge: 'Radio Pintar',
+            tracks: similarTracks.length > 0 ? similarTracks : trending.slice(6, 14),
+          }] : []),
+          ...(secondaryArtist && secondaryArtistTracks.length > 0 ? [{
+            id: 'secondary-artist',
+            title: `Eksplorasi ${secondaryArtist}`,
+            subtitle: `Koleksi musik pilihan dari artis favoritmu yang lain`,
+            badge: 'Artis Pilihan',
+            tracks: secondaryArtistTracks,
+          }] : []),
+          {
+            id: 'trending-section',
+            title: 'Lagu Terpopuler Saat Ini',
+            subtitle: 'Tangga lagu terhangat dan musik paling banyak didengar',
+            badge: 'Trending',
+            tracks: trending,
+          },
+        ];
+
+        return {
+          isPersonalized: true,
+          topArtist,
+          quickCards: quickCards.slice(0, 6),
+          sections,
+          trending,
+        };
+      }
+
+      // Default state for brand new user with no history yet
+      const trending = await this.fetchTrendingTracks();
+      return {
+        isPersonalized: false,
+        quickCards: trending.slice(0, 6),
+        sections: [
+          {
+            id: 'trending-today',
+            title: 'Lagu Terpopuler Saat Ini',
+            subtitle: 'Musik yang sedang viral dan menduduki puncak tangga lagu',
+            badge: 'Trending',
+            tracks: trending.slice(0, 10),
+          },
+          {
+            id: 'fresh-finds',
+            title: 'Pilihan Musik Segar & Terkini',
+            subtitle: 'Eksplorasi ragam genre mulai dari pop, r&b, hingga akustik',
+            badge: 'Pilihan Untukmu',
+            tracks: trending.slice(6, 16),
+          },
+        ],
+        trending,
+      };
+    } catch (e) {
+      console.warn('Personalized home fetch failed, using fallback:', e);
+      const trending = await this.fetchTrendingTracks();
+      return {
+        isPersonalized: false,
+        quickCards: trending.slice(0, 6),
+        sections: [
+          {
+            id: 'fallback-trending',
+            title: 'Lagu Terpopuler Saat Ini',
+            subtitle: 'Musik terhangat',
+            badge: 'Trending',
+            tracks: trending,
+          },
+        ],
+        trending,
+      };
+    }
+  },
+};
