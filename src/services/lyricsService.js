@@ -3,36 +3,69 @@
  * Inspired by surfbryce/beautiful-lyrics & Apple Music
  */
 
+const lyricsMemoryCache = new Map();
+
 export const lyricsService = {
   /**
-   * Fetch synced or plain lyrics from LRCLIB
+   * Clean titles and artists of streaming/YouTube noise
    */
-  async fetchLyrics(artist, title, duration) {
-    if (!title) return null;
+  cleanTitleAndArtist(rawTitle, rawArtist) {
+    let title = (rawTitle || '').trim();
+    let artist = (rawArtist || '').trim();
 
-    const cleanTitle = title.replace(/\(.*?\)|\[.*?\]|- Single|- Remastered.*/gi, '').trim();
-    const cleanArtist = (artist || '').replace(/\(.*?\)|\[.*?\]/gi, '').trim();
+    // Strip common YouTube & streaming tags
+    title = title.replace(/\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]/gi, '');
+    title = title.replace(/\s*(feat\.|ft\.)\s+[^-\(\]]+/gi, '');
+    title = title.replace(/[◐◑]/g, '').trim();
 
-    // 1. Try exact match first
+    if (title.includes(' - ')) {
+      const parts = title.split(' - ');
+      if (parts.length === 2) {
+        if (artist && parts[0].toLowerCase().includes(artist.toLowerCase())) {
+          title = parts[1].trim();
+        } else if (artist && parts[1].toLowerCase().includes(artist.toLowerCase())) {
+          title = parts[0].trim();
+        }
+      }
+    }
+
+    title = title.replace(/\(.*?\)|\[.*?\]/g, '').replace(/[\(\)\[\]]/g, '').trim();
+    artist = artist.replace(/\(.*?\)|\[.*?\]/g, '').replace(/[\(\)\[\]]/g, '').trim();
+    return { title, artist };
+  },
+
+  /**
+   * Fetch synced or plain lyrics from LRCLIB with 0ms in-memory cache
+   */
+  async fetchLyrics(rawArtist, rawTitle, duration) {
+    if (!rawTitle) return null;
+
+    const { title: cleanTitle, artist: cleanArtist } = this.cleanTitleAndArtist(rawTitle, rawArtist);
+    const cacheKey = `${cleanArtist.toLowerCase()}:::${cleanTitle.toLowerCase()}`;
+
+    if (lyricsMemoryCache.has(cacheKey)) {
+      return lyricsMemoryCache.get(cacheKey);
+    }
+
+    // 1. Try exact match first without duration (duration mismatch causes LRCLIB 503)
     try {
       const params = new URLSearchParams({
         track_name: cleanTitle,
         artist_name: cleanArtist,
       });
-      if (duration && Number.isFinite(duration)) {
-        params.append('duration', Math.round(duration).toString());
-      }
 
       const res = await fetch(`https://lrclib.net/api/get?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         if (data && (data.syncedLyrics || data.plainLyrics)) {
-          return {
+          const result = {
             synced: !!data.syncedLyrics,
             lines: data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics),
             source: 'LRCLIB',
             instrumental: data.instrumental || false,
           };
+          lyricsMemoryCache.set(cacheKey, result);
+          return result;
         }
       }
     } catch (e) {
@@ -48,12 +81,14 @@ export const lyricsService = {
         if (Array.isArray(list) && list.length > 0) {
           const best = list.find(item => item.syncedLyrics) || list[0];
           if (best && (best.syncedLyrics || best.plainLyrics)) {
-            return {
+            const result = {
               synced: !!best.syncedLyrics,
               lines: best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics),
               source: 'LRCLIB (Search)',
               instrumental: best.instrumental || false,
             };
+            lyricsMemoryCache.set(cacheKey, result);
+            return result;
           }
         }
       }

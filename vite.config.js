@@ -38,13 +38,17 @@ function musicBackendPlugin() {
               durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
             }
 
+            const titleStr = typeof best.title === 'string' ? best.title : (best.title?.text || '');
+            const artistStr = best.artists?.[0]?.name || best.author?.name || '';
+            const thumbUrl = best.thumbnails?.[best.thumbnails.length - 1]?.url || best.thumbnails?.[0]?.url || '';
+
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({
               videoId: best.id,
-              title: best.title,
-              artist: best.artists?.[0]?.name || '',
+              title: titleStr,
+              artist: artistStr,
               duration: durationSec,
-              thumbnail: best.thumbnails?.[0]?.url || '',
+              thumbnail: thumbUrl,
             }));
           }
 
@@ -118,12 +122,15 @@ function musicBackendPlugin() {
               durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
             }
             const thumb = s.thumbnails?.[s.thumbnails.length - 1]?.url || s.thumbnails?.[0]?.url || '';
+            const titleStr = typeof s.title === 'string' ? s.title : (s.title?.text || '');
+            const artistStr = s.artists?.[0]?.name || s.author?.name || '';
+            const albumStr = typeof s.album === 'string' ? s.album : (s.album?.name || 'Single');
             return {
               id: s.id,
               videoId: s.id,
-              title: s.title || '',
-              artist: s.artists?.[0]?.name || s.author?.name || '',
-              album: s.album?.name || 'Single',
+              title: titleStr,
+              artist: artistStr,
+              album: albumStr,
               artwork: thumb,
               duration: durationSec,
             };

@@ -95,7 +95,7 @@ export default function BeautifulLyrics({
     if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     scrollTimeoutRef.current = setTimeout(() => {
       setUserScrolled(false);
-    }, 4000);
+    }, 2500);
   };
 
   const getFontSizeClass = () => {
@@ -281,7 +281,7 @@ export default function BeautifulLyrics({
           <div 
             ref={containerRef}
             onScroll={handleUserScroll}
-            className="col-span-1 lg:col-span-8 overflow-y-auto px-4 sm:px-8 py-16 scroll-smooth relative no-scrollbar"
+            className="col-span-1 lg:col-span-8 overflow-y-auto px-4 sm:px-8 pt-8 pb-36 scroll-smooth relative no-scrollbar"
           >
             {isLoadingLyrics ? (
               <div className="h-full flex flex-col items-center justify-center gap-4 text-white/50">
@@ -373,20 +373,6 @@ export default function BeautifulLyrics({
                   );
                 })}
               </div>
-            )}
-
-            {/* Bottom floating helper when user scrolls manually */}
-            {userScrolled && (
-              <button
-                onClick={() => {
-                  setUserScrolled(false);
-                  setAutoScroll(true);
-                }}
-                className="absolute bottom-6 right-6 px-4 py-2.5 rounded-full bg-[#00a3ff] hover:bg-[#2eb4ff] text-black text-xs font-bold shadow-2xl transition-all flex items-center gap-2 active:scale-95 animate-bounce"
-              >
-                <ChevronDown className="w-4 h-4" />
-                Lanjutkan Auto-Scroll
-              </button>
             )}
           </div>
         </div>
