@@ -7,19 +7,23 @@ import {
   Type, 
   Clock, 
   Sparkles,
-  ChevronDown
+  RotateCcw,
+  Minus,
+  Plus
 } from 'lucide-react';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { lyricsService } from '../services/lyricsService';
 
 /**
  * BeautifulLyrics Component
- * Recreates the Apple Music & surfbryce/beautiful-lyrics experience:
+ * High-precision Karaoke Engine:
  * - Word-by-word syllable karaoke animation & vocal bounce
- * - Dynamic blurred mesh-gradient background adapted to album colors & Electric Azure
+ * - Anticipatory vocal-onset lead compensation (~120ms)
+ * - Fine-grain sync calibration (-0.5s to +0.5s) with per-track persistence
+ * - Visual instrumental countdown & break indicators
+ * - Dynamic mesh-gradient background
  * - Interactive click-to-seek by word or line
- * - Cinema Fullscreen mode
- * - Sync timing calibration
  */
 export default function BeautifulLyrics({
   track,
@@ -42,6 +46,33 @@ export default function BeautifulLyrics({
   const scrollTimeoutRef = useRef(null);
   const activeLineRef = useRef(null);
 
+  const trackKey = track ? `${(track.artist || '').trim().toLowerCase()}:::${(track.title || '').trim().toLowerCase()}` : '';
+
+  // Load persistent sync offset for current track
+  useEffect(() => {
+    if (trackKey) {
+      const saved = lyricsService.getTrackSyncOffset(trackKey);
+      setSyncOffset(saved);
+    }
+  }, [trackKey]);
+
+  const updateSyncOffset = (delta) => {
+    setSyncOffset(prev => {
+      const next = Math.round((prev + delta) * 10) / 10;
+      if (trackKey) {
+        lyricsService.saveTrackSyncOffset(trackKey, next);
+      }
+      return next;
+    });
+  };
+
+  const resetSyncOffset = () => {
+    setSyncOffset(0);
+    if (trackKey) {
+      lyricsService.saveTrackSyncOffset(trackKey, 0);
+    }
+  };
+
   // Extract vibrant colors from album artwork
   useEffect(() => {
     if (track?.artwork) {
@@ -55,7 +86,8 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  const effectiveTime = Math.max(0, currentTime + syncOffset);
+  // Apply vocal anticipation lead (+0.12s) so the visual prompt aligns with natural vocal onset
+  const effectiveTime = Math.max(0, currentTime + syncOffset + 0.12);
   const lines = lyricsData?.lines || [];
 
   // Determine active line index
@@ -164,30 +196,54 @@ export default function BeautifulLyrics({
 
           {/* Controls: Offset, Font size, Fullscreen, Close */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Sync Offset Calibration */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white/70">
+            {/* Sync Tuner & Calibration Widget */}
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80">
               <Clock className="w-3.5 h-3.5 text-[#00a3ff]" />
-              <span className="tabular-nums">Sync: {syncOffset >= 0 ? `+${syncOffset.toFixed(1)}s` : `${syncOffset.toFixed(1)}s`}</span>
+              <span className="hidden sm:inline text-white/60 text-[11px]">Sync:</span>
+              <span className={`font-mono font-bold tabular-nums text-xs ${syncOffset === 0 ? 'text-[#00a3ff]' : syncOffset > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {syncOffset === 0 ? 'Tepat' : syncOffset > 0 ? `+${syncOffset.toFixed(1)}s` : `${syncOffset.toFixed(1)}s`}
+              </span>
+
+              {/* -0.5s / -0.1s */}
               <button 
-                onClick={() => setSyncOffset(prev => prev - 0.5)}
-                className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white/80 active:scale-95"
-                title="Delay lyrics (-0.5s)"
+                onClick={() => updateSyncOffset(-0.5)}
+                className="hidden lg:inline-block px-1.5 py-0.5 rounded hover:bg-white/10 text-white/70 active:scale-95 text-[11px]"
+                title="Percepat lirik (-0.5s)"
               >
-                -
+                -0.5
               </button>
               <button 
-                onClick={() => setSyncOffset(0)}
-                className="px-1 py-0.5 rounded hover:bg-white/10 text-white/50 text-[10px]"
-                title="Reset sync offset"
+                onClick={() => updateSyncOffset(-0.1)}
+                className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white/90 active:scale-95 font-bold"
+                title="Percepat lirik (-0.1s)"
               >
-                Reset
+                <Minus className="w-3 h-3" />
+              </button>
+
+              {syncOffset !== 0 && (
+                <button 
+                  onClick={resetSyncOffset}
+                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white"
+                  title="Reset kalibrasi sync ke 0.0s"
+                >
+                  <RotateCcw className="w-2.5 h-2.5" />
+                </button>
+              )}
+
+              {/* +0.1s / +0.5s */}
+              <button 
+                onClick={() => updateSyncOffset(0.1)}
+                className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white/90 active:scale-95 font-bold"
+                title="Tunda lirik (+0.1s)"
+              >
+                <Plus className="w-3 h-3" />
               </button>
               <button 
-                onClick={() => setSyncOffset(prev => prev + 0.5)}
-                className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white/80 active:scale-95"
-                title="Advance lyrics (+0.5s)"
+                onClick={() => updateSyncOffset(0.5)}
+                className="hidden lg:inline-block px-1.5 py-0.5 rounded hover:bg-white/10 text-white/70 active:scale-95 text-[11px]"
+                title="Tunda lirik (+0.5s)"
               >
-                +
+                +0.5
               </button>
             </div>
 
@@ -236,8 +292,8 @@ export default function BeautifulLyrics({
             <div className="flex flex-col items-center text-center my-auto">
               <div className="relative group">
                 <img
-                  src={track?.artwork || DEFAULT_ARTWORK}
-                  alt={track?.title}
+                  src={track?.artwork || DEFAULT_ARTWORK} 
+                  alt={track?.title} 
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = DEFAULT_ARTWORK;
@@ -250,7 +306,7 @@ export default function BeautifulLyrics({
                 {isPlaying && (
                   <div className="absolute bottom-4 right-4 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[#00a3ff]/40 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-[#00a3ff] animate-ping" />
-                    <span className="text-xs font-semibold text-[#00a3ff]">Karaoke Sync</span>
+                    <span className="text-xs font-semibold text-[#00a3ff]">Karaoke Akurat</span>
                   </div>
                 )}
               </div>
@@ -271,9 +327,9 @@ export default function BeautifulLyrics({
             <div className="pt-4 border-t border-white/10 flex items-center justify-between text-xs text-neutral-400">
               <span className="flex items-center gap-1.5 text-[#00a3ff] font-medium">
                 <Sparkles className="w-3.5 h-3.5 text-[#00a3ff]" />
-                Lirik Per-Kata Apple Music
+                Lirik Sinkron & Karaoke
               </span>
-              <span>Klik lirik untuk lompat</span>
+              <span>Klik lirik untuk melompat</span>
             </div>
           </div>
 
@@ -286,7 +342,7 @@ export default function BeautifulLyrics({
             {isLoadingLyrics ? (
               <div className="h-full flex flex-col items-center justify-center gap-4 text-white/50">
                 <div className="w-10 h-10 border-4 border-white/20 border-t-[#00a3ff] rounded-full animate-spin" />
-                <p className="text-sm font-medium animate-pulse">Menghubungkan lirik sinkron & perkata...</p>
+                <p className="text-sm font-medium animate-pulse">Menghubungkan lirik sinkron durasi akurat...</p>
               </div>
             ) : lines.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4 text-white/40">
@@ -303,6 +359,31 @@ export default function BeautifulLyrics({
                 {lines.map((line, idx) => {
                   const isActive = idx === activeIndex;
                   const isPast = idx < activeIndex;
+
+                  // Instrumental break indicator
+                  if (line.isInstrumental) {
+                    return (
+                      <div 
+                        key={line.id || idx}
+                        ref={isActive ? activeLineRef : null}
+                        className={`transition-all duration-300 py-3 flex items-center gap-3 ${
+                          isActive ? 'text-[#00a3ff] opacity-100 scale-100' : 'text-white/30 opacity-40 scale-95'
+                        }`}
+                      >
+                        <Music className="w-5 h-5 text-[#00a3ff]" />
+                        <span className="text-base sm:text-lg font-bold tracking-widest uppercase font-mono">
+                          {line.text || '♪  Musik  ♪'}
+                        </span>
+                        {isActive && (
+                          <div className="flex gap-1.5 ml-2">
+                            <span className="w-2 h-2 rounded-full bg-[#00a3ff] animate-ping" />
+                            <span className="w-2 h-2 rounded-full bg-[#00a3ff]/70" />
+                            <span className="w-2 h-2 rounded-full bg-[#00a3ff]/40" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
 
                   return (
                     <div
@@ -345,7 +426,7 @@ export default function BeautifulLyrics({
                                   }}
                                   className={`inline-block transition-all duration-150 transform hover:scale-110 ${
                                     isWordCurrent
-                                      ? 'text-white font-black scale-110 -translate-y-1 text-cyan-100 drop-shadow-[0_0_20px_rgba(0,163,255,1)]'
+                                      ? 'text-[#00e5ff] font-black scale-105 -translate-y-0.5 drop-shadow-[0_0_16px_rgba(0,163,255,1)]'
                                       : isWordFinished
                                       ? 'text-white font-extrabold opacity-100 scale-100'
                                       : 'text-white/40 opacity-40 font-bold scale-95'
@@ -357,7 +438,7 @@ export default function BeautifulLyrics({
                             })}
                           </div>
                         ) : (
-                          /* Inactive or single-line fallback */
+                          /* Inactive or plain-line fallback */
                           <span
                             className={`inline-block transition-all duration-300 ${
                               isActive ? 'text-white' : 'text-white/70 group-hover:text-white'

@@ -107,4 +107,35 @@ class StorageService {
       return null;
     }
   }
+
+  static const String _keyAudioQuality = 'mcmusic_audio_quality';
+
+  Future<String> getAudioQuality() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyAudioQuality) ?? 'high';
+  }
+
+  Future<void> setAudioQuality(String quality) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAudioQuality, quality);
+  }
+
+  static const String _keyLyricsSyncPrefix = 'mcmusic_lyrics_sync_';
+
+  Future<double> getLyricsSyncOffset(String trackKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble('$_keyLyricsSyncPrefix$trackKey') ?? 0.0;
+    } catch (_) {
+      return 0.0;
+    }
+  }
+
+  Future<void> setLyricsSyncOffset(String trackKey, double offset) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rounded = (offset * 10).roundToDouble() / 10.0;
+      await prefs.setDouble('$_keyLyricsSyncPrefix$trackKey', rounded);
+    } catch (_) {}
+  }
 }

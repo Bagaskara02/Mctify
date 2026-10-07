@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:audio_service/audio_service.dart';
 import 'services/audio_player_manager.dart';
+import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 import 'views/home_view.dart';
@@ -7,13 +9,32 @@ import 'views/library_view.dart';
 import 'views/search_view.dart';
 import 'widgets/mini_player.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const McMusicApp());
+
+  MediaAudioHandler? mediaHandler;
+  try {
+    mediaHandler = await AudioService.init(
+      builder: () => MediaAudioHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.mcmusic.app.channel.audio',
+        androidNotificationChannelName: 'McMusic Playback',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+        androidNotificationIcon: 'mipmap/ic_launcher',
+      ),
+    );
+  } catch (e) {
+    debugPrint('AudioService init note: $e');
+  }
+
+  runApp(McMusicApp(mediaHandler: mediaHandler));
 }
 
 class McMusicApp extends StatelessWidget {
-  const McMusicApp({super.key});
+  final MediaAudioHandler? mediaHandler;
+
+  const McMusicApp({super.key, this.mediaHandler});
 
   @override
   Widget build(BuildContext context) {
@@ -21,20 +42,22 @@ class McMusicApp extends StatelessWidget {
       title: 'McMusic',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const MainNavigationScreen(),
+      home: MainNavigationScreen(mediaHandler: mediaHandler),
     );
   }
 }
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final MediaAudioHandler? mediaHandler;
+
+  const MainNavigationScreen({super.key, this.mediaHandler});
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  final AudioPlayerManager _player = AudioPlayerManager();
+  late final AudioPlayerManager _player;
   final StorageService _storage = StorageService();
 
   int _currentIndex = 0;
@@ -44,6 +67,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    _player = AudioPlayerManager(mediaHandler: widget.mediaHandler);
     _player.addListener(_onPlayerStateChanged);
   }
 

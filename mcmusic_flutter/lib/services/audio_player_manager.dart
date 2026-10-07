@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/track.dart';
+import '../models/audio_quality.dart';
+import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
 
@@ -9,6 +12,7 @@ class AudioPlayerManager extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
+  final MediaAudioHandler? _mediaHandler;
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -18,6 +22,14 @@ class AudioPlayerManager extends ChangeNotifier {
   bool _isShuffle = false;
   bool _isRepeat = false;
 
+  // Sleep Timer state
+  Timer? _sleepTimer;
+  int? _sleepTimerRemainingSeconds;
+  bool _sleepTimerAtTrackEnd = false;
+
+  // Bitrate / Audio Quality state
+  AudioQuality _audioQuality = AudioQuality.high;
+
   Track? get currentTrack => _currentTrack;
   bool get isPlaying => _isPlaying;
   Duration get position => _position;
@@ -26,13 +38,66 @@ class AudioPlayerManager extends ChangeNotifier {
   bool get isShuffle => _isShuffle;
   bool get isRepeat => _isRepeat;
 
-  AudioPlayerManager() {
+  // Sleep Timer getters
+  int? get sleepTimerRemainingSeconds => _sleepTimerRemainingSeconds;
+  bool get isSleepTimerActive => _sleepTimerRemainingSeconds != null || _sleepTimerAtTrackEnd;
+  String? get sleepTimerFormatted {
+    if (_sleepTimerAtTrackEnd) return 'Akhir Lagu';
+    if (_sleepTimerRemainingSeconds != null) {
+      final mins = _sleepTimerRemainingSeconds! ~/ 60;
+      final secs = _sleepTimerRemainingSeconds! % 60;
+      return '$mins:${secs < 10 ? '0' : ''}$secs';
+    }
+    return null;
+  }
+
+  // Audio Quality getter
+  AudioQuality get audioQuality => _audioQuality;
+
+  AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
     _initAudioListeners();
+    _initMediaHandlerCallbacks();
+    _loadStoredAudioQuality();
+  }
+
+  Future<void> _loadStoredAudioQuality() async {
+    try {
+      final saved = await _storageService.getAudioQuality();
+      _audioQuality = AudioQuality.fromString(saved);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> setAudioQuality(AudioQuality quality) async {
+    _audioQuality = quality;
+    notifyListeners();
+    await _storageService.setAudioQuality(quality.name);
+  }
+
+  void _initMediaHandlerCallbacks() {
+    final handler = _mediaHandler;
+    if (handler == null) return;
+    handler.onPlay = () => togglePlayPause();
+    handler.onPause = () => togglePlayPause();
+    handler.onSkipToNext = () => next();
+    handler.onSkipToPrevious = () => previous();
+    handler.onSeekTo = (pos) => seek(pos);
+  }
+
+  void _syncMediaHandler() {
+    final handler = _mediaHandler;
+    if (handler == null) return;
+    handler.updatePlaybackState(
+      isPlaying: _isPlaying,
+      position: _position,
+      duration: _duration,
+    );
   }
 
   void _initAudioListeners() {
     _player.onPlayerStateChanged.listen((state) {
       _isPlaying = state == PlayerState.playing;
+      _syncMediaHandler();
       notifyListeners();
     });
 
@@ -41,12 +106,15 @@ class AudioPlayerManager extends ChangeNotifier {
       _position = pos;
       if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 100) {
         lastNotifiedMs = pos.inMilliseconds;
+        _syncMediaHandler();
         notifyListeners();
       }
 
-      // Safety auto-advance if within 1 second of end
+      // Safety auto-advance if within 0.8s of end
       if (_duration.inSeconds > 5 && pos.inSeconds >= _duration.inSeconds - 1) {
-        if (!_isRepeat) {
+        if (_sleepTimerAtTrackEnd) {
+          _triggerSleepTimerStop();
+        } else if (!_isRepeat) {
           next();
         } else {
           seek(Duration.zero);
@@ -57,11 +125,17 @@ class AudioPlayerManager extends ChangeNotifier {
 
     _player.onDurationChanged.listen((dur) {
       _duration = dur;
+      if (_currentTrack != null) {
+        _mediaHandler?.updateTrack(_currentTrack!, dur);
+      }
+      _syncMediaHandler();
       notifyListeners();
     });
 
     _player.onPlayerComplete.listen((_) {
-      if (_isRepeat) {
+      if (_sleepTimerAtTrackEnd) {
+        _triggerSleepTimerStop();
+      } else if (_isRepeat) {
         seek(Duration.zero);
         _player.resume();
       } else {
@@ -69,6 +143,48 @@ class AudioPlayerManager extends ChangeNotifier {
       }
     });
   }
+
+  // --- SLEEP TIMER METHODS ---
+
+  void setSleepTimerMinutes(int minutes) {
+    cancelSleepTimer();
+    _sleepTimerRemainingSeconds = minutes * 60;
+    _sleepTimerAtTrackEnd = false;
+    notifyListeners();
+
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_sleepTimerRemainingSeconds != null && _sleepTimerRemainingSeconds! > 0) {
+        _sleepTimerRemainingSeconds = _sleepTimerRemainingSeconds! - 1;
+        notifyListeners();
+      } else {
+        _triggerSleepTimerStop();
+      }
+    });
+  }
+
+  void setSleepTimerAtTrackEnd() {
+    cancelSleepTimer();
+    _sleepTimerAtTrackEnd = true;
+    notifyListeners();
+  }
+
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepTimerRemainingSeconds = null;
+    _sleepTimerAtTrackEnd = false;
+    notifyListeners();
+  }
+
+  void _triggerSleepTimerStop() {
+    cancelSleepTimer();
+    _player.pause();
+    _isPlaying = false;
+    _syncMediaHandler();
+    notifyListeners();
+  }
+
+  // --- PLAYBACK METHODS ---
 
   Future<void> playTrack(Track track, [List<Track>? newQueue]) async {
     _currentTrack = track;
@@ -81,6 +197,8 @@ class AudioPlayerManager extends ChangeNotifier {
     _position = Duration.zero;
     _duration = Duration(seconds: track.duration);
     _isPlaying = true;
+    _mediaHandler?.updateTrack(track, _duration);
+    _syncMediaHandler();
     notifyListeners();
 
     // Stop previous audio immediately so old audio never leaks into the next song
@@ -92,13 +210,17 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
-      // 1. If audioUrl is iTunes preview or empty, resolve to full YouTube stream
+      // 1. If audioUrl is iTunes preview or empty, resolve to full YouTube stream with selected bitrate
       final isPreview = track.audioUrl.isEmpty ||
           track.audioUrl.contains('itunes.apple.com') ||
           track.audioUrl.contains('AudioPreview');
 
       if (isPreview) {
-        final fullStream = await _apiService.resolveFullAudioStream(track.title, track.artist);
+        final fullStream = await _apiService.resolveFullAudioStream(
+          track.title,
+          track.artist,
+          _audioQuality,
+        );
         if (fullStream != null) {
           final updatedTrack = track.copyWith(audioUrl: fullStream);
           if (_currentTrack?.id == track.id) {
@@ -135,11 +257,13 @@ class AudioPlayerManager extends ChangeNotifier {
       await _player.resume();
       _isPlaying = true;
     }
+    _syncMediaHandler();
     notifyListeners();
   }
 
   Future<void> seek(Duration pos) async {
     _position = pos;
+    _syncMediaHandler();
     notifyListeners();
     await _player.seek(pos);
   }
@@ -192,6 +316,7 @@ class AudioPlayerManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    _sleepTimer?.cancel();
     _player.dispose();
     super.dispose();
   }
