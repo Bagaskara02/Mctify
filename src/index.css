@@ -1,0 +1,133 @@
+@import url('https://fonts.cdnfonts.com/css/circular-std');
+@import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #000000;
+    color: #ffffff;
+    font-family: 'Circular Std', 'CircularSp', 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    letter-spacing: -0.02em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+/* Spotify Authentic Color Tokens with Electric Azure Theme */
+:root {
+  --spotify-bg: #000000;
+  --spotify-surface: #121212;
+  --spotify-card: #181818;
+  --spotify-card-hover: #282828;
+  --spotify-subtext: #b3b3b3;
+  --spotify-text: #ffffff;
+  --spotify-blue: #00a3ff;
+  --spotify-blue-hover: #2eb4ff;
+  --spotify-blue-light: #60c5ff;
+  --spotify-blue-glow: rgba(0, 163, 255, 0.45);
+  --spotify-blue-subtle: rgba(0, 163, 255, 0.15);
+}
+
+/* Custom Scrollbar like Spotify Desktop */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsla(0, 0%, 100%, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsla(0, 0%, 100%, 0.35);
+}
+
+/* Tabular Numerals for Precise Time Readouts without jumping */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Playing Equalizer Animation Bars */
+@keyframes eqBounce1 {
+  0%, 100% { height: 4px; }
+  50% { height: 16px; }
+}
+@keyframes eqBounce2 {
+  0%, 100% { height: 14px; }
+  50% { height: 6px; }
+}
+@keyframes eqBounce3 {
+  0%, 100% { height: 8px; }
+  50% { height: 18px; }
+}
+
+.animate-eq-1 {
+  animation: eqBounce1 0.8s ease-in-out infinite;
+}
+.animate-eq-2 {
+  animation: eqBounce2 0.7s ease-in-out infinite;
+}
+.animate-eq-3 {
+  animation: eqBounce3 0.9s ease-in-out infinite;
+}
+
+/* Spotify Crisp Pop-Up Animation for Context Menus */
+@keyframes spotifyPopup {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-spotify-popup {
+  animation: spotifyPopup 0.12s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top left;
+  will-change: transform, opacity;
+}
+
+/* Ambient animated orbs for Beautiful Lyrics */
+@keyframes drift1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, -40px) scale(1.15); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes drift2 {
+  0% { transform: translate(0, 0) scale(1.1); }
+  50% { transform: translate(-50px, 50px) scale(0.95); }
+  100% { transform: translate(0, 0) scale(1.1); }
+}
+
+@keyframes drift3 {
+  0% { transform: translate(0, 0) scale(0.9); }
+  50% { transform: translate(40px, 60px) scale(1.2); }
+  100% { transform: translate(0, 0) scale(0.9); }
+}
+
+.animate-drift-1 {
+  animation: drift1 18s ease-in-out infinite;
+}
+.animate-drift-2 {
+  animation: drift2 22s ease-in-out infinite;
+}
+.animate-drift-3 {
+  animation: drift3 26s ease-in-out infinite;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
