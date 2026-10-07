@@ -36,11 +36,11 @@ class AudioPlayerManager extends ChangeNotifier {
       notifyListeners();
     });
 
-    int lastNotifiedSec = -1;
+    int lastNotifiedMs = -1;
     _player.onPositionChanged.listen((pos) {
       _position = pos;
-      if (pos.inSeconds != lastNotifiedSec) {
-        lastNotifiedSec = pos.inSeconds;
+      if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 100) {
+        lastNotifiedMs = pos.inMilliseconds;
         notifyListeners();
       }
 
@@ -82,6 +82,11 @@ class AudioPlayerManager extends ChangeNotifier {
     _duration = Duration(seconds: track.duration);
     _isPlaying = true;
     notifyListeners();
+
+    // Stop previous audio immediately so old audio never leaks into the next song
+    try {
+      await _player.stop();
+    } catch (_) {}
 
     // Record play in storage
     _storageService.recordPlay(track);

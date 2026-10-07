@@ -3,23 +3,94 @@ import 'package:http/http.dart' as http;
 import '../models/lyric_line.dart';
 
 class LyricsService {
+  static final Map<String, List<LyricLine>> _cache = {};
+
+  static Map<String, String> cleanTitleAndArtist(String rawTitle, String rawArtist) {
+    var title = rawTitle.trim();
+    var artist = rawArtist.trim();
+
+    // Strip common YouTube tags and suffixes
+    title = title.replaceAll(
+      RegExp(r'\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]', caseSensitive: false),
+      '',
+    );
+    title = title.replaceAll(
+      RegExp(r'\s*(feat\.|ft\.)\s+[^-\(\]]+', caseSensitive: false),
+      '',
+    );
+    title = title.replaceAll(RegExp(r'[◐◑]'), '').trim();
+
+    if (title.contains(' - ')) {
+      final parts = title.split(' - ');
+      if (parts.length == 2) {
+        if (artist.isNotEmpty && parts[0].toLowerCase().contains(artist.toLowerCase())) {
+          title = parts[1].trim();
+        } else if (artist.isNotEmpty && parts[1].toLowerCase().contains(artist.toLowerCase())) {
+          title = parts[0].trim();
+        }
+      }
+    }
+
+    title = title.replaceAll(RegExp(r'[\(\)\[\]]'), '').trim();
+    artist = artist.replaceAll(RegExp(r'[\(\)\[\]]'), '').trim();
+
+    return {'title': title, 'artist': artist};
+  }
+
   Future<List<LyricLine>> fetchLyrics(String artist, String title, int duration) async {
+    final cleaned = cleanTitleAndArtist(title, artist);
+    final cleanTitle = cleaned['title'] ?? title;
+    final cleanArtist = cleaned['artist'] ?? artist;
+    final cacheKey = '${cleanArtist.toLowerCase()}:::${cleanTitle.toLowerCase()}';
+
+    if (_cache.containsKey(cacheKey)) {
+      return _cache[cacheKey]!;
+    }
+
+    // 1. Try exact match without strict duration first (avoids 503 error)
     try {
       final url = Uri.parse(
-        'https://lrclib.net/api/get?artist_name=${Uri.encodeComponent(artist)}&track_name=${Uri.encodeComponent(title)}&duration=$duration',
+        'https://lrclib.net/api/get?artist_name=${Uri.encodeComponent(cleanArtist)}&track_name=${Uri.encodeComponent(cleanTitle)}',
       );
       final res = await http.get(url).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final synced = data['syncedLyrics'] as String?;
         if (synced != null && synced.isNotEmpty) {
-          return parseLrc(synced);
+          final parsed = parseLrc(synced);
+          if (parsed.isNotEmpty) {
+            _cache[cacheKey] = parsed;
+            return parsed;
+          }
         }
       }
     } catch (_) {}
 
-    // Fallback demo lyrics for smooth visual karaoke demo
-    return generateFallbackLyrics(title, artist, duration);
+    // 2. Try search query fallback
+    try {
+      final q = Uri.encodeComponent('$cleanTitle $cleanArtist');
+      final searchUrl = Uri.parse('https://lrclib.net/api/search?q=$q');
+      final res = await http.get(searchUrl).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body);
+        if (list is List && list.isNotEmpty) {
+          final best = list.firstWhere(
+            (item) => item['syncedLyrics'] != null && (item['syncedLyrics'] as String).isNotEmpty,
+            orElse: () => list.first,
+          );
+          final synced = best['syncedLyrics'] as String?;
+          if (synced != null && synced.isNotEmpty) {
+            final parsed = parseLrc(synced);
+            if (parsed.isNotEmpty) {
+              _cache[cacheKey] = parsed;
+              return parsed;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return [];
   }
 
   List<LyricLine> parseLrc(String lrcContent) {
@@ -41,21 +112,7 @@ class LyricsService {
       }
     }
 
+    lines.sort((a, b) => a.time.compareTo(b.time));
     return lines;
-  }
-
-  List<LyricLine> generateFallbackLyrics(String title, String artist, int duration) {
-    return [
-      LyricLine(time: 2.0, text: '♪ Intro Musik ♪'),
-      LyricLine(time: 8.0, text: 'Mendengarkan $title'),
-      LyricLine(time: 15.0, text: 'Karya indah dari $artist'),
-      LyricLine(time: 23.0, text: 'Alunan melodi yang memikat hati'),
-      LyricLine(time: 32.0, text: 'Setiap nada membawa ketenangan'),
-      LyricLine(time: 44.0, text: '♪ Instrumental Melodi ♪'),
-      LyricLine(time: 58.0, text: 'Bernyanyi bersama di McMusic'),
-      LyricLine(time: 75.0, text: 'Harmoni yang tak terlupakan'),
-      LyricLine(time: 90.0, text: '♪ Solo Musik ♪'),
-      LyricLine(time: 110.0, text: 'Menikmati setiap lantunan nada'),
-    ];
   }
 }

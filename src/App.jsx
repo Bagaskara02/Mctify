@@ -56,6 +56,8 @@ export default function App() {
   const [contextMenuData, setContextMenuData] = useState(null); // { type, track, playlist, x, y }
   const [lyricsData, setLyricsData] = useState(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
+  const [isLyricsBarVisible, setIsLyricsBarVisible] = useState(true);
+  const hideLyricsBarTimerRef = useRef(null);
 
   // Dynamic Personalized Feed State
   const [personalizedFeed, setPersonalizedFeed] = useState(null);
@@ -127,6 +129,32 @@ export default function App() {
     };
   }, [currentTrack?.title, currentTrack?.artist]);
 
+  // Auto-hide bottom player bar in lyrics mode when not hovered or touched
+  useEffect(() => {
+    if (!isLyricsOpen) {
+      setIsLyricsBarVisible(true);
+      return;
+    }
+
+    const showBar = () => {
+      setIsLyricsBarVisible(true);
+      if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
+      hideLyricsBarTimerRef.current = setTimeout(() => {
+        setIsLyricsBarVisible(false);
+      }, 2800);
+    };
+
+    window.addEventListener('mousemove', showBar);
+    window.addEventListener('touchstart', showBar);
+    showBar();
+
+    return () => {
+      window.removeEventListener('mousemove', showBar);
+      window.removeEventListener('touchstart', showBar);
+      if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
+    };
+  }, [isLyricsOpen]);
+
   // Handle Play Track with Full-Length YouTube Resolution
   const handlePlayTrack = async (track, newQueue = null) => {
     if (!track) return;
@@ -149,11 +177,13 @@ export default function App() {
       setCurrentTrack(track);
       setDuration(track.duration || 210);
     } else {
-      // Pause native audio preview while resolving full song
+      // Clear native audio preview immediately so it never plays or triggers ended
       if (audioRef.current) {
         audioRef.current.pause();
+        audioRef.current.src = '';
       }
-      setCurrentTrack(track);
+      // Set currentTrack with videoId: null so YouTube player stops old audio immediately
+      setCurrentTrack({ ...track, videoId: null });
 
       try {
         const yt = await musicApi.resolveYouTubeMatch(track.title, track.artist);
@@ -712,8 +742,39 @@ export default function App() {
         />
       </div>
 
-      {/* --- DESKTOP & TABLET PLAYER BAR --- */}
-      <div className="hidden md:block">
+      {/* Hover detection strip at the bottom of the screen to reveal player bar when cursor moves to the bottom in lyrics mode */}
+      {isLyricsOpen && !isLyricsBarVisible && (
+        <div 
+          className="fixed bottom-0 left-0 right-0 h-10 z-[59] hidden md:block cursor-pointer"
+          onMouseEnter={() => {
+            setIsLyricsBarVisible(true);
+            if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
+            hideLyricsBarTimerRef.current = setTimeout(() => setIsLyricsBarVisible(false), 2800);
+          }}
+        />
+      )}
+
+      {/* --- DESKTOP & TABLET PLAYER BAR (DENGAN AUTO-HIDE SAAT DI DALAM PLAYER LIRIK) --- */}
+      <div 
+        className={`hidden md:block transition-all duration-300 ease-out ${
+          isLyricsOpen 
+            ? `fixed bottom-0 left-0 right-0 z-[60] shadow-2xl ${
+                isLyricsBarVisible 
+                  ? 'translate-y-0 opacity-100 pointer-events-auto' 
+                  : 'translate-y-full opacity-0 pointer-events-none'
+              }` 
+            : 'relative z-40'
+        }`}
+        onMouseEnter={() => {
+          setIsLyricsBarVisible(true);
+          if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
+        }}
+        onMouseLeave={() => {
+          if (isLyricsOpen) {
+            hideLyricsBarTimerRef.current = setTimeout(() => setIsLyricsBarVisible(false), 1800);
+          }
+        }}
+      >
         <PlayerBar
           currentTrack={currentTrack}
           isPlaying={isPlaying}

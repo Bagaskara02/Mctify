@@ -89,14 +89,6 @@ export default function YouTubePlayer({
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.ENDED) {
               triggerEnded();
-            } else if (event.data === window.YT.PlayerState.PAUSED) {
-              try {
-                const current = playerRef.current?.getCurrentTime?.() || 0;
-                const dur = playerRef.current?.getDuration?.() || 0;
-                if (dur > 5 && current >= dur - 1.5) {
-                  triggerEnded();
-                }
-              } catch {}
             }
           },
           onError: (err) => {
@@ -113,7 +105,14 @@ export default function YouTubePlayer({
   // Sync videoId
   useEffect(() => {
     endedTriggeredRef.current = false;
-    if (isReady && playerRef.current && videoId) {
+    if (isReady && playerRef.current) {
+      if (!videoId) {
+        // Track has no videoId yet (e.g. resolving). Stop old video immediately to prevent audio leak!
+        try {
+          playerRef.current.pauseVideo();
+        } catch {}
+        return;
+      }
       try {
         const currentUrl = playerRef.current.getVideoUrl?.() || '';
         if (!currentUrl.includes(videoId)) {
@@ -127,7 +126,7 @@ export default function YouTubePlayer({
         console.warn(e);
       }
     }
-  }, [videoId, isReady]);
+  }, [videoId, isReady, isPlaying]);
 
   // Sync isPlaying
   useEffect(() => {
@@ -169,25 +168,25 @@ export default function YouTubePlayer({
     }
   }, [seekTime]);
 
-  // Poll currentTime & duration continuously + auto-advance on track finish
+  // Poll currentTime & duration smoothly (80ms for ultra-responsive 60fps karaoke)
   useEffect(() => {
     if (!isReady) return;
     const interval = setInterval(() => {
       try {
-        if (playerRef.current && isPlaying) {
+        if (playerRef.current && isPlaying && videoId) {
           const current = playerRef.current.getCurrentTime?.() || 0;
           const dur = playerRef.current.getDuration?.() || 0;
           if (Number.isFinite(current) && Number.isFinite(dur) && dur > 0) {
             onTimeUpdate?.(current, dur);
 
-            // Auto advance trigger when current time reaches end of track
-            if (dur > 5 && current >= dur - 0.8) {
+            // True end of track trigger (strictly at the very end)
+            if (dur > 5 && current >= dur - 0.4) {
               triggerEnded();
             }
           }
         }
       } catch {}
-    }, 250);
+    }, 80);
 
     return () => clearInterval(interval);
   }, [isReady, isPlaying, onTimeUpdate, videoId]);
