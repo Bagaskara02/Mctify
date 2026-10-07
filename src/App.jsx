@@ -142,9 +142,17 @@ export default function App() {
     setIsPlaying(true);
 
     if (track.videoId) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
       setCurrentTrack(track);
       setDuration(track.duration || 210);
     } else {
+      // Pause native audio preview while resolving full song
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
       setCurrentTrack(track);
 
       try {
@@ -157,6 +165,8 @@ export default function App() {
           };
           setCurrentTrack(fullTrack);
           setDuration(yt.duration || track.duration);
+          // Also update queue with resolved videoId so next/prev has full song
+          setQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
         } else if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
           audioRef.current.currentTime = 0;
@@ -494,6 +504,10 @@ export default function App() {
           setCurrentTime(current);
           if (dur && Number.isFinite(dur) && dur > 0) {
             setDuration(dur);
+            // Safety auto-advance if playback is within 0.6s of end
+            if (dur > 5 && current >= dur - 0.6 && isPlaying) {
+              handleEnded();
+            }
           }
         }}
         onEnded={handleEnded}
@@ -512,7 +526,13 @@ export default function App() {
         preload="metadata"
         onTimeUpdate={() => {
           if (!currentTrack?.videoId && audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime);
+            const cur = audioRef.current.currentTime;
+            const dur = audioRef.current.duration;
+            setCurrentTime(cur);
+            // Safety auto-advance if preview audio reaches end
+            if (dur && cur >= dur - 0.5 && isPlaying) {
+              handleEnded();
+            }
           }
         }}
         onLoadedMetadata={() => {

@@ -32,3 +32,4 @@ mcmusic_flutter/.pub/
 mcmusic_flutter/build/
 mcmusic_flutter/android/.gradle/
 mcmusic_flutter/android/app/build/
+lyra-direct*.apk

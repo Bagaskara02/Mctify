@@ -2,11 +2,13 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/track.dart';
+import 'music_api_service.dart';
 import 'storage_service.dart';
 
 class AudioPlayerManager extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   final StorageService _storageService = StorageService();
+  final MusicApiService _apiService = MusicApiService();
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -40,6 +42,16 @@ class AudioPlayerManager extends ChangeNotifier {
       if (pos.inSeconds != lastNotifiedSec) {
         lastNotifiedSec = pos.inSeconds;
         notifyListeners();
+      }
+
+      // Safety auto-advance if within 1 second of end
+      if (_duration.inSeconds > 5 && pos.inSeconds >= _duration.inSeconds - 1) {
+        if (!_isRepeat) {
+          next();
+        } else {
+          seek(Duration.zero);
+          _player.resume();
+        }
       }
     });
 
@@ -75,6 +87,25 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
+      // 1. If audioUrl is iTunes preview or empty, resolve to full YouTube stream
+      final isPreview = track.audioUrl.isEmpty ||
+          track.audioUrl.contains('itunes.apple.com') ||
+          track.audioUrl.contains('AudioPreview');
+
+      if (isPreview) {
+        final fullStream = await _apiService.resolveFullAudioStream(track.title, track.artist);
+        if (fullStream != null) {
+          final updatedTrack = track.copyWith(audioUrl: fullStream);
+          if (_currentTrack?.id == track.id) {
+            _currentTrack = updatedTrack;
+            await _player.stop();
+            await _player.play(UrlSource(fullStream));
+            return;
+          }
+        }
+      }
+
+      // 2. Play existing stream
       if (track.audioUrl.isNotEmpty) {
         await _player.stop();
         await _player.play(UrlSource(track.audioUrl));
