@@ -16,6 +16,7 @@ export default function YouTubePlayer({
   onError,
 }) {
   const playerRef = useRef(null);
+  const endedTriggeredRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
 
@@ -51,6 +52,13 @@ export default function YouTubePlayer({
     };
   }, []);
 
+  const triggerEnded = () => {
+    if (endedTriggeredRef.current) return;
+    endedTriggeredRef.current = true;
+    console.log('[YouTubePlayer] Track ended, auto-advancing to next song in queue');
+    onEnded?.();
+  };
+
   const initPlayer = () => {
     if (playerRef.current) return;
     try {
@@ -80,7 +88,15 @@ export default function YouTubePlayer({
           },
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.ENDED) {
-              onEnded?.();
+              triggerEnded();
+            } else if (event.data === window.YT.PlayerState.PAUSED) {
+              try {
+                const current = playerRef.current?.getCurrentTime?.() || 0;
+                const dur = playerRef.current?.getDuration?.() || 0;
+                if (dur > 5 && current >= dur - 1.5) {
+                  triggerEnded();
+                }
+              } catch {}
             }
           },
           onError: (err) => {
@@ -96,6 +112,7 @@ export default function YouTubePlayer({
 
   // Sync videoId
   useEffect(() => {
+    endedTriggeredRef.current = false;
     if (isReady && playerRef.current && videoId) {
       try {
         const currentUrl = playerRef.current.getVideoUrl?.() || '';
@@ -145,13 +162,14 @@ export default function YouTubePlayer({
   useEffect(() => {
     if (!isReady || !playerRef.current || seekTime === null || seekTime === undefined) return;
     try {
+      endedTriggeredRef.current = false;
       playerRef.current.seekTo(seekTime, true);
     } catch (e) {
       console.warn(e);
     }
   }, [seekTime]);
 
-  // Poll currentTime & duration continuously
+  // Poll currentTime & duration continuously + auto-advance on track finish
   useEffect(() => {
     if (!isReady) return;
     const interval = setInterval(() => {
@@ -161,22 +179,27 @@ export default function YouTubePlayer({
           const dur = playerRef.current.getDuration?.() || 0;
           if (Number.isFinite(current) && Number.isFinite(dur) && dur > 0) {
             onTimeUpdate?.(current, dur);
+
+            // Auto advance trigger when current time reaches end of track
+            if (dur > 5 && current >= dur - 0.8) {
+              triggerEnded();
+            }
           }
         }
       } catch {}
     }, 250);
 
     return () => clearInterval(interval);
-  }, [isReady, isPlaying, onTimeUpdate]);
+  }, [isReady, isPlaying, onTimeUpdate, videoId]);
 
   return (
     <>
-      {/* Container for YouTube Iframe - Hidden or floating mini player */}
+      {/* Container for YouTube Iframe */}
       <div 
         className={`fixed z-30 transition-all duration-300 ${
           showVideo 
             ? 'bottom-28 right-6 w-80 h-48 rounded-2xl overflow-hidden shadow-2xl border border-white/20 bg-black' 
-            : 'w-1 h-1 opacity-0 pointer-events-none -left-96 bottom-0'
+            : 'w-1 h-1 opacity-[0.001] pointer-events-none bottom-0 right-0'
         }`}
       >
         <div id="yt-music-engine" className="w-full h-full" />

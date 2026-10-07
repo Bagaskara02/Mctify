@@ -23,6 +23,32 @@ class Track {
     this.isExplicit = false,
   });
 
+  Track copyWith({
+    String? id,
+    String? title,
+    String? artist,
+    String? album,
+    String? artwork,
+    String? audioUrl,
+    int? duration,
+    String? videoId,
+    String? streamCount,
+    bool? isExplicit,
+  }) {
+    return Track(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      artwork: artwork ?? this.artwork,
+      audioUrl: audioUrl ?? this.audioUrl,
+      duration: duration ?? this.duration,
+      videoId: videoId ?? this.videoId,
+      streamCount: streamCount ?? this.streamCount,
+      isExplicit: isExplicit ?? this.isExplicit,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,

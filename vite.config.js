@@ -48,7 +48,7 @@ function musicBackendPlugin() {
             }));
           }
 
-          // Fallback to general YouTube search
+          // Fallback 1 to general YouTube search with official audio
           const general = await yt.search(q + ' official audio');
           const video = general.videos?.[0];
           if (video && video.id) {
@@ -59,6 +59,20 @@ function musicBackendPlugin() {
               artist: video.author?.name || '',
               duration: video.duration?.seconds || 180,
               thumbnail: video.thumbnails?.[0]?.url || '',
+            }));
+          }
+
+          // Fallback 2 to general search with query
+          const generalAny = await yt.search(q);
+          const anyVideo = generalAny.videos?.[0];
+          if (anyVideo && anyVideo.id) {
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({
+              videoId: anyVideo.id,
+              title: anyVideo.title?.text || '',
+              artist: anyVideo.author?.name || '',
+              duration: anyVideo.duration?.seconds || 180,
+              thumbnail: anyVideo.thumbnails?.[0]?.url || '',
             }));
           }
 

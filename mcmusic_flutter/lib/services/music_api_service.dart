@@ -1,10 +1,63 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
 import '../models/artist.dart';
 
 class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
+  static final Map<String, String> _streamCache = {};
+
+  /// Resolves direct, full-length YouTube audio stream (3-5+ minutes)
+  Future<String?> resolveFullAudioStream(String title, String artist) async {
+    final cleanKey = '$title $artist'.toLowerCase().trim();
+    if (_streamCache.containsKey(cleanKey)) {
+      return _streamCache[cleanKey];
+    }
+
+    try {
+      final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
+      final body = jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20240101.01.00',
+            'hl': 'id',
+            'gl': 'ID',
+          }
+        },
+        'query': '$title $artist',
+      });
+
+      final res = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+        body: body,
+      ).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200) {
+        final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
+        final videoId = match?.group(1);
+        if (videoId != null) {
+          final yt = YoutubeExplode();
+          try {
+            final manifest = await yt.videos.streamsClient.getManifest(videoId);
+            final audioStream = manifest.audioOnly.withHighestBitrate();
+            final streamUrl = audioStream.url.toString();
+            _streamCache[cleanKey] = streamUrl;
+            return streamUrl;
+          } finally {
+            yt.close();
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
   // Specific Tenxi Official Tracks matching Spotify screenshot media_1791353080300.png
   static final List<Track> tenxiTracks = [
