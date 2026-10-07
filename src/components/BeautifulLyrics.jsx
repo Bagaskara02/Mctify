@@ -12,7 +12,7 @@ import {
   Plus
 } from 'lucide-react';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
-import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { DEFAULT_ARTWORK, getHighResArtworkUrl } from '../services/musicApi';
 import { lyricsService } from '../services/lyricsService';
 
 /**
@@ -76,7 +76,7 @@ export default function BeautifulLyrics({
   // Extract vibrant colors from album artwork
   useEffect(() => {
     if (track?.artwork) {
-      extractPaletteFromImage(track.artwork).then(pal => {
+      extractPaletteFromImage(getHighResArtworkUrl(track.artwork)).then(pal => {
         setPalette({
           primary: pal.primary || '#00a3ff',
           secondary: pal.secondary || '#2eb4ff',
@@ -176,7 +176,7 @@ export default function BeautifulLyrics({
           {/* Song Info */}
           <div className="flex items-center gap-3 min-w-0">
             <img 
-              src={track?.artwork || DEFAULT_ARTWORK} 
+              src={getHighResArtworkUrl(track?.artwork)} 
               alt={track?.title} 
               onError={(e) => {
                 e.currentTarget.onerror = null;
@@ -292,7 +292,7 @@ export default function BeautifulLyrics({
             <div className="flex flex-col items-center text-center my-auto">
               <div className="relative group">
                 <img
-                  src={track?.artwork || DEFAULT_ARTWORK} 
+                  src={getHighResArtworkUrl(track?.artwork)} 
                   alt={track?.title} 
                   onError={(e) => {
                     e.currentTarget.onerror = null;
