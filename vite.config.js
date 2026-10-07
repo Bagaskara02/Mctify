@@ -8,6 +8,37 @@ function musicBackendPlugin() {
   return {
     name: 'music-backend-plugin',
     configureServer(server) {
+      const toHighResUrl = (url) => {
+        if (!url || typeof url !== 'string') return '';
+        if (url.includes('googleusercontent.com')) {
+          if (/=w\d+-h\d+/i.test(url)) {
+            return url.replace(/=w\d+-h\d+[^?#]*/i, '=w800-h800-l90-rj');
+          }
+          if (/=s\d+/i.test(url)) {
+            return url.replace(/=s\d+[^?#]*/i, '=w800-h800-l90-rj');
+          }
+          if (!url.includes('=')) {
+            return `${url}=w800-h800-l90-rj`;
+          }
+        }
+        if (url.includes('ytimg.com')) {
+          if (/default\.jpg/i.test(url)) {
+            return url.replace(/(default|mqdefault|sddefault)\.jpg/i, 'hq720.jpg').split('?')[0];
+          }
+        }
+        if (url.includes('mzstatic.com')) {
+          return url.replace(/\/\d+x\d+bb\./i, '/1000x1000bb.');
+        }
+        return url;
+      };
+
+      const getBestThumbnail = (item) => {
+        if (!item?.thumbnails || item.thumbnails.length === 0) return '';
+        const sorted = [...item.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
+        const rawUrl = sorted[0]?.url || item.thumbnails[0]?.url || '';
+        return toHighResUrl(rawUrl);
+      };
+
       // 1. YouTube Search & Full-Song Resolver Endpoint
       server.middlewares.use('/api/yt/search', async (req, res) => {
         try {
@@ -24,23 +55,65 @@ function musicBackendPlugin() {
           }
           const yt = await ytPromise;
 
+          // Target duration if provided
+          const targetDuration = parseInt(url.searchParams.get('duration') || '0', 10);
+          const unwantedKeywords = ['brooklyn session', 'session', 'live', 'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan', 'cover'];
+          const activeUnwanted = unwantedKeywords.filter(kw => !q.toLowerCase().includes(kw));
+
+          // Helper to parse duration
+          const getDurationSec = (item) => {
+            if (item.duration?.seconds) return item.duration.seconds;
+            if (item.duration?.text) {
+              const parts = item.duration.text.split(':').map(Number);
+              return parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
+            }
+            return 180;
+          };
+
+          // Helper to rank song candidates
+          const rankCandidates = (items) => {
+            return items.map(item => {
+              const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
+              const normTitle = titleStr.toLowerCase();
+              let score = 100;
+
+              for (const kw of activeUnwanted) {
+                if (normTitle.includes(kw)) {
+                  score -= 90;
+                }
+              }
+
+              if (normTitle.includes('official audio') || normTitle.includes('official') || normTitle.includes('original')) {
+                score += 25;
+              }
+
+              if (targetDuration > 0) {
+                const dur = getDurationSec(item);
+                const diff = Math.abs(dur - targetDuration);
+                if (diff <= 3) score += 60;
+                else if (diff <= 10) score += 30;
+                else if (diff > 35) score -= 50;
+              }
+
+              return { item, score };
+            }).sort((a, b) => b.score - a.score);
+          };
+
           // Search YouTube Music first
           const search = await yt.music.search(q, { type: 'song' });
           const songs = search.songs?.contents || search.results || [];
-          const best = songs[0];
+          
+          let best = null;
+          if (songs.length > 0) {
+            const ranked = rankCandidates(songs);
+            best = ranked[0]?.item;
+          }
 
           if (best && best.id) {
-            let durationSec = 180;
-            if (best.duration?.seconds) {
-              durationSec = best.duration.seconds;
-            } else if (best.duration?.text) {
-              const parts = best.duration.text.split(':').map(Number);
-              durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
-            }
-
+            const durationSec = getDurationSec(best);
             const titleStr = typeof best.title === 'string' ? best.title : (best.title?.text || '');
             const artistStr = best.artists?.[0]?.name || best.author?.name || '';
-            const thumbUrl = best.thumbnails?.[best.thumbnails.length - 1]?.url || best.thumbnails?.[0]?.url || '';
+            const thumbUrl = getBestThumbnail(best);
 
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({
@@ -54,30 +127,38 @@ function musicBackendPlugin() {
 
           // Fallback 1 to general YouTube search with official audio
           const general = await yt.search(q + ' official audio');
-          const video = general.videos?.[0];
-          if (video && video.id) {
-            res.setHeader('Content-Type', 'application/json');
-            return res.end(JSON.stringify({
-              videoId: video.id,
-              title: video.title?.text || '',
-              artist: video.author?.name || '',
-              duration: video.duration?.seconds || 180,
-              thumbnail: video.thumbnails?.[0]?.url || '',
-            }));
+          const videos = general.videos || [];
+          if (videos.length > 0) {
+            const ranked = rankCandidates(videos);
+            const video = ranked[0]?.item;
+            if (video && video.id) {
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({
+                videoId: video.id,
+                title: video.title?.text || '',
+                artist: video.author?.name || '',
+                duration: video.duration?.seconds || 180,
+                thumbnail: toHighResUrl(video.thumbnails?.[video.thumbnails.length - 1]?.url || video.thumbnails?.[0]?.url || ''),
+              }));
+            }
           }
 
           // Fallback 2 to general search with query
           const generalAny = await yt.search(q);
-          const anyVideo = generalAny.videos?.[0];
-          if (anyVideo && anyVideo.id) {
-            res.setHeader('Content-Type', 'application/json');
-            return res.end(JSON.stringify({
-              videoId: anyVideo.id,
-              title: anyVideo.title?.text || '',
-              artist: anyVideo.author?.name || '',
-              duration: anyVideo.duration?.seconds || 180,
-              thumbnail: anyVideo.thumbnails?.[0]?.url || '',
-            }));
+          const anyVideos = generalAny.videos || [];
+          if (anyVideos.length > 0) {
+            const ranked = rankCandidates(anyVideos);
+            const anyVideo = ranked[0]?.item;
+            if (anyVideo && anyVideo.id) {
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({
+                videoId: anyVideo.id,
+                title: anyVideo.title?.text || '',
+                artist: anyVideo.author?.name || '',
+                duration: anyVideo.duration?.seconds || 180,
+                thumbnail: toHighResUrl(anyVideo.thumbnails?.[anyVideo.thumbnails.length - 1]?.url || anyVideo.thumbnails?.[0]?.url || ''),
+              }));
+            }
           }
 
           res.statusCode = 404;
@@ -121,7 +202,7 @@ function musicBackendPlugin() {
               const parts = s.duration.text.split(':').map(Number);
               durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
             }
-            const thumb = s.thumbnails?.[s.thumbnails.length - 1]?.url || s.thumbnails?.[0]?.url || '';
+            const thumb = getBestThumbnail(s);
             const titleStr = typeof s.title === 'string' ? s.title : (s.title?.text || '');
             const artistStr = s.artists?.[0]?.name || s.author?.name || '';
             const albumStr = typeof s.album === 'string' ? s.album : (s.album?.name || 'Single');
@@ -137,7 +218,7 @@ function musicBackendPlugin() {
           });
 
           const artists = rawArtists.map(a => {
-            const thumb = a.thumbnails?.[0]?.url || '';
+            const thumb = toHighResUrl(a.thumbnails?.[a.thumbnails.length - 1]?.url || a.thumbnails?.[0]?.url || '');
             return {
               id: a.id,
               name: a.name,

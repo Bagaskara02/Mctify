@@ -5,16 +5,61 @@
 
 export const DEFAULT_ARTWORK = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
 
+/**
+ * Universal High-Resolution Artwork Transformer
+ * Converts 60x60, 100x100, or low-res thumbnails from Google User Content, YouTube, iTunes, and Spotify into 800x800+ Ultra-HD
+ */
+export function getHighResArtworkUrl(url) {
+  if (!url || typeof url !== 'string') return url || DEFAULT_ARTWORK;
+  let clean = url.trim();
+
+  // 1. Google User Content (YouTube Music album art: yt3.googleusercontent.com, lh3.googleusercontent.com)
+  if (clean.includes('googleusercontent.com')) {
+    if (/=w\d+-h\d+/i.test(clean)) {
+      return clean.replace(/=w\d+-h\d+[^?#]*/i, '=w800-h800-l90-rj');
+    }
+    if (/=s\d+/i.test(clean)) {
+      return clean.replace(/=s\d+[^?#]*/i, '=w800-h800-l90-rj');
+    }
+    if (!clean.includes('=')) {
+      return `${clean}=w800-h800-l90-rj`;
+    }
+  }
+
+  // 2. YouTube Video Thumbnails (i.ytimg.com)
+  if (clean.includes('ytimg.com')) {
+    if (/default\.jpg/i.test(clean)) {
+      return clean.replace(/(default|mqdefault|sddefault)\.jpg/i, 'hq720.jpg').split('?')[0];
+    }
+  }
+
+  // 3. Apple Music / iTunes (mzstatic.com)
+  if (clean.includes('mzstatic.com')) {
+    return clean.replace(/\/\d+x\d+bb\./i, '/1000x1000bb.');
+  }
+
+  // 4. Spotify CDN
+  if (clean.includes('i.scdn.co/image/ab67616d00004851')) {
+    return clean.replace('ab67616d00004851', 'ab67616d0000b273');
+  }
+
+  return clean;
+}
+
 export const musicApi = {
   /**
    * Resolve Full Song YouTube Video ID & Duration
    */
-  async resolveYouTubeMatch(title, artist) {
+  async resolveYouTubeMatch(title, artist, duration) {
     try {
       const q = `${title} ${artist || ''}`.trim();
-      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}`);
+      const durParam = duration ? `&duration=${encodeURIComponent(duration)}` : '';
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}${durParam}`);
       if (res.ok) {
         const data = await res.json();
+        if (data && data.thumbnail) {
+          data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+        }
         return data; // { videoId, title, artist, duration, thumbnail }
       }
     } catch (e) {
@@ -50,7 +95,7 @@ export const musicApi = {
         title: s.title,
         artist: s.artist,
         album: s.album || 'Single',
-        artwork: s.artwork || DEFAULT_ARTWORK,
+        artwork: getHighResArtworkUrl(s.artwork) || DEFAULT_ARTWORK,
         duration: s.duration || 180,
         genre: 'Pop',
         audioUrl: '',
@@ -158,10 +203,7 @@ export const musicApi = {
   formatTrack(item) {
     let artwork = DEFAULT_ARTWORK;
     if (item.artworkUrl100) {
-      artwork = item.artworkUrl100
-        .replace('100x100bb.jpg', '600x600bb.jpg')
-        .replace('100x100bb.png', '600x600bb.png')
-        .replace('100x100bb', '600x600bb');
+      artwork = getHighResArtworkUrl(item.artworkUrl100);
     }
 
     return {

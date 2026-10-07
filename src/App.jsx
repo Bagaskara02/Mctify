@@ -17,7 +17,7 @@ import ContextMenu from './components/ContextMenu';
 import TopNavBar from './components/TopNavBar';
 import ArtistView from './components/ArtistView';
 import { storageService } from './services/storageService';
-import { musicApi } from './services/musicApi';
+import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
 import { Sparkles } from 'lucide-react';
 
@@ -175,7 +175,11 @@ export default function App() {
         audioRef.current.pause();
         audioRef.current.src = '';
       }
-      setCurrentTrack(track);
+      const hdTrack = {
+        ...track,
+        artwork: getHighResArtworkUrl(track.artwork),
+      };
+      setCurrentTrack(hdTrack);
       setDuration(track.duration || 210);
     } else {
       // Clear native audio preview immediately so it never plays or triggers ended
@@ -184,15 +188,16 @@ export default function App() {
         audioRef.current.src = '';
       }
       // Set currentTrack with videoId: null so YouTube player stops old audio immediately
-      setCurrentTrack({ ...track, videoId: null });
+      setCurrentTrack({ ...track, videoId: null, artwork: getHighResArtworkUrl(track.artwork) });
 
       try {
-        const yt = await musicApi.resolveYouTubeMatch(track.title, track.artist);
+        const yt = await musicApi.resolveYouTubeMatch(track.title, track.artist, track.duration);
         if (yt && yt.videoId) {
           const fullTrack = {
             ...track,
             videoId: yt.videoId,
             duration: yt.duration || track.duration,
+            artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : getHighResArtworkUrl(track.artwork),
           };
           setCurrentTrack(fullTrack);
           setDuration(yt.duration || track.duration);

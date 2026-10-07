@@ -15,13 +15,45 @@ class Track {
     required this.title,
     required this.artist,
     this.album = 'Single',
-    required this.artwork,
+    required String artwork,
     this.audioUrl = '',
     this.duration = 180,
     this.videoId,
     this.streamCount = '120.450.000',
     this.isExplicit = false,
-  });
+  }) : artwork = toHighResArtwork(artwork);
+
+  static String toHighResArtwork(String url) {
+    if (url.isEmpty) return url;
+    var clean = url.trim();
+
+    // 1. Google User Content (YouTube Music 60x60 / 120x120 -> 800x800 HD)
+    if (clean.contains('googleusercontent.com')) {
+      if (RegExp(r'=w\d+-h\d+').hasMatch(clean)) {
+        return clean.replaceAll(RegExp(r'=w\d+-h\d+[^?#]*'), '=w800-h800-l90-rj');
+      }
+      if (RegExp(r'=s\d+').hasMatch(clean)) {
+        return clean.replaceAll(RegExp(r'=s\d+[^?#]*'), '=w800-h800-l90-rj');
+      }
+      if (!clean.contains('=')) {
+        return '$clean=w800-h800-l90-rj';
+      }
+    }
+
+    // 2. YouTube Video Thumbnails
+    if (clean.contains('ytimg.com')) {
+      if (clean.contains('default.jpg')) {
+        return clean.replaceAll(RegExp(r'(default|mqdefault|sddefault)\.jpg'), 'hq720.jpg').split('?')[0];
+      }
+    }
+
+    // 3. Apple Music / iTunes
+    if (clean.contains('mzstatic.com')) {
+      return clean.replaceAll(RegExp(r'/\d+x\d+bb\.'), '/1000x1000bb.');
+    }
+
+    return clean;
+  }
 
   Track copyWith({
     String? id,
@@ -40,7 +72,7 @@ class Track {
       title: title ?? this.title,
       artist: artist ?? this.artist,
       album: album ?? this.album,
-      artwork: artwork ?? this.artwork,
+      artwork: artwork != null ? toHighResArtwork(artwork) : this.artwork,
       audioUrl: audioUrl ?? this.audioUrl,
       duration: duration ?? this.duration,
       videoId: videoId ?? this.videoId,
