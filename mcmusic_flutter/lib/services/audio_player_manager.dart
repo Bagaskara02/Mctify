@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import '../models/track.dart';
 import '../models/audio_quality.dart';
+import 'local_audio_proxy.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
@@ -61,6 +60,7 @@ class AudioPlayerManager extends ChangeNotifier {
     _initAudioListeners();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
+    LocalAudioProxy().start();
   }
 
   void _initAudioContext() {
@@ -238,57 +238,50 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
-      String playUrl = track.audioUrl;
+      // 1. Ensure local streaming proxy is up
+      final proxyPort = await LocalAudioProxy().start();
 
-      // If audioUrl is empty, resolve via fast iTunes API
-      if (playUrl.isEmpty) {
-        final resolved = await _apiService.resolveAudioUrl(track.title, track.artist);
-        if (resolved != null && resolved.isNotEmpty) {
-          playUrl = resolved;
-          _currentTrack = track.copyWith(audioUrl: playUrl);
-        }
+      // 2. Resolve YouTube video ID for full song streaming (3 - 5+ minutes)
+      String? videoId;
+      try {
+        videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
+      } catch (e) {
+        debugPrint('resolveVideoId error: $e');
       }
 
-      if (playUrl.isNotEmpty) {
-        // Caching to local .m4a in systemTemp:
-        // Android MediaPlayer often fails on HTTP UrlSource due to Apple's CDN sending 'Content-Type: audio/x-m4p'.
-        // By downloading the AAC audio to a local .m4a file in Directory.systemTemp, Android's MediaExtractor
-        // reads the MP4 atoms directly from disk, completely bypassing HTTP MIME-type and 403 errors!
-        final tempPath = '${Directory.systemTemp.path}/mcmusic_${_sanitizeFilename(track.id)}.m4a';
-        final cachedFile = File(tempPath);
-
-        if (await cachedFile.exists() && (await cachedFile.length()) > 5000) {
-          await _player.play(DeviceFileSource(cachedFile.path));
-        } else {
-          try {
-            final res = await http.get(Uri.parse(playUrl)).timeout(const Duration(seconds: 8));
-            if (res.statusCode == 200 && res.bodyBytes.length > 5000) {
-              await cachedFile.writeAsBytes(res.bodyBytes);
-              await _player.play(DeviceFileSource(cachedFile.path));
-            } else {
-              await _player.play(UrlSource(playUrl));
-            }
-          } catch (netErr) {
-            debugPrint('Local cache download note: $netErr, trying direct UrlSource...');
-            await _player.play(UrlSource(playUrl));
-          }
-        }
+      if (videoId != null && proxyPort > 0) {
+        // Instant full-song streaming via local proxy with zero pre-download delay!
+        final streamProxyUrl = 'http://127.0.0.1:$proxyPort/stream?v=$videoId';
+        await _player.play(UrlSource(streamProxyUrl));
+        _isPlaying = true;
+      } else if (track.audioUrl.isNotEmpty) {
+        await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
       } else {
-        debugPrint('No audio stream found for ${track.title}');
-        _isPlaying = false;
+        final resolved = await _apiService.resolveAudioUrl(track.title, track.artist);
+        if (resolved != null && resolved.isNotEmpty) {
+          await _player.play(UrlSource(resolved));
+          _isPlaying = true;
+        } else {
+          _isPlaying = false;
+        }
       }
     } catch (e) {
       debugPrint('Playback error: $e');
-      _isPlaying = false;
+      if (track.audioUrl.isNotEmpty) {
+        try {
+          await _player.play(UrlSource(track.audioUrl));
+          _isPlaying = true;
+        } catch (_) {
+          _isPlaying = false;
+        }
+      } else {
+        _isPlaying = false;
+      }
     }
 
     _syncMediaHandler();
     notifyListeners();
-  }
-
-  String _sanitizeFilename(String input) {
-    return input.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
   }
 
   Future<void> togglePlayPause() async {

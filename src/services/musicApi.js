@@ -57,14 +57,39 @@ export const musicApi = {
       const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}${durParam}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.thumbnail) {
-          data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+        if (data && data.videoId) {
+          if (data.thumbnail) {
+            data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+          }
+          return data; // { videoId, title, artist, duration, thumbnail }
         }
-        return data; // { videoId, title, artist, duration, thumbnail }
       }
     } catch (e) {
-      console.warn('YouTube resolver lookup failed:', e);
+      console.warn('YouTube backend resolver lookup failed, trying fallback:', e);
     }
+
+    // Public Invidious / Piped API Fallback for guaranteed full song playback on Web
+    try {
+      const q = `${title} ${artist || ''}`.trim();
+      const invidiousRes = await fetch(
+        `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(q)}&type=video`,
+        { signal: AbortSignal.timeout(3500) }
+      );
+      if (invidiousRes.ok) {
+        const items = await invidiousRes.json();
+        if (Array.isArray(items) && items.length > 0) {
+          const item = items[0];
+          return {
+            videoId: item.videoId,
+            title: item.title,
+            artist: item.author,
+            duration: item.lengthSeconds || duration || 210,
+            thumbnail: item.videoThumbnails?.[0]?.url ? getHighResArtworkUrl(item.videoThumbnails[0].url) : undefined,
+          };
+        }
+      }
+    } catch (_) {}
+
     return null;
   },
 
