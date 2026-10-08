@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
@@ -9,77 +10,157 @@ class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
 
-  /// Resolves direct, full-length YouTube audio stream (3-5+ minutes) based on chosen bitrate
+  /// Resolves direct, full-length YouTube audio stream based on chosen bitrate.
+  /// Prioritizes MP4 (AAC) audio streams for native 100% Android MediaPlayer compatibility.
   Future<String?> resolveFullAudioStream(
     String title,
     String artist, [
     AudioQuality quality = AudioQuality.high,
+    int? expectedDurationSeconds,
   ]) async {
     final cleanKey = '$title $artist ${quality.name}'.toLowerCase().trim();
     if (_streamCache.containsKey(cleanKey)) {
       return _streamCache[cleanKey];
     }
 
+    final yt = YoutubeExplode();
     try {
-      final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
-      final body = jsonEncode({
-        'context': {
-          'client': {
-            'clientName': 'WEB_REMIX',
-            'clientVersion': '1.20240101.01.00',
-            'hl': 'id',
-            'gl': 'ID',
-          }
-        },
-        'query': '$title $artist',
-      });
+      String? bestVideoId;
 
-      final res = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        },
-        body: body,
-      ).timeout(const Duration(seconds: 5));
+      // 1. First attempt: Search via YoutubeExplode with candidate ranking
+      try {
+        final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 6));
+        if (searchResults.isNotEmpty) {
+          final scored = searchResults.map((v) {
+            final dur = v.duration?.inSeconds;
+            final score = _scoreCandidate(v.title, title, artist, dur, expectedDurationSeconds);
+            return MapEntry(v.id.value, score);
+          }).toList();
 
-      if (res.statusCode == 200) {
-        final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
-        final videoId = match?.group(1);
-        if (videoId != null) {
-          final yt = YoutubeExplode();
-          try {
-            final manifest = await yt.videos.streamsClient.getManifest(videoId);
-            final streams = manifest.audioOnly.toList();
-            if (streams.isNotEmpty) {
-              AudioStreamInfo chosenStream;
-              switch (quality) {
-                case AudioQuality.dataSaver:
-                  streams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
-                  chosenStream = streams.first;
-                  break;
-                case AudioQuality.standard:
-                  chosenStream = streams.firstWhere(
-                    (s) => s.bitrate.kiloBitsPerSecond <= 160,
-                    orElse: () => manifest.audioOnly.withHighestBitrate(),
-                  );
-                  break;
-                case AudioQuality.high:
-                  chosenStream = manifest.audioOnly.withHighestBitrate();
-                  break;
+          scored.sort((a, b) => b.value.compareTo(a.value));
+          bestVideoId = scored.first.key;
+        }
+      } catch (e) {
+        debugPrint('YoutubeExplode search note: $e');
+      }
+
+      // 2. Second attempt: Fallback to YouTube Music WEB_REMIX API
+      if (bestVideoId == null) {
+        try {
+          final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
+          final body = jsonEncode({
+            'context': {
+              'client': {
+                'clientName': 'WEB_REMIX',
+                'clientVersion': '1.20240101.01.00',
+                'hl': 'id',
+                'gl': 'ID',
               }
-              final streamUrl = chosenStream.url.toString();
-              _streamCache[cleanKey] = streamUrl;
-              return streamUrl;
-            }
-          } finally {
-            yt.close();
+            },
+            'query': '$title $artist',
+          });
+
+          final res = await http.post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
+            body: body,
+          ).timeout(const Duration(seconds: 5));
+
+          if (res.statusCode == 200) {
+            final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
+            bestVideoId = match?.group(1);
           }
+        } catch (_) {}
+      }
+
+      if (bestVideoId != null) {
+        final manifest = await yt.videos.streamsClient.getManifest(bestVideoId);
+        final allStreams = manifest.audioOnly.toList();
+        if (allStreams.isNotEmpty) {
+          // CRITICAL: Prefer MP4 (AAC) streams. Android native MediaPlayer plays MP4/AAC reliably
+          // across all devices, whereas WebM/Opus frequently fails with MEDIA_ERROR_UNKNOWN.
+          final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+          final candidateStreams = mp4Streams.isNotEmpty ? mp4Streams : allStreams;
+
+          candidateStreams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+
+          AudioStreamInfo chosenStream;
+          switch (quality) {
+            case AudioQuality.dataSaver:
+              chosenStream = candidateStreams.first;
+              break;
+            case AudioQuality.standard:
+              chosenStream = candidateStreams.firstWhere(
+                (s) => s.bitrate.kiloBitsPerSecond <= 140,
+                orElse: () => candidateStreams.last,
+              );
+              break;
+            case AudioQuality.high:
+              chosenStream = candidateStreams.last;
+              break;
+          }
+
+          final streamUrl = chosenStream.url.toString();
+          _streamCache[cleanKey] = streamUrl;
+          return streamUrl;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('resolveFullAudioStream error: $e');
+    } finally {
+      yt.close();
+    }
     return null;
+  }
+
+  static int _scoreCandidate(
+    String videoTitle,
+    String title,
+    String artist, [
+    int? videoDurationSeconds,
+    int? expectedDurationSeconds,
+  ]) {
+    final lower = videoTitle.toLowerCase();
+    final cleanTitle = title.toLowerCase();
+    final cleanArtist = artist.toLowerCase();
+    int score = 100;
+
+    if (lower.contains(cleanTitle)) score += 40;
+    if (lower.contains(cleanArtist)) score += 30;
+
+    final unwanted = [
+      'brooklyn session', 'session', 'live', 'acoustic', 'remix',
+      '10 years', 'tribute', 'karaoke', 'terjemahan', 'cover',
+      'reaction', 'slowed', 'reverb', 'instrumental', 'guitar cover'
+    ];
+    for (final term in unwanted) {
+      if (lower.contains(term)) {
+        score -= 90;
+      }
+    }
+
+    if (lower.contains('official audio') || lower.contains('official track') || lower.contains('audio')) {
+      score += 25;
+    }
+    if (lower.contains('official video') || lower.contains('music video')) {
+      score += 15;
+    }
+
+    if (videoDurationSeconds != null && expectedDurationSeconds != null && expectedDurationSeconds > 0) {
+      final diff = (videoDurationSeconds - expectedDurationSeconds).abs();
+      if (diff <= 6) {
+        score += 35;
+      } else if (diff <= 18) {
+        score += 20;
+      } else if (diff > 45) {
+        score -= 40;
+      }
+    }
+    return score;
   }
 
   // Specific Tenxi Official Tracks matching Spotify screenshot media_1791353080300.png

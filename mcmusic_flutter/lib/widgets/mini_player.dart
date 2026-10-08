@@ -8,12 +8,16 @@ class MiniPlayer extends StatelessWidget {
   final AudioPlayerManager player;
   final bool isLiked;
   final VoidCallback onToggleLike;
+  final VoidCallback? onToggleBubble;
+  final bool isBubbleActive;
 
   const MiniPlayer({
     super.key,
     required this.player,
     required this.isLiked,
     required this.onToggleLike,
+    this.onToggleBubble,
+    this.isBubbleActive = false,
   });
 
   @override
@@ -38,23 +42,62 @@ class MiniPlayer extends StatelessWidget {
           ),
         );
       },
+      // Spotify-style Swipe to Skip / Previous
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity < -200) {
+          // Swiped left -> Skip Next
+          player.next();
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.skip_next, color: AppTheme.primaryAzure, size: 20),
+                  SizedBox(width: 8),
+                  Text('Lagu berikutnya'),
+                ],
+              ),
+              duration: Duration(milliseconds: 900),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else if (velocity > 200) {
+          // Swiped right -> Undo / Previous
+          player.previous();
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.skip_previous, color: AppTheme.primaryAzure, size: 20),
+                  SizedBox(width: 8),
+                  Text('Lagu sebelumnya'),
+                ],
+              ),
+              duration: Duration(milliseconds: 900),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        height: 60,
+        height: 62,
         decoration: BoxDecoration(
           color: const Color(0xFF242424),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(120),
-              blurRadius: 10,
+              color: Colors.black.withAlpha(140),
+              blurRadius: 12,
               offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Stack(
           children: [
-            // Bottom hairline progress indicator (isolated in RepaintBoundary to avoid re-rendering entire card on every tick)
+            // Bottom hairline progress indicator
             Positioned(
               left: 0,
               right: 0,
@@ -68,7 +111,7 @@ class MiniPlayer extends StatelessWidget {
                     decoration: const BoxDecoration(
                       color: AppTheme.primaryAzure,
                       borderRadius: BorderRadius.only(
-                        bottomLeft: Radius.circular(8),
+                        bottomLeft: Radius.circular(10),
                       ),
                     ),
                   ),
@@ -78,7 +121,7 @@ class MiniPlayer extends StatelessWidget {
 
             // Main Content Row
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
                   // Artwork
@@ -86,11 +129,11 @@ class MiniPlayer extends StatelessWidget {
                     imageUrl: track.artwork,
                     width: 44,
                     height: 44,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   const SizedBox(width: 12),
 
-                  // Title & Artist
+                  // Title & Artist + TWS Info
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -107,18 +150,38 @@ class MiniPlayer extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 11,
-                          ),
+                        Row(
+                          children: [
+                            const Icon(Icons.headphones, color: AppTheme.primaryAzure, size: 12),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${track.artist} • Geser skip / TWS 2x tap',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
+
+                  // Bubble Play toggle button
+                  if (onToggleBubble != null)
+                    IconButton(
+                      icon: Icon(
+                        isBubbleActive ? Icons.bubble_chart : Icons.bubble_chart_outlined,
+                        color: isBubbleActive ? AppTheme.primaryAzure : AppTheme.textMuted,
+                        size: 22,
+                      ),
+                      tooltip: 'Bubble Play',
+                      onPressed: onToggleBubble,
+                    ),
 
                   // Like button
                   IconButton(
