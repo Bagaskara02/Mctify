@@ -44,13 +44,13 @@ class _SearchViewState extends State<SearchView> {
   ];
 
   final List<Map<String, dynamic>> _genreCategories = [
-    {'name': 'Pop', 'color': Color(0xFF8D67AB)},
-    {'name': 'Hip-Hop', 'color': Color(0xFFBA5D07)},
-    {'name': 'Indie & Folk', 'color': Color(0xFF1E6F5C)},
-    {'name': 'Rock & Metal', 'color': Color(0xFFE91429)},
-    {'name': 'R&B & Soul', 'color': Color(0xFFDC148C)},
-    {'name': 'Akustik & Chill', 'color': Color(0xFF27856A)},
-    {'name': 'K-Pop', 'color': Color(0xFF148A08)},
+    {'name': 'Pop', 'color': Color(0xFF2563EB)},
+    {'name': 'Hip-Hop', 'color': Color(0xFF3B82F6)},
+    {'name': 'Indie & Folk', 'color': Color(0xFF0284C7)},
+    {'name': 'Rock & Metal', 'color': Color(0xFF6366F1)},
+    {'name': 'R&B & Soul', 'color': Color(0xFF4F46E5)},
+    {'name': 'Akustik & Chill', 'color': Color(0xFF0EA5E9)},
+    {'name': 'K-Pop', 'color': Color(0xFF0072CE)},
     {'name': 'Dance & EDM', 'color': Color(0xFF00A3FF)},
   ];
 
