@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/track.dart';
 import '../models/audio_quality.dart';
-import 'local_audio_proxy.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
@@ -60,7 +59,6 @@ class AudioPlayerManager extends ChangeNotifier {
     _initAudioListeners();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
-    LocalAudioProxy().start();
   }
 
   void _initAudioContext() {
@@ -238,28 +236,34 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
-      // 1. Ensure local streaming proxy is up
-      final proxyPort = await LocalAudioProxy().start();
+      String? streamUrl;
 
-      // 2. Resolve YouTube video ID for full song streaming (3 - 5+ minutes)
-      String? videoId = track.videoId;
-      if (videoId == null || videoId.isEmpty) {
-        videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
+      // 1. If track already has videoId, resolve direct MP4 audio stream from it
+      if (track.videoId != null && track.videoId!.isNotEmpty) {
+        streamUrl = await _apiService.resolveStreamUrlFromVideoId(track.videoId!);
       }
 
-      if (videoId != null && proxyPort > 0) {
-        // Pre-resolve stream URL so MediaPlayer socket starts streaming immediately (<0.1s)
-        final streamUrl = await LocalAudioProxy().getOrResolveStreamUrl(videoId);
-        if (streamUrl != null) {
-          final streamProxyUrl = 'http://127.0.0.1:$proxyPort/stream?v=$videoId';
-          await _player.play(UrlSource(streamProxyUrl));
-          _isPlaying = true;
-          _syncMediaHandler();
-          notifyListeners();
-          return;
-        }
+      // 2. Otherwise resolve full audio stream by title & artist
+      if (streamUrl == null || streamUrl.isEmpty) {
+        streamUrl = await _apiService.resolveFullAudioStream(
+          track.title,
+          track.artist,
+          _audioQuality,
+          track.duration > 0 ? track.duration : null,
+        );
       }
 
+      // 3. Play direct HTTPS stream with audio/mp4 container for 100% Android compatibility
+      if (streamUrl != null && streamUrl.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Playing direct YouTube audio stream: $streamUrl');
+        await _player.play(UrlSource(streamUrl, mimeType: 'audio/mp4'));
+        _isPlaying = true;
+        _syncMediaHandler();
+        notifyListeners();
+        return;
+      }
+
+      // 4. Fallback if streamUrl resolution was null
       if (track.audioUrl.isNotEmpty) {
         await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
