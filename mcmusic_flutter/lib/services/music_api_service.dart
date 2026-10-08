@@ -40,6 +40,36 @@ class MusicApiService {
     return null;
   }
 
+  /// Resolves YouTube video ID for full-length song streaming (3 - 5+ minutes)
+  Future<String?> resolveVideoId(String title, String artist, [int? expectedDuration]) async {
+    final cleanKey = 'vid_${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
+    if (_streamCache.containsKey(cleanKey)) {
+      return _streamCache[cleanKey];
+    }
+
+    final yt = YoutubeExplode();
+    try {
+      final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 4));
+      if (searchResults.isNotEmpty) {
+        final scored = searchResults.map((v) {
+          final dur = v.duration?.inSeconds;
+          final score = _scoreCandidate(v.title, title, artist, dur, expectedDuration);
+          return MapEntry(v.id.value, score);
+        }).toList();
+
+        scored.sort((a, b) => b.value.compareTo(a.value));
+        final bestId = scored.first.key;
+        _streamCache[cleanKey] = bestId;
+        return bestId;
+      }
+    } catch (e) {
+      debugPrint('resolveVideoId error: $e');
+    } finally {
+      yt.close();
+    }
+    return null;
+  }
+
   /// Resolves direct, full-length YouTube audio stream based on chosen bitrate.
   /// Prioritizes MP4 (AAC) audio streams for native 100% Android MediaPlayer compatibility.
   Future<String?> resolveFullAudioStream(
