@@ -45,7 +45,7 @@ class _HomeViewState extends State<HomeView> {
     if (topArt != null) {
       artTracks = await _api.searchTracks(topArt);
     } else {
-      artTracks = MusicApiService.tenxiTracks;
+      artTracks = MusicApiService.officialTopTracks;
     }
 
     if (mounted) {
@@ -53,7 +53,7 @@ class _HomeViewState extends State<HomeView> {
         _quickCards = trending.take(6).toList();
         _popularTracks = trending;
         _artistTracks = artTracks;
-        _topArtist = topArt ?? 'Tenxi';
+        _topArtist = topArt ?? 'HONNE';
         _likedIds.addAll(liked.map((t) => t.id));
         _isLoading = false;
       });
@@ -193,7 +193,7 @@ class _HomeViewState extends State<HomeView> {
             ),
           ),
 
-          // Section 1: "Karena kamu sering memutar [Top Artist / Tenxi]"
+          // Section 1: "Karena kamu sering memutar [Top Artist / HONNE]"
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),

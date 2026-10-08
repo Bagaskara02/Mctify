@@ -33,10 +33,10 @@ class _SearchViewState extends State<SearchView> {
   final Set<String> _likedIds = {};
 
   final List<String> _quickChips = [
-    'Tenxi',
-    'mejikuhibiniu',
+    'HONNE',
+    'Justin Bieber',
     'Coldplay',
-    'Naykilla',
+    'Shawn Mendes',
     'Taylor Swift',
     'The Weeknd',
     'Billie Eilish',

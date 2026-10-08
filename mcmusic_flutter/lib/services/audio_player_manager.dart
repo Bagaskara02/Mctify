@@ -242,19 +242,25 @@ class AudioPlayerManager extends ChangeNotifier {
       final proxyPort = await LocalAudioProxy().start();
 
       // 2. Resolve YouTube video ID for full song streaming (3 - 5+ minutes)
-      String? videoId;
-      try {
+      String? videoId = track.videoId;
+      if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
-      } catch (e) {
-        debugPrint('resolveVideoId error: $e');
       }
 
       if (videoId != null && proxyPort > 0) {
-        // Instant full-song streaming via local proxy with zero pre-download delay!
-        final streamProxyUrl = 'http://127.0.0.1:$proxyPort/stream?v=$videoId';
-        await _player.play(UrlSource(streamProxyUrl));
-        _isPlaying = true;
-      } else if (track.audioUrl.isNotEmpty) {
+        // Pre-resolve stream URL so MediaPlayer socket starts streaming immediately (<0.1s)
+        final streamUrl = await LocalAudioProxy().getOrResolveStreamUrl(videoId);
+        if (streamUrl != null) {
+          final streamProxyUrl = 'http://127.0.0.1:$proxyPort/stream?v=$videoId';
+          await _player.play(UrlSource(streamProxyUrl));
+          _isPlaying = true;
+          _syncMediaHandler();
+          notifyListeners();
+          return;
+        }
+      }
+
+      if (track.audioUrl.isNotEmpty) {
         await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
       } else {
