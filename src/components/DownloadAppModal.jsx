@@ -73,15 +73,15 @@ export default function DownloadAppModal({ isOpen, onClose }) {
               className="py-3 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download APK (Android)</span>
+              <span>Download APK Universal</span>
             </a>
             <a
-              href="/downloads/McMusic-Flutter-Project.zip"
-              download="McMusic-Flutter-Project.zip"
-              className="py-3 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/10 active:scale-95 transition-all cursor-pointer no-underline text-center"
+              href="/downloads/McMusic-arm64.apk"
+              download="McMusic-arm64.apk"
+              className="py-3 px-4 rounded-xl bg-[#00a3ff]/20 hover:bg-[#00a3ff]/30 text-[#00a3ff] border border-[#00a3ff]/40 font-black text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
-              <Download className="w-4 h-4" />
-              <span>Download Source (.zip)</span>
+              <Smartphone className="w-4 h-4 stroke-[2.5]" />
+              <span>Download ARM64 (19MB)</span>
             </a>
           </div>
           <button
