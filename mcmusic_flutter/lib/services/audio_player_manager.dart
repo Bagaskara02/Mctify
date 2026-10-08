@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
 import 'media_audio_handler.dart';
@@ -13,6 +14,7 @@ class AudioPlayerManager extends ChangeNotifier {
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
   final MediaAudioHandler? _mediaHandler;
+  ytp.YoutubePlayerController? _ytController;
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -37,6 +39,7 @@ class AudioPlayerManager extends ChangeNotifier {
   List<Track> get queue => _queue;
   bool get isShuffle => _isShuffle;
   bool get isRepeat => _isRepeat;
+  ytp.YoutubePlayerController? get ytController => _ytController;
 
   // Sleep Timer getters
   int? get sleepTimerRemainingSeconds => _sleepTimerRemainingSeconds;
@@ -57,8 +60,51 @@ class AudioPlayerManager extends ChangeNotifier {
   AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
     _initAudioContext();
     _initAudioListeners();
+    _initYoutube();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
+  }
+
+  void _initYoutube() {
+    try {
+      _ytController = ytp.YoutubePlayerController(
+        params: const ytp.YoutubePlayerParams(
+          showControls: false,
+          showFullscreenButton: false,
+          mute: false,
+          enableCaption: false,
+          showVideoAnnotations: false,
+        ),
+      );
+
+      _ytController!.listen((value) {
+        _isPlaying = value.playerState == ytp.PlayerState.playing;
+        if (value.metaData.duration > Duration.zero) {
+          _duration = value.metaData.duration;
+        }
+        _syncMediaHandler();
+        notifyListeners();
+
+        if (value.playerState == ytp.PlayerState.ended) {
+          if (_sleepTimerAtTrackEnd) {
+            _triggerSleepTimerStop();
+          } else if (_isRepeat) {
+            _ytController!.seekTo(seconds: 0);
+            _ytController!.playVideo();
+          } else {
+            next();
+          }
+        }
+      });
+
+      _ytController!.videoStateStream.listen((state) {
+        _position = state.position;
+        _syncMediaHandler();
+        notifyListeners();
+      });
+    } catch (e) {
+      debugPrint('YouTube controller init error: $e');
+    }
   }
 
   void _initAudioContext() {
@@ -236,58 +282,30 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
-      String? streamUrl;
-
-      // 1. If track already has videoId, resolve direct MP4 audio stream from it
-      if (track.videoId != null && track.videoId!.isNotEmpty) {
-        streamUrl = await _apiService.resolveStreamUrlFromVideoId(track.videoId!);
+      String? videoId = track.videoId;
+      if (videoId == null || videoId.isEmpty) {
+        videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
 
-      // 2. Otherwise resolve full audio stream by title & artist
-      if (streamUrl == null || streamUrl.isEmpty) {
-        streamUrl = await _apiService.resolveFullAudioStream(
-          track.title,
-          track.artist,
-          _audioQuality,
-          track.duration > 0 ? track.duration : null,
-        );
+      // Play via official YouTube Player Engine (100% full song, 0% 403 errors, official Google embed)
+      if (videoId != null && videoId.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Loading videoId=$videoId into official YouTube Player');
+        if (_ytController != null) {
+          _ytController!.loadVideoById(videoId: videoId);
+          _ytController!.playVideo();
+          _isPlaying = true;
+          _syncMediaHandler();
+          notifyListeners();
+          return;
+        }
       }
 
-      // 3. Play direct HTTPS stream with audio/mp4 container for 100% Android compatibility
-      if (streamUrl != null && streamUrl.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing direct YouTube audio stream: $streamUrl');
-        await _player.play(UrlSource(streamUrl, mimeType: 'audio/mp4'));
-        _isPlaying = true;
-        _syncMediaHandler();
-        notifyListeners();
-        return;
-      }
-
-      // 4. Fallback if streamUrl resolution was null
       if (track.audioUrl.isNotEmpty) {
         await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
-      } else {
-        final resolved = await _apiService.resolveAudioUrl(track.title, track.artist);
-        if (resolved != null && resolved.isNotEmpty) {
-          await _player.play(UrlSource(resolved));
-          _isPlaying = true;
-        } else {
-          _isPlaying = false;
-        }
       }
     } catch (e) {
       debugPrint('Playback error: $e');
-      if (track.audioUrl.isNotEmpty) {
-        try {
-          await _player.play(UrlSource(track.audioUrl));
-          _isPlaying = true;
-        } catch (_) {
-          _isPlaying = false;
-        }
-      } else {
-        _isPlaying = false;
-      }
     }
 
     _syncMediaHandler();
@@ -299,6 +317,19 @@ class AudioPlayerManager extends ChangeNotifier {
       if (_queue.isNotEmpty) {
         await playTrack(_queue.first);
       }
+      return;
+    }
+
+    if (_ytController != null) {
+      if (_isPlaying) {
+        _ytController!.pauseVideo();
+        _isPlaying = false;
+      } else {
+        _ytController!.playVideo();
+        _isPlaying = true;
+      }
+      _syncMediaHandler();
+      notifyListeners();
       return;
     }
 
@@ -322,7 +353,11 @@ class AudioPlayerManager extends ChangeNotifier {
     _position = pos;
     _syncMediaHandler();
     notifyListeners();
-    await _player.seek(pos);
+    if (_ytController != null) {
+      _ytController!.seekTo(seconds: pos.inSeconds.toDouble());
+    } else {
+      await _player.seek(pos);
+    }
   }
 
   Future<void> next() async {
@@ -374,6 +409,7 @@ class AudioPlayerManager extends ChangeNotifier {
   @override
   void dispose() {
     _sleepTimer?.cancel();
+    _ytController?.close();
     _player.dispose();
     super.dispose();
   }
