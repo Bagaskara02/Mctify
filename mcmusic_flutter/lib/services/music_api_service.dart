@@ -49,7 +49,8 @@ class MusicApiService {
 
     final yt = YoutubeExplode();
     try {
-      final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 4));
+      // 1. Primary: Search via YoutubeExplode
+      final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 8));
       if (searchResults.isNotEmpty) {
         final scored = searchResults.map((v) {
           final dur = v.duration?.inSeconds;
@@ -63,10 +64,48 @@ class MusicApiService {
         return bestId;
       }
     } catch (e) {
-      debugPrint('resolveVideoId error: $e');
+      debugPrint('resolveVideoId primary error: $e');
     } finally {
       yt.close();
     }
+
+    // 2. Fallback: YouTube Music WEB_REMIX API
+    try {
+      final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
+      final body = jsonEncode({
+        'context': {
+          'client': {
+            'clientName': 'WEB_REMIX',
+            'clientVersion': '1.20240101.01.00',
+            'hl': 'id',
+            'gl': 'ID',
+          }
+        },
+        'query': '$title $artist',
+      });
+
+      final res = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+        body: body,
+      ).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
+        final vid = match?.group(1);
+        if (vid != null) {
+          _streamCache[cleanKey] = vid;
+          return vid;
+        }
+      }
+    } catch (e) {
+      debugPrint('resolveVideoId WEB_REMIX fallback error: $e');
+    }
+
     return null;
   }
 
@@ -223,113 +262,157 @@ class MusicApiService {
     return score;
   }
 
-  // Specific Tenxi Official Tracks matching Spotify screenshot media_1791353080300.png
-  static final List<Track> tenxiTracks = [
+  // Official Top Tracks (Real Global & Indonesian Superhits with valid videoIds)
+  static final List<Track> officialTopTracks = [
     Track(
-      id: 'tenxi-garam-madu',
-      title: 'Garam & Madu (Sakit Dadaku)',
-      artist: 'Tenxi',
-      album: 'Garam & Madu (Sakit Dadaku)',
-      artwork: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=600',
-      audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/6b/ab/5c/6bab5c20-fbc1-9c2c-11b8-53f6f994a7bd/mzaf_9285225600682075380.plus.aac.p.m4a',
-      duration: 184,
-      streamCount: '310.756.981',
-      isExplicit: false,
-    ),
-    Track(
-      id: 'tenxi-mejikuhibiniu',
-      title: 'mejikuhibiniu',
-      artist: 'Tenxi',
-      album: 'mejikuhibiniu',
-      artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=600',
-      audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/53/3c/9e/533c9ed8-91e6-5178-d9b6-f4290e0bdb73/mzaf_13510159447515678936.plus.aac.p.m4a',
-      duration: 196,
-      streamCount: '207.620.762',
-      isExplicit: true,
-    ),
-    Track(
-      id: 'tenxi-kasih-aba-aba',
-      title: 'Kasih Aba Aba',
-      artist: 'Naykilla',
-      album: 'Kasih Aba Aba',
-      artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=600',
-      audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/ce/74/f3/ce74f32a-9a2c-fa0a-6f6b-63491cd5a8e3/mzaf_6060131703371369042.plus.aac.p.m4a',
-      duration: 176,
-      streamCount: '226.808.384',
-      isExplicit: false,
-    ),
-    Track(
-      id: 'tenxi-bintang-5',
-      title: 'Bintang 5',
-      artist: 'Tenxi',
-      album: 'Puting Beliung',
+      id: 'honne-location-unknown',
+      videoId: 'SRNw0z7y2pI',
+      title: 'Location Unknown (feat. Georgia)',
+      artist: 'HONNE',
+      album: 'Love Me / Love Me Not',
       artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=600',
-      audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/6b/ab/5c/6bab5c20-fbc1-9c2c-11b8-53f6f994a7bd/mzaf_9285225600682075380.plus.aac.p.m4a',
-      duration: 246,
-      streamCount: '114.835.312',
+      duration: 291,
+      streamCount: '584.210.300',
       isExplicit: false,
     ),
     Track(
-      id: 'tenxi-berubah',
-      title: 'Berubah',
-      artist: 'Tenxi',
-      album: 'Puting Beliung',
+      id: 'jb-beauty-and-a-beat',
+      videoId: 'Ys7-6_t7OEQ',
+      title: 'Beauty and a Beat (feat. Nicki Minaj)',
+      artist: 'Justin Bieber',
+      album: 'Believe (Deluxe Edition)',
+      artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600',
+      duration: 228,
+      streamCount: '1.240.560.800',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'coldplay-yellow',
+      videoId: 'yKNxeF4PqvU',
+      title: 'Yellow',
+      artist: 'Coldplay',
+      album: 'Parachutes',
+      artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=600',
+      duration: 269,
+      streamCount: '2.140.890.120',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'the-weeknd-blinding-lights',
+      videoId: '4NRXx6U8ABQ',
+      title: 'Blinding Lights',
+      artist: 'The Weeknd',
+      album: 'After Hours',
+      artwork: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=600',
+      duration: 200,
+      streamCount: '3.890.100.540',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'taylor-swift-cruel-summer',
+      videoId: 'ic8j13U_FS8',
+      title: 'Cruel Summer',
+      artist: 'Taylor Swift',
+      album: 'Lover',
+      artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=600',
+      duration: 178,
+      streamCount: '1.980.200.410',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'bruno-die-with-a-smile',
+      videoId: 'kPa7bsKwL-c',
+      title: 'Die With A Smile',
+      artist: 'Lady Gaga & Bruno Mars',
+      album: 'Die With A Smile',
       artwork: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?auto=format&fit=crop&q=80&w=600',
-      audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/ce/74/f3/ce74f32a-9a2c-fa0a-6f6b-63491cd5a8e3/mzaf_6060131703371369042.plus.aac.p.m4a',
-      duration: 185,
-      streamCount: '89.412.050',
+      duration: 251,
+      streamCount: '980.450.000',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'mahalini-sial',
+      videoId: 'Wl29W8VfRkY',
+      title: 'Sial',
+      artist: 'Mahalini',
+      album: 'F\u00E1bula',
+      artwork: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=600',
+      duration: 243,
+      streamCount: '412.300.900',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'sal-priadi-gala-bunga-matahari',
+      videoId: '0qJ36kQz_rM',
+      title: 'Gala Bunga Matahari',
+      artist: 'Sal Priadi',
+      album: 'MARKERS AND SUCH PENS FLASHDISKS',
+      artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=600',
+      duration: 227,
+      streamCount: '280.900.100',
+      isExplicit: false,
+    ),
+    Track(
+      id: 'bernadya-satu-bulan',
+      videoId: 'gY4m_UoE_oI',
+      title: 'Satu Bulan',
+      artist: 'Bernadya',
+      album: 'Sialnya, Hidup Harus Tetap Berjalan',
+      artwork: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=600',
+      duration: 205,
+      streamCount: '340.100.200',
       isExplicit: false,
     ),
   ];
 
-  // Specific Artists matching Spotify Screenshot media_1791353069505.png
+  // Popular Artists across Global & Indonesia
   static final List<Artist> catalogArtists = [
     Artist(
-      id: 'art-tenxi',
-      name: 'Tenxi',
+      id: 'art-honne',
+      name: 'HONNE',
       headerBanner: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=1200',
       avatar: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '4,9 jt pendengar bulanan',
+      monthlyListeners: '6,2 jt pendengar bulanan',
       isVerified: true,
     ),
     Artist(
-      id: 'art-naykilla',
-      name: 'Naykilla',
-      headerBanner: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=1200',
-      avatar: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '2,8 jt pendengar bulanan',
+      id: 'art-justin-bieber',
+      name: 'Justin Bieber',
+      headerBanner: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=1200',
+      avatar: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=400',
+      monthlyListeners: '78,4 jt pendengar bulanan',
       isVerified: true,
     ),
     Artist(
-      id: 'art-indahkus',
-      name: 'INDAHKUS',
-      headerBanner: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=1200',
-      avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '1,5 jt pendengar bulanan',
-      isVerified: true,
-    ),
-    Artist(
-      id: 'art-dia',
-      name: 'dia',
+      id: 'art-coldplay',
+      name: 'Coldplay',
       headerBanner: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200',
       avatar: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '1,2 jt pendengar bulanan',
+      monthlyListeners: '89,1 jt pendengar bulanan',
       isVerified: true,
     ),
     Artist(
-      id: 'art-jemsii',
-      name: 'Jemsii',
-      headerBanner: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&q=80&w=1200',
-      avatar: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '980 rb pendengar bulanan',
+      id: 'art-taylor-swift',
+      name: 'Taylor Swift',
+      headerBanner: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=1200',
+      avatar: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=400',
+      monthlyListeners: '102,5 jt pendengar bulanan',
       isVerified: true,
     ),
     Artist(
-      id: 'art-suisei',
-      name: 'Suisei',
-      headerBanner: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?auto=format&fit=crop&q=80&w=1200',
-      avatar: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?auto=format&fit=crop&q=80&w=400',
-      monthlyListeners: '850 rb pendengar bulanan',
+      id: 'art-the-weeknd',
+      name: 'The Weeknd',
+      headerBanner: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=1200',
+      avatar: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=400',
+      monthlyListeners: '115,8 jt pendengar bulanan',
+      isVerified: true,
+    ),
+    Artist(
+      id: 'art-mahalini',
+      name: 'Mahalini',
+      headerBanner: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=1200',
+      avatar: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=400',
+      monthlyListeners: '8,4 jt pendengar bulanan',
       isVerified: true,
     ),
   ];
@@ -341,8 +424,8 @@ class MusicApiService {
 
     final List<Track> results = [];
 
-    // 1. Check local catalog first (Tenxi, mejikuhibiniu, etc.)
-    for (final t in tenxiTracks) {
+    // 1. Check official top tracks first
+    for (final t in officialTopTracks) {
       if (t.title.toLowerCase().contains(cleanQ) || t.artist.toLowerCase().contains(cleanQ)) {
         results.add(t);
       }
@@ -418,12 +501,11 @@ class MusicApiService {
     );
 
     List<Track> topSongs = [];
-    if (clean.contains('tenxi')) {
-      topSongs = tenxiTracks;
-    } else {
-      topSongs = await searchTracks(artistName);
+    topSongs = await searchTracks(artistName);
+    if (topSongs.isEmpty) {
+      topSongs = officialTopTracks.where((t) => t.artist.toLowerCase() == clean).toList();
       if (topSongs.isEmpty) {
-        topSongs = tenxiTracks;
+        topSongs = officialTopTracks;
       }
     }
 
@@ -435,38 +517,6 @@ class MusicApiService {
 
   // Fetch Trending / Starter Tracks
   Future<List<Track>> getTrendingTracks() async {
-    return [
-      ...tenxiTracks,
-      Track(
-        id: 'coldplay-yellow',
-        title: 'Yellow',
-        artist: 'Coldplay',
-        album: 'Parachutes',
-        artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600',
-        audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/6b/ab/5c/6bab5c20-fbc1-9c2c-11b8-53f6f994a7bd/mzaf_9285225600682075380.plus.aac.p.m4a',
-        duration: 269,
-        streamCount: '2.140.890.120',
-      ),
-      Track(
-        id: 'the-weeknd-blinding-lights',
-        title: 'Blinding Lights',
-        artist: 'The Weeknd',
-        album: 'After Hours',
-        artwork: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=600',
-        audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/ce/74/f3/ce74f32a-9a2c-fa0a-6f6b-63491cd5a8e3/mzaf_6060131703371369042.plus.aac.p.m4a',
-        duration: 200,
-        streamCount: '3.890.100.540',
-      ),
-      Track(
-        id: 'taylor-swift-cruel-summer',
-        title: 'Cruel Summer',
-        artist: 'Taylor Swift',
-        album: 'Lover',
-        artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=600',
-        audioUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/53/3c/9e/533c9ed8-91e6-5178-d9b6-f4290e0bdb73/mzaf_13510159447515678936.plus.aac.p.m4a',
-        duration: 178,
-        streamCount: '1.980.200.410',
-      ),
-    ];
+    return officialTopTracks;
   }
 }

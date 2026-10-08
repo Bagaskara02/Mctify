@@ -5,9 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 /// Local embedded streaming audio proxy.
-/// Bridges Android's native MediaPlayer with YouTube's CDN by injecting required
-/// User-Agent and Range headers, bypassing HTTP 403 blocks and enabling instant,
-/// full-length song streaming (3 - 5+ minutes) without pre-download buffering delays.
+/// Pre-resolves YouTube stream URLs and pipes chunks to Android MediaPlayer with required
+/// User-Agent and Range headers, guaranteeing instant full-song playback (3-5+ minutes)
+/// without buffer delays or HTTP 403 errors.
 class LocalAudioProxy {
   static final LocalAudioProxy _instance = LocalAudioProxy._internal();
   factory LocalAudioProxy() => _instance;
@@ -42,6 +42,24 @@ class LocalAudioProxy {
     }
   }
 
+  /// Pre-resolves and caches the direct MP4 audio stream URL from YouTube
+  Future<String?> getOrResolveStreamUrl(String videoId) async {
+    if (_streamUrlCache.containsKey(videoId)) {
+      return _streamUrlCache[videoId];
+    }
+    try {
+      final manifest = await _yt.videos.streamsClient.getManifest(videoId);
+      final mp4Streams = manifest.audioOnly.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+      final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : manifest.audioOnly.withHighestBitrate();
+      final streamUrl = chosen.url.toString();
+      _streamUrlCache[videoId] = streamUrl;
+      return streamUrl;
+    } catch (e) {
+      debugPrint('[LocalAudioProxy] Manifest resolution note for $videoId: $e');
+    }
+    return null;
+  }
+
   Future<void> _handleRequest(HttpRequest req) async {
     final videoId = req.uri.queryParameters['v'];
     if (videoId == null || videoId.isEmpty) {
@@ -52,12 +70,12 @@ class LocalAudioProxy {
 
     try {
       String? streamUrl = _streamUrlCache[videoId];
+      streamUrl ??= await getOrResolveStreamUrl(videoId);
+
       if (streamUrl == null) {
-        final manifest = await _yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 5));
-        final mp4Streams = manifest.audioOnly.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
-        final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : manifest.audioOnly.withHighestBitrate();
-        streamUrl = chosen.url.toString();
-        _streamUrlCache[videoId] = streamUrl;
+        req.response.statusCode = HttpStatus.notFound;
+        await req.response.close();
+        return;
       }
 
       final clientReq = http.Request('GET', Uri.parse(streamUrl));
@@ -87,10 +105,7 @@ class LocalAudioProxy {
       await req.response.addStream(streamedRes.stream);
       await req.response.close();
     } catch (e) {
-      debugPrint('[LocalAudioProxy] Stream pipe error: $e');
-      if (!req.response.headers.contentType.toString().contains('audio')) {
-        req.response.statusCode = HttpStatus.internalServerError;
-      }
+      debugPrint('[LocalAudioProxy] Pipe error: $e');
       try {
         await req.response.close();
       } catch (_) {}

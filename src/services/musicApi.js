@@ -51,6 +51,7 @@ export const musicApi = {
    * Resolve Full Song YouTube Video ID & Duration
    */
   async resolveYouTubeMatch(title, artist, duration) {
+    if (!title) return null;
     try {
       const q = `${title} ${artist || ''}`.trim();
       const durParam = duration ? `&duration=${encodeURIComponent(duration)}` : '';
@@ -65,30 +66,24 @@ export const musicApi = {
         }
       }
     } catch (e) {
-      console.warn('YouTube backend resolver lookup failed, trying fallback:', e);
+      console.warn('YouTube backend resolver lookup failed:', e);
     }
 
-    // Public Invidious / Piped API Fallback for guaranteed full song playback on Web
-    try {
-      const q = `${title} ${artist || ''}`.trim();
-      const invidiousRes = await fetch(
-        `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(q)}&type=video`,
-        { signal: AbortSignal.timeout(3500) }
-      );
-      if (invidiousRes.ok) {
-        const items = await invidiousRes.json();
-        if (Array.isArray(items) && items.length > 0) {
-          const item = items[0];
-          return {
-            videoId: item.videoId,
-            title: item.title,
-            artist: item.author,
-            duration: item.lengthSeconds || duration || 210,
-            thumbnail: item.videoThumbnails?.[0]?.url ? getHighResArtworkUrl(item.videoThumbnails[0].url) : undefined,
-          };
+    // Retry with title only if artist was included and returned 404
+    if (artist) {
+      try {
+        const res = await fetch(`/api/yt/search?q=${encodeURIComponent(title)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.videoId) {
+            if (data.thumbnail) {
+              data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+            }
+            return data;
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
 
     return null;
   },

@@ -46,7 +46,7 @@ export default function DownloadAppModal({ isOpen, onClose }) {
           </div>
           <div className="flex items-center gap-2 text-white">
             <CheckCircle2 className="w-4 h-4 text-[#00a3ff] flex-shrink-0" />
-            <span>Pencarian artis, lagu Tenxi, mejikuhibiniu & seluruh katalog</span>
+            <span>Pencarian artis, lagu global & Indonesia di seluruh katalog</span>
           </div>
           <div className="flex items-center gap-2 text-white">
             <CheckCircle2 className="w-4 h-4 text-[#00a3ff] flex-shrink-0" />

@@ -33,10 +33,10 @@ export default function SearchView({
   const [isLoading, setIsLoading] = useState(false);
 
   const quickPills = [
-    'Tenxi',
-    'mejikuhibiniu',
+    'HONNE',
+    'Shawn Mendes',
     'Coldplay',
-    'Naykilla',
+    'Justin Bieber',
     'Taylor Swift',
     'The Weeknd',
     'Billie Eilish',

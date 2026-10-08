@@ -624,7 +624,7 @@ export default function App() {
         }}
         onLoadedMetadata={() => {
           if (!currentTrack?.videoId && audioRef.current) {
-            setDuration(audioRef.current.duration || 30);
+            setDuration(currentTrack?.duration || audioRef.current.duration || 180);
           }
         }}
         onEnded={handleEnded}
