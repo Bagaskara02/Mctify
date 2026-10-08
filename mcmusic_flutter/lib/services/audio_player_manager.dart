@@ -55,9 +55,37 @@ class AudioPlayerManager extends ChangeNotifier {
   AudioQuality get audioQuality => _audioQuality;
 
   AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
+    _initAudioContext();
     _initAudioListeners();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
+  }
+
+  void _initAudioContext() {
+    try {
+      AudioPlayer.global.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: true,
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.gain,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: const {
+              AVAudioSessionOptions.defaultToSpeaker,
+              AVAudioSessionOptions.mixWithOthers,
+            },
+          ),
+        ),
+      );
+      _player.setPlayerMode(PlayerMode.mediaPlayer);
+      _player.setReleaseMode(ReleaseMode.stop);
+    } catch (e) {
+      debugPrint('AudioContext init note: $e');
+    }
   }
 
   Future<void> _loadStoredAudioQuality() async {
@@ -220,19 +248,24 @@ class AudioPlayerManager extends ChangeNotifier {
           track.title,
           track.artist,
           _audioQuality,
+          track.duration,
         );
         if (fullStream != null) {
           final updatedTrack = track.copyWith(audioUrl: fullStream);
           if (_currentTrack?.id == track.id) {
             _currentTrack = updatedTrack;
-            await _player.stop();
-            await _player.play(UrlSource(fullStream));
-            return;
+            try {
+              await _player.stop();
+              await _player.play(UrlSource(fullStream));
+              return;
+            } catch (playErr) {
+              debugPrint('Playback error with fullStream: $playErr, trying fallback...');
+            }
           }
         }
       }
 
-      // 2. Play existing stream
+      // 2. Play existing stream or fallback preview
       if (track.audioUrl.isNotEmpty) {
         await _player.stop();
         await _player.play(UrlSource(track.audioUrl));

@@ -353,6 +353,57 @@ export default function App() {
     }
   };
 
+  // TWS Bluetooth Earphone (2x Tap Skip, 3x Tap Undo) & System Media Notification
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentTrack) return;
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title || 'McMusic',
+        artist: currentTrack.artist || 'McMusic Artist',
+        album: currentTrack.album || 'McMusic',
+        artwork: [
+          { src: currentTrack.artwork || '/icon-192.png', sizes: '96x96', type: 'image/jpeg' },
+          { src: currentTrack.artwork || '/icon-192.png', sizes: '128x128', type: 'image/jpeg' },
+          { src: currentTrack.artwork || '/icon-192.png', sizes: '256x256', type: 'image/jpeg' },
+          { src: currentTrack.artwork || '/icon-192.png', sizes: '512x512', type: 'image/jpeg' },
+        ],
+      });
+
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+      navigator.mediaSession.setActionHandler('play', () => {
+        setIsPlaying(true);
+        if (!currentTrack.videoId && currentTrack.audioUrl && audioRef.current) {
+          audioRef.current.play().catch(console.warn);
+        }
+      });
+
+      navigator.mediaSession.setActionHandler('pause', () => {
+        setIsPlaying(false);
+        if (audioRef.current) audioRef.current.pause();
+      });
+
+      // TWS 2x Tap (Skip next song)
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        handleNext();
+      });
+
+      // TWS 3x Tap / Undo (Previous song)
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        handlePrev();
+      });
+
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime != null) {
+          handleSeek(details.seekTime);
+        }
+      });
+    } catch (e) {
+      console.warn('MediaSession note:', e);
+    }
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, isPlaying]);
+
   // Like Song
   const handleToggleLike = (track) => {
     const updated = storageService.toggleLikeTrack(track);

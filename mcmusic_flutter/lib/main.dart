@@ -8,6 +8,7 @@ import 'views/home_view.dart';
 import 'views/library_view.dart';
 import 'views/search_view.dart';
 import 'widgets/mini_player.dart';
+import 'widgets/floating_bubble_player.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +63,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   int _currentIndex = 0;
   bool _isLiked = false;
+  bool _isBubbleActive = false;
   String? _lastCheckedTrackId;
 
   @override
@@ -130,7 +132,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   player: _player,
                   isLiked: _isLiked,
                   onToggleLike: _toggleLike,
+                  onToggleBubble: () {
+                    setState(() => _isBubbleActive = !_isBubbleActive);
+                  },
+                  isBubbleActive: _isBubbleActive,
                 ),
+              );
+            },
+          ),
+
+          // Spotify-style Draggable Floating Bubble Player Overlay
+          ListenableBuilder(
+            listenable: _player,
+            builder: (context, _) {
+              if (!_isBubbleActive || _player.currentTrack == null) {
+                return const SizedBox.shrink();
+              }
+
+              return FloatingBubblePlayer(
+                player: _player,
+                isLiked: _isLiked,
+                onToggleLike: _toggleLike,
+                onClose: () => setState(() => _isBubbleActive = false),
               );
             },
           ),

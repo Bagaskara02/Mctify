@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import '../models/track.dart';
 
@@ -7,6 +8,10 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
   Function()? onSkipToNext;
   Function()? onSkipToPrevious;
   Function(Duration)? onSeekTo;
+
+  // TWS & Bluetooth Headset Multi-Tap Detector
+  Timer? _mediaClickTimer;
+  int _mediaClickCount = 0;
 
   MediaAudioHandler() {
     playbackState.add(PlaybackState(
@@ -60,6 +65,50 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
       bufferedPosition: position,
       speed: 1.0,
     ));
+  }
+
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    switch (button) {
+      case MediaButton.next:
+        await skipToNext();
+        break;
+      case MediaButton.previous:
+        await skipToPrevious();
+        break;
+      case MediaButton.media:
+        // TWS Multi-Tap Detection:
+        // 1 tap: Play/Pause (debounced by 350ms)
+        // 2 taps: Skip to next track
+        // 3 taps: Undo / Skip to previous track
+        _mediaClickCount++;
+        _mediaClickTimer?.cancel();
+
+        if (_mediaClickCount == 2) {
+          // Double-tap detected: Skip to next
+          _mediaClickCount = 0;
+          await skipToNext();
+        } else if (_mediaClickCount >= 3) {
+          // Triple-tap detected: Undo / Previous
+          _mediaClickCount = 0;
+          await skipToPrevious();
+        } else {
+          // 1 tap: Wait 350ms to verify if another tap is incoming
+          _mediaClickTimer = Timer(const Duration(milliseconds: 350), () async {
+            final count = _mediaClickCount;
+            _mediaClickCount = 0;
+            if (count == 1) {
+              final isPlaying = playbackState.value.playing;
+              if (isPlaying) {
+                await pause();
+              } else {
+                await play();
+              }
+            }
+          });
+        }
+        break;
+    }
   }
 
   @override
