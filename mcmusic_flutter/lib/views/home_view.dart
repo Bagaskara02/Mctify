@@ -6,6 +6,8 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/track_tile.dart';
+import 'import_playlist_view.dart';
+import 'queue_view.dart';
 
 class HomeView extends StatefulWidget {
   final AudioPlayerManager player;
@@ -97,29 +99,62 @@ class _HomeViewState extends State<HomeView> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    _getGreeting(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getGreeting(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: const [
+                            Icon(Icons.auto_awesome, color: AppTheme.primaryAzure, size: 14),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Dipersonalisasi untuk kamu',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
                   Row(
-                    children: const [
-                      Icon(Icons.auto_awesome, color: AppTheme.primaryAzure, size: 14),
-                      SizedBox(width: 6),
-                      Text(
-                        'Dipersonalisasi berdasarkan lagu yang sering kamu putar',
-                        style: TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 11,
-                        ),
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.cloud_download_outlined, color: AppTheme.primaryAzure, size: 24),
+                        tooltip: 'Import Playlist',
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ImportPlaylistView(player: widget.player),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.queue_music, color: Colors.white70, size: 24),
+                        tooltip: 'Antrean Lagu',
+                        onPressed: () => QueueView.show(context, widget.player),
                       ),
                     ],
                   ),

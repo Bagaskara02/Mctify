@@ -8,6 +8,7 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
 import 'import_playlist_view.dart';
+import 'playlist_detail_view.dart';
 
 class LibraryView extends StatefulWidget {
   final AudioPlayerManager player;
@@ -309,9 +310,21 @@ class _LibraryViewState extends State<LibraryView> {
                 if (_activeFilter != 'Playlist') ...[
                   InkWell(
                     onTap: () {
-                      if (_likedTracks.isNotEmpty) {
-                        widget.player.playTrack(_likedTracks.first, _likedTracks);
-                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PlaylistDetailView(
+                            playlist: Playlist(
+                              id: 'liked',
+                              name: 'Lagu yang Disukai',
+                              cover: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=400',
+                              tracks: _likedTracks,
+                            ),
+                            player: widget.player,
+                            onPlaylistChanged: _loadLibrary,
+                          ),
+                        ),
+                      );
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
@@ -381,9 +394,16 @@ class _LibraryViewState extends State<LibraryView> {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: InkWell(
                         onTap: () {
-                          if (pl.tracks.isNotEmpty) {
-                            widget.player.playTrack(pl.tracks.first, pl.tracks);
-                          }
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PlaylistDetailView(
+                                playlist: pl,
+                                player: widget.player,
+                                onPlaylistChanged: _loadLibrary,
+                              ),
+                            ),
+                          );
                         },
                         borderRadius: BorderRadius.circular(10),
                         child: Container(
