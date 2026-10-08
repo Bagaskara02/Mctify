@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
 import '../theme/app_theme.dart';
 import 'fullscreen_player.dart';
@@ -31,6 +32,7 @@ class MiniPlayer extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
+        HapticFeedback.lightImpact();
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
@@ -47,6 +49,7 @@ class MiniPlayer extends StatelessWidget {
         final velocity = details.primaryVelocity ?? 0;
         if (velocity < -200) {
           // Swiped left -> Skip Next
+          HapticFeedback.lightImpact();
           player.next();
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -64,6 +67,7 @@ class MiniPlayer extends StatelessWidget {
           );
         } else if (velocity > 200) {
           // Swiped right -> Undo / Previous
+          HapticFeedback.lightImpact();
           player.previous();
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -83,15 +87,26 @@ class MiniPlayer extends StatelessWidget {
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        height: 62,
+        height: 64,
         decoration: BoxDecoration(
-          color: const Color(0xFF242424),
-          borderRadius: BorderRadius.circular(10),
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF13223A),
+              Color(0xFF0F1A2D),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.primaryAzure.withAlpha(50)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(140),
+              color: Colors.black.withAlpha(180),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+            BoxShadow(
+              color: AppTheme.primaryAzure.withAlpha(20),
               blurRadius: 12,
-              offset: const Offset(0, 4),
+              offset: const Offset(0, 2),
             ),
           ],
         ),

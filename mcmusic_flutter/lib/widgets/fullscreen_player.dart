@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../views/car_mode_view.dart';
 import '../views/equalizer_view.dart';
 import '../views/lyrics_view.dart';
+import '../views/queue_view.dart';
 import 'audio_quality_modal.dart';
 import 'optimized_image.dart';
 import 'sleep_timer_modal.dart';
@@ -245,9 +246,21 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                       ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.more_vert, size: 22),
-                    onPressed: () => _showMoreOptionsModal(context),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.queue_music, size: 24, color: AppTheme.primaryAzure),
+                        tooltip: 'Antrean Lagu',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          QueueView.show(context, widget.player);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.more_vert, size: 22),
+                        onPressed: () => _showMoreOptionsModal(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -437,6 +450,21 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  // Queue Chip
+                  ActionChip(
+                    avatar: const Icon(Icons.queue_music, size: 15, color: AppTheme.primaryAzure),
+                    label: Text(
+                      'Antrean (${widget.player.queue.length})',
+                      style: const TextStyle(fontSize: 11, color: AppTheme.primaryAzure, fontWeight: FontWeight.bold),
+                    ),
+                    backgroundColor: const Color(0xFF141923),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      QueueView.show(context, widget.player);
+                    },
+                  ),
+                  const SizedBox(width: 8),
+
                   // Sleep Timer Chip
                   ActionChip(
                     avatar: Icon(

@@ -406,6 +406,58 @@ class AudioPlayerManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- QUEUE MANAGEMENT METHODS ---
+
+  void addToNext(Track track) {
+    if (_currentTrack == null) {
+      playTrack(track);
+      return;
+    }
+    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    if (currentIndex != -1) {
+      _queue.insert(currentIndex + 1, track);
+    } else {
+      _queue.insert(0, track);
+    }
+    notifyListeners();
+  }
+
+  void addToQueue(Track track) {
+    if (_currentTrack == null) {
+      playTrack(track);
+      return;
+    }
+    _queue.add(track);
+    notifyListeners();
+  }
+
+  void removeFromQueue(int index) {
+    if (index >= 0 && index < _queue.length) {
+      _queue.removeAt(index);
+      notifyListeners();
+    }
+  }
+
+  void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    if (oldIndex >= 0 && oldIndex < _queue.length && newIndex >= 0 && newIndex < _queue.length) {
+      final item = _queue.removeAt(oldIndex);
+      _queue.insert(newIndex, item);
+      notifyListeners();
+    }
+  }
+
+  void clearQueue() {
+    if (_currentTrack != null) {
+      _queue = [_currentTrack!];
+    } else {
+      _queue.clear();
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _sleepTimer?.cancel();
