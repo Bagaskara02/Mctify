@@ -224,12 +224,10 @@ class AudioPlayerManager extends ChangeNotifier {
 
     _position = Duration.zero;
     _duration = Duration(seconds: track.duration);
-    _isPlaying = true;
     _mediaHandler?.updateTrack(track, _duration);
     _syncMediaHandler();
-    notifyListeners();
 
-    // Stop previous audio immediately so old audio never leaks into the next song
+    // Stop previous audio immediately
     try {
       await _player.stop();
     } catch (_) {}
@@ -238,41 +236,31 @@ class AudioPlayerManager extends ChangeNotifier {
     _storageService.recordPlay(track);
 
     try {
-      // 1. If audioUrl is iTunes preview or empty, resolve to full YouTube stream with selected bitrate
-      final isPreview = track.audioUrl.isEmpty ||
-          track.audioUrl.contains('itunes.apple.com') ||
-          track.audioUrl.contains('AudioPreview');
+      String playUrl = track.audioUrl;
 
-      if (isPreview) {
-        final fullStream = await _apiService.resolveFullAudioStream(
-          track.title,
-          track.artist,
-          _audioQuality,
-          track.duration,
-        );
-        if (fullStream != null) {
-          final updatedTrack = track.copyWith(audioUrl: fullStream);
-          if (_currentTrack?.id == track.id) {
-            _currentTrack = updatedTrack;
-            try {
-              await _player.stop();
-              await _player.play(UrlSource(fullStream));
-              return;
-            } catch (playErr) {
-              debugPrint('Playback error with fullStream: $playErr, trying fallback...');
-            }
-          }
+      // If audioUrl is empty, resolve via fast iTunes API
+      if (playUrl.isEmpty) {
+        final resolved = await _apiService.resolveAudioUrl(track.title, track.artist);
+        if (resolved != null && resolved.isNotEmpty) {
+          playUrl = resolved;
+          _currentTrack = track.copyWith(audioUrl: playUrl);
         }
       }
 
-      // 2. Play existing stream or fallback preview
-      if (track.audioUrl.isNotEmpty) {
-        await _player.stop();
-        await _player.play(UrlSource(track.audioUrl));
+      if (playUrl.isNotEmpty) {
+        await _player.play(UrlSource(playUrl));
+        _isPlaying = true;
+      } else {
+        debugPrint('No audio stream found for ${track.title}');
+        _isPlaying = false;
       }
     } catch (e) {
       debugPrint('Playback error: $e');
+      _isPlaying = false;
     }
+
+    _syncMediaHandler();
+    notifyListeners();
   }
 
   Future<void> togglePlayPause() async {
@@ -287,7 +275,12 @@ class AudioPlayerManager extends ChangeNotifier {
       await _player.pause();
       _isPlaying = false;
     } else {
-      await _player.resume();
+      if (_player.state == PlayerState.paused) {
+        await _player.resume();
+      } else if (_currentTrack != null) {
+        await playTrack(_currentTrack!);
+        return;
+      }
       _isPlaying = true;
     }
     _syncMediaHandler();
