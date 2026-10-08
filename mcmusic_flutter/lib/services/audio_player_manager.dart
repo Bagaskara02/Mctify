@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:audioplayers/audioplayers.dart';
 import '../models/track.dart';
 import '../models/audio_quality.dart';
@@ -248,7 +250,29 @@ class AudioPlayerManager extends ChangeNotifier {
       }
 
       if (playUrl.isNotEmpty) {
-        await _player.play(UrlSource(playUrl));
+        // Caching to local .m4a in systemTemp:
+        // Android MediaPlayer often fails on HTTP UrlSource due to Apple's CDN sending 'Content-Type: audio/x-m4p'.
+        // By downloading the AAC audio to a local .m4a file in Directory.systemTemp, Android's MediaExtractor
+        // reads the MP4 atoms directly from disk, completely bypassing HTTP MIME-type and 403 errors!
+        final tempPath = '${Directory.systemTemp.path}/mcmusic_${_sanitizeFilename(track.id)}.m4a';
+        final cachedFile = File(tempPath);
+
+        if (await cachedFile.exists() && (await cachedFile.length()) > 5000) {
+          await _player.play(DeviceFileSource(cachedFile.path));
+        } else {
+          try {
+            final res = await http.get(Uri.parse(playUrl)).timeout(const Duration(seconds: 8));
+            if (res.statusCode == 200 && res.bodyBytes.length > 5000) {
+              await cachedFile.writeAsBytes(res.bodyBytes);
+              await _player.play(DeviceFileSource(cachedFile.path));
+            } else {
+              await _player.play(UrlSource(playUrl));
+            }
+          } catch (netErr) {
+            debugPrint('Local cache download note: $netErr, trying direct UrlSource...');
+            await _player.play(UrlSource(playUrl));
+          }
+        }
         _isPlaying = true;
       } else {
         debugPrint('No audio stream found for ${track.title}');
@@ -261,6 +285,10 @@ class AudioPlayerManager extends ChangeNotifier {
 
     _syncMediaHandler();
     notifyListeners();
+  }
+
+  String _sanitizeFilename(String input) {
+    return input.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
   }
 
   Future<void> togglePlayPause() async {
