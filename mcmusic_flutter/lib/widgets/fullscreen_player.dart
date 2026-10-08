@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
 import '../services/equalizer_service.dart';
 import '../theme/app_theme.dart';
@@ -190,8 +191,16 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         return Container(
           height: MediaQuery.of(context).size.height * 0.94,
           decoration: const BoxDecoration(
-            color: Color(0xFF141414),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF0D1B30),
+                Color(0xFF091322),
+                Color(0xFF060B14),
+              ],
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Column(
@@ -244,14 +253,35 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
               ),
               const Spacer(flex: 1),
 
-              // Large Artwork (downsampled for low memory devices)
+              // Large Artwork with breathing scale & dynamic glow
               AspectRatio(
                 aspectRatio: 1,
-                child: OptimizedImage(
-                  imageUrl: track.artwork,
-                  borderRadius: BorderRadius.circular(12),
-                  memCacheWidth: 600,
-                  memCacheHeight: 600,
+                child: AnimatedScale(
+                  scale: widget.player.isPlaying ? 1.0 : 0.94,
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeOutBack,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primaryAzure.withAlpha(widget.player.isPlaying ? 90 : 25),
+                          blurRadius: 36,
+                          spreadRadius: 4,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: OptimizedImage(
+                        imageUrl: track.artwork,
+                        borderRadius: BorderRadius.circular(16),
+                        memCacheWidth: 600,
+                        memCacheHeight: 600,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               const Spacer(flex: 1),
@@ -343,31 +373,50 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                       color: widget.player.isShuffle ? AppTheme.primaryAzure : AppTheme.textMuted,
                       size: 24,
                     ),
-                    onPressed: () => widget.player.toggleShuffle(),
+                    onPressed: () {
+                      widget.player.toggleShuffle();
+                      HapticFeedback.selectionClick();
+                    },
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_previous, size: 36, color: Colors.white),
-                    onPressed: () => widget.player.previous(),
+                    onPressed: () {
+                      widget.player.previous();
+                      HapticFeedback.lightImpact();
+                    },
                   ),
                   GestureDetector(
-                    onTap: () => widget.player.togglePlayPause(),
+                    onTap: () {
+                      widget.player.togglePlayPause();
+                      HapticFeedback.mediumImpact();
+                    },
                     child: Container(
-                      width: 64,
-                      height: 64,
-                      decoration: const BoxDecoration(
+                      width: 66,
+                      height: 66,
+                      decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withAlpha(50),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
                       ),
                       child: Icon(
                         widget.player.isPlaying ? Icons.pause : Icons.play_arrow,
                         color: Colors.black,
-                        size: 36,
+                        size: 38,
                       ),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_next, size: 36, color: Colors.white),
-                    onPressed: () => widget.player.next(),
+                    onPressed: () {
+                      widget.player.next();
+                      HapticFeedback.lightImpact();
+                    },
                   ),
                   IconButton(
                     icon: Icon(
@@ -375,7 +424,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                       color: widget.player.isRepeat ? AppTheme.primaryAzure : AppTheme.textMuted,
                       size: 24,
                     ),
-                    onPressed: () => widget.player.toggleRepeat(),
+                    onPressed: () {
+                      widget.player.toggleRepeat();
+                      HapticFeedback.selectionClick();
+                    },
                   ),
                 ],
               ),
@@ -402,7 +454,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    backgroundColor: const Color(0xFF222222),
+                    backgroundColor: const Color(0xFF141923),
                     onPressed: () => SleepTimerModal.show(context, widget.player),
                   ),
                   const SizedBox(width: 8),
@@ -411,7 +463,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                   ActionChip(
                     avatar: const Icon(Icons.directions_car, size: 15, color: Colors.white60),
                     label: const Text('Mobil', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
-                    backgroundColor: const Color(0xFF222222),
+                    backgroundColor: const Color(0xFF141923),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -431,7 +483,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                   ActionChip(
                     avatar: const Icon(Icons.graphic_eq, size: 15, color: Colors.white60),
                     label: const Text('EQ', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
-                    backgroundColor: const Color(0xFF222222),
+                    backgroundColor: const Color(0xFF141923),
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -447,9 +499,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
               ),
               const SizedBox(height: 12),
 
-              // Bottom Karaoke Lyrics Button
-              ElevatedButton.icon(
-                onPressed: () {
+              // Bottom Karaoke Lyrics Button (Lyra / Apple Music style)
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -460,14 +513,37 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                     ),
                   );
                 },
-                icon: const Icon(Icons.mic, color: Colors.black, size: 18),
-                label: const Text('Buka Lirik Karaoke', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryAzure,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0072CE), AppTheme.primaryAzure],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryAzure.withAlpha(60),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.mic, color: Colors.black, size: 19),
+                      SizedBox(width: 8),
+                      Text(
+                        'Buka Lirik Karaoke (Per-Huruf)',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
