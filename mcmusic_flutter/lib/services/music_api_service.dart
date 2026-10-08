@@ -40,6 +40,28 @@ class MusicApiService {
     return null;
   }
 
+  /// Resolves direct, full-length YouTube MP4 audio stream from videoId
+  Future<String?> resolveStreamUrlFromVideoId(String videoId) async {
+    final cleanKey = 'stream_$videoId';
+    if (_streamCache.containsKey(cleanKey)) {
+      return _streamCache[cleanKey];
+    }
+    final yt = YoutubeExplode();
+    try {
+      final manifest = await yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 8));
+      final mp4Streams = manifest.audioOnly.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+      final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : manifest.audioOnly.withHighestBitrate();
+      final streamUrl = chosen.url.toString();
+      _streamCache[cleanKey] = streamUrl;
+      return streamUrl;
+    } catch (e) {
+      debugPrint('resolveStreamUrlFromVideoId error for $videoId: $e');
+    } finally {
+      yt.close();
+    }
+    return null;
+  }
+
   /// Resolves YouTube video ID for full-length song streaming (3 - 5+ minutes)
   Future<String?> resolveVideoId(String title, String artist, [int? expectedDuration]) async {
     final cleanKey = 'vid_${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
