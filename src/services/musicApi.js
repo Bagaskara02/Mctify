@@ -456,39 +456,81 @@ export const musicApi = {
   async fetchPersonalizedHome(tasteProfile) {
     try {
       if (tasteProfile && tasteProfile.hasHistory) {
-        const topArtist = tasteProfile.topArtists?.[0];
-        const secondaryArtist = tasteProfile.topArtists?.[1];
+        const topArtistsList = (tasteProfile.topArtists || []).slice(0, 5);
+        const topArtist = topArtistsList[0];
+        const secondaryArtist = topArtistsList[1];
+        const thirdArtist = topArtistsList[2];
         const lastTrack = tasteProfile.lastPlayedTrack;
 
-        // Fetch tracks for top artist, secondary artist & smart recommendations in parallel
-        const [artistTracks, secondaryArtistTracks, similarTracks, trending] = await Promise.all([
-          topArtist ? this.searchTracks(topArtist, 10) : Promise.resolve([]),
+        // Fetch tracks for top artists, smart recommendations & trending in parallel
+        const [artistTracks, secondaryArtistTracks, thirdArtistTracks, similarTracks, trending] = await Promise.all([
+          topArtist ? this.searchTracks(topArtist, 8) : Promise.resolve([]),
           secondaryArtist ? this.searchTracks(secondaryArtist, 8) : Promise.resolve([]),
+          thirdArtist ? this.searchTracks(thirdArtist, 8) : Promise.resolve([]),
           lastTrack ? this.getSmartRecommendations(lastTrack) : Promise.resolve([]),
           this.fetchTrendingTracks(),
         ]);
 
-        // Construct dynamic quick cards from user's actual most played, recent and liked tracks
-        let rawQuick = [
-          ...(tasteProfile.mostPlayedTracks || []),
-          ...(tasteProfile.recentTracks || []),
+        // Construct dynamic, randomized and artist-diverse quick cards
+        const rawPool = [
           ...(tasteProfile.likedTracks || []),
+          ...(tasteProfile.recentTracks || []),
+          ...(tasteProfile.mostPlayedTracks || []),
+          ...(similarTracks || []),
+          ...(artistTracks || []),
+          ...(secondaryArtistTracks || []),
+          ...(thirdArtistTracks || []),
+          ...(trending || []),
         ];
-        const seen = new Set();
+
+        // Shuffle candidates for fresh, randomized discovery on every refresh
+        const shuffledPool = [...rawPool].sort(() => Math.random() - 0.5);
+
+        const seenIds = new Set();
+        const seenTitles = new Set();
+        const artistCounts = {};
         const quickCards = [];
-        for (const t of rawQuick) {
-          if (!seen.has(t.id)) {
-            seen.add(t.id);
+
+        // Pass 1: Maximum 1 song per artist for diverse Spotify-style cards
+        for (const t of shuffledPool) {
+          if (!t || !t.id || !t.title) continue;
+          const artKey = (t.artist || '').trim().toLowerCase();
+          const titleKey = (t.title || '').trim().toLowerCase();
+          if (seenIds.has(t.id) || seenTitles.has(titleKey)) continue;
+          if (artistCounts[artKey] && artistCounts[artKey] >= 1) continue;
+
+          seenIds.add(t.id);
+          seenTitles.add(titleKey);
+          artistCounts[artKey] = (artistCounts[artKey] || 0) + 1;
+          quickCards.push(t);
+          if (quickCards.length >= 6) break;
+        }
+
+        // Pass 2: If fewer than 6, allow max 2 per artist
+        if (quickCards.length < 6) {
+          for (const t of shuffledPool) {
+            if (!t || !t.id || !t.title) continue;
+            const artKey = (t.artist || '').trim().toLowerCase();
+            const titleKey = (t.title || '').trim().toLowerCase();
+            if (seenIds.has(t.id) || seenTitles.has(titleKey)) continue;
+            if (artistCounts[artKey] && artistCounts[artKey] >= 2) continue;
+
+            seenIds.add(t.id);
+            seenTitles.add(titleKey);
+            artistCounts[artKey] = (artistCounts[artKey] || 0) + 1;
             quickCards.push(t);
             if (quickCards.length >= 6) break;
           }
         }
 
-        // If fewer than 6, fill with artist tracks or trending
+        // Pass 3: Fill remaining with unique trending tracks
         if (quickCards.length < 6) {
-          for (const t of [...artistTracks, ...trending]) {
-            if (!seen.has(t.id)) {
-              seen.add(t.id);
+          for (const t of trending) {
+            if (!t || !t.id || !t.title) continue;
+            const titleKey = (t.title || '').trim().toLowerCase();
+            if (!seenIds.has(t.id) && !seenTitles.has(titleKey)) {
+              seenIds.add(t.id);
+              seenTitles.add(titleKey);
               quickCards.push(t);
               if (quickCards.length >= 6) break;
             }
@@ -516,6 +558,13 @@ export const musicApi = {
             subtitle: `Koleksi musik pilihan dari artis favoritmu yang lain`,
             badge: 'Artis Pilihan',
             tracks: secondaryArtistTracks,
+          }] : []),
+          ...(thirdArtist && thirdArtistTracks.length > 0 ? [{
+            id: 'third-artist',
+            title: `Hits dari ${thirdArtist}`,
+            subtitle: `Pilihan lagu terbaik dari ${thirdArtist}`,
+            badge: 'Artis Favorit',
+            tracks: thirdArtistTracks,
           }] : []),
           {
             id: 'trending-section',

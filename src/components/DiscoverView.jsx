@@ -20,6 +20,7 @@ export default function DiscoverView({
   isPlaying,
   likedTrackIds = new Set(),
   onPlayTrack,
+  onPlayTrackWithRadio,
   onTogglePlayPause,
   onToggleLike,
   onOpenLyrics,
@@ -120,6 +121,8 @@ export default function DiscoverView({
                   onClick={() => {
                     if (isCurrent) {
                       onTogglePlayPause();
+                    } else if (onPlayTrackWithRadio) {
+                      onPlayTrackWithRadio(t);
                     } else {
                       onPlayTrack(t, quickCards);
                     }
@@ -275,6 +278,8 @@ export default function DiscoverView({
                     onClick={() => {
                       if (isCurrent) {
                         onTogglePlayPause();
+                      } else if (onPlayTrackWithRadio) {
+                        onPlayTrackWithRadio(t);
                       } else {
                         onPlayTrack(t, section.tracks);
                       }
