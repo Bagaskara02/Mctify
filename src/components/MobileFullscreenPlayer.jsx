@@ -7,6 +7,7 @@ import {
   SkipForward, 
   Shuffle, 
   Repeat, 
+  Repeat1, 
   Heart, 
   Mic2, 
   ListMusic 
@@ -22,6 +23,7 @@ export default function MobileFullscreenPlayer({
   duration,
   isShuffle,
   isRepeat,
+  repeatMode = 'off',
   isLiked,
   onPlayPause,
   onPrev,
@@ -212,11 +214,25 @@ export default function MobileFullscreenPlayer({
 
         <button
           onClick={onToggleRepeat}
-          className={`p-2 transition-colors ${
-            isRepeat ? 'text-[#00a3ff]' : 'text-[#b3b3b3]'
+          className={`p-2 relative transition-colors ${
+            (repeatMode !== 'off' || isRepeat) ? 'text-[#00a3ff]' : 'text-[#b3b3b3]'
           }`}
+          title={
+            repeatMode === 'one'
+              ? 'Ulangi 1 Lagu'
+              : (repeatMode === 'all' || isRepeat)
+              ? 'Ulangi Semua'
+              : 'Ulangi'
+          }
         >
-          <Repeat className="w-5 h-5" />
+          {repeatMode === 'one' ? (
+            <Repeat1 className="w-5 h-5" />
+          ) : (
+            <Repeat className="w-5 h-5" />
+          )}
+          {(repeatMode !== 'off' || isRepeat) && (
+            <span className="w-1 h-1 bg-[#00a3ff] rounded-full absolute bottom-1 left-1/2 -translate-x-1/2" />
+          )}
         </button>
       </div>
 

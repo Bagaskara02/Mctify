@@ -6,6 +6,7 @@ import {
   SkipForward, 
   Shuffle, 
   Repeat, 
+  Repeat1, 
   Mic2, 
   Volume2, 
   Volume1,
@@ -26,6 +27,7 @@ export default function PlayerBar({
   isMuted,
   isShuffle,
   isRepeat,
+  repeatMode = 'off',
   isLiked,
   isLyricsOpen,
   isQueueOpen,
@@ -47,10 +49,18 @@ export default function PlayerBar({
   const progressBarRef = useRef(null);
   const volumeBarRef = useRef(null);
 
-  // Scrubber drag state
+  // Scrubber drag & hover state
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
   const [isScrubberHovered, setIsScrubberHovered] = useState(false);
+  const [hoverTime, setHoverTime] = useState(null);
+  const [hoverPercent, setHoverPercent] = useState(0);
+
+  // Countdown toggle state (Spotify Desktop spec: click duration to toggle -remaining time)
+  const [isCountdown, setIsCountdown] = useState(false);
+
+  // Effective repeat state ('off' | 'all' | 'one')
+  const currentRepeatMode = repeatMode || (isRepeat ? 'all' : 'off');
 
   // Volume drag state
   const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
@@ -76,10 +86,14 @@ export default function PlayerBar({
   };
 
   const handleScrubberPointerMove = (e) => {
-    if (!isScrubbing || !progressBarRef.current || !duration) return;
+    if (!progressBarRef.current || !duration) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setScrubTime(ratio * duration);
+    setHoverTime(ratio * duration);
+    setHoverPercent(ratio * 100);
+    if (isScrubbing) {
+      setScrubTime(ratio * duration);
+    }
   };
 
   const handleScrubberPointerUp = (e) => {
@@ -240,12 +254,25 @@ export default function PlayerBar({
 
           <button
             onClick={onToggleRepeat}
-            className={`p-1.5 transition-colors ${
-              isRepeat ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
+            className={`p-1.5 relative transition-colors ${
+              currentRepeatMode !== 'off' ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
             }`}
-            title="Ulangi Lagu"
+            title={
+              currentRepeatMode === 'one'
+                ? 'Ulangi 1 Lagu (Aktif)'
+                : currentRepeatMode === 'all'
+                ? 'Ulangi Semua (Aktif)'
+                : 'Ulangi (Mati)'
+            }
           >
-            <Repeat className="w-4 h-4" />
+            {currentRepeatMode === 'one' ? (
+              <Repeat1 className="w-4 h-4" />
+            ) : (
+              <Repeat className="w-4 h-4" />
+            )}
+            {currentRepeatMode !== 'off' && (
+              <span className="w-1 h-1 bg-[#00a3ff] rounded-full absolute bottom-0 left-1/2 -translate-x-1/2" />
+            )}
           </button>
         </div>
 
@@ -262,9 +289,22 @@ export default function PlayerBar({
             onPointerMove={handleScrubberPointerMove}
             onPointerUp={handleScrubberPointerUp}
             onMouseEnter={() => setIsScrubberHovered(true)}
-            onMouseLeave={() => setIsScrubberHovered(false)}
+            onMouseLeave={() => {
+              setIsScrubberHovered(false);
+              setHoverTime(null);
+            }}
             className="relative flex-1 h-4 flex items-center cursor-pointer group select-none touch-none"
           >
+            {/* Spotify Desktop Scrubber Hover Tooltip */}
+            {isScrubberHovered && hoverTime !== null && duration > 0 && (
+              <div 
+                className="absolute -top-7 -translate-x-1/2 bg-[#282828] text-white text-[10px] font-semibold px-2 py-0.5 rounded shadow-lg pointer-events-none z-50 whitespace-nowrap border border-white/10"
+                style={{ left: `${hoverPercent}%` }}
+              >
+                {formatTime(hoverTime)}
+              </div>
+            )}
+
             {/* Background Rail */}
             <div className="w-full h-1 group-hover:h-1.5 bg-[#4d4d4d] rounded-full transition-all duration-150 relative overflow-visible">
               {/* Filled Progress Bar */}
@@ -285,9 +325,15 @@ export default function PlayerBar({
             </div>
           </div>
 
-          <span className="w-10 text-left tabular-nums select-none pointer-events-none">
-            {formatTime(duration)}
-          </span>
+          <button
+            onClick={() => setIsCountdown(!isCountdown)}
+            className="w-10 text-left tabular-nums select-none cursor-pointer hover:text-white transition-colors"
+            title={isCountdown ? 'Tampilkan durasi total' : 'Tampilkan waktu tersisa (hitung mundur)'}
+          >
+            {isCountdown && duration > 0
+              ? `-${formatTime(Math.max(0, duration - activeDisplayTime))}`
+              : formatTime(duration)}
+          </button>
         </div>
       </div>
 

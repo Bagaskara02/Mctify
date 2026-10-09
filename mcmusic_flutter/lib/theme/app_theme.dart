@@ -26,6 +26,7 @@ class AppTheme {
       primaryColor: primaryAzure,
       canvasColor: darkBackground,
       cardColor: darkCard,
+      fontFamily: GoogleFonts.figtree().fontFamily,
       textTheme: spotifyTextTheme,
       colorScheme: const ColorScheme.dark(
         primary: primaryAzure,
