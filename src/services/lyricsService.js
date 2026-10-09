@@ -10,12 +10,12 @@ const STORAGE_KEY_GLOBAL_OFFSET = 'mcmusic_lyrics_global_offset';
 
 export const lyricsService = {
   /**
-   * Get persistent sync calibration offset for a specific track
+   * Get persistent sync calibration offset for a specific track.
+   * Returns null if no manual adjustment was made, indicating Auto-Sync should be active.
    */
   getTrackSyncOffset(trackKey) {
     try {
-      const globalOffset = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_OFFSET) || '0') || 0;
-      if (!trackKey) return globalOffset;
+      if (!trackKey) return null;
       const raw = localStorage.getItem(STORAGE_KEY_SYNC_OFFSETS);
       if (raw) {
         const map = JSON.parse(raw);
@@ -23,9 +23,9 @@ export const lyricsService = {
           return map[trackKey];
         }
       }
-      return globalOffset;
+      return null;
     } catch {
-      return 0;
+      return null;
     }
   },
 
@@ -42,6 +42,46 @@ export const lyricsService = {
     } catch (e) {
       console.warn('Failed to save track sync offset', e);
     }
+  },
+
+  /**
+   * Remove persistent sync calibration offset to return to Auto-Sync
+   */
+  removeTrackSyncOffset(trackKey) {
+    try {
+      if (!trackKey) return;
+      const raw = localStorage.getItem(STORAGE_KEY_SYNC_OFFSETS);
+      if (raw) {
+        const map = JSON.parse(raw);
+        delete map[trackKey];
+        localStorage.setItem(STORAGE_KEY_SYNC_OFFSETS, JSON.stringify(map));
+      }
+    } catch (e) {
+      console.warn('Failed to remove track sync offset', e);
+    }
+  },
+
+  /**
+   * Calculate intelligent auto-sync offset based on LRC [offset: xxx] tags
+   * and YouTube audio stream vs studio metadata duration differential.
+   */
+  calculateAutoSyncOffset(syncedLyrics, targetDuration, trackDuration) {
+    let offset = 0;
+    if (syncedLyrics) {
+      const match = syncedLyrics.match(/\[offset:\s*([+-]?\d+)\]/i);
+      if (match) {
+        offset += parseInt(match[1], 10) / 1000;
+      }
+    }
+    if (targetDuration && trackDuration) {
+      const diff = targetDuration - trackDuration;
+      if (diff >= 0.3 && diff <= 3.5) {
+        offset -= Math.min(0.4, diff * 0.2);
+      } else if (diff <= -0.3 && diff >= -3.5) {
+        offset += Math.min(0.4, Math.abs(diff) * 0.2);
+      }
+    }
+    return Math.round(offset * 10) / 10;
   },
 
   /**
@@ -102,12 +142,14 @@ export const lyricsService = {
         if (res.ok) {
           const data = await res.json();
           if (data && (data.syncedLyrics || data.plainLyrics)) {
+            const autoOffset = this.calculateAutoSyncOffset(data.syncedLyrics, targetDuration, data.duration);
             const result = {
               synced: !!data.syncedLyrics,
               lines: data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics),
               source: 'LRCLIB (Exact Duration Match)',
               instrumental: data.instrumental || false,
               trackDuration: data.duration,
+              autoOffset,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -131,12 +173,14 @@ export const lyricsService = {
         if (data && (data.syncedLyrics || data.plainLyrics)) {
           const isDurationAcceptable = !targetDuration || !data.duration || Math.abs(data.duration - targetDuration) <= 12;
           if (isDurationAcceptable) {
+            const autoOffset = this.calculateAutoSyncOffset(data.syncedLyrics, targetDuration, data.duration);
             const result = {
               synced: !!data.syncedLyrics,
               lines: data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics),
               source: 'LRCLIB (Exact Name Match)',
               instrumental: data.instrumental || false,
               trackDuration: data.duration,
+              autoOffset,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -156,12 +200,14 @@ export const lyricsService = {
         if (Array.isArray(list) && list.length > 0) {
           const best = this.pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
           if (best && (best.syncedLyrics || best.plainLyrics)) {
+            const autoOffset = this.calculateAutoSyncOffset(best.syncedLyrics, targetDuration, best.duration);
             const result = {
               synced: !!best.syncedLyrics,
               lines: best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics),
               source: 'LRCLIB (Ranked Match)',
               instrumental: best.instrumental || false,
               trackDuration: best.duration,
+              autoOffset,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -181,12 +227,14 @@ export const lyricsService = {
         if (Array.isArray(list) && list.length > 0) {
           const best = this.pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
           if (best && (best.syncedLyrics || best.plainLyrics)) {
+            const autoOffset = this.calculateAutoSyncOffset(best.syncedLyrics, targetDuration, best.duration);
             const result = {
               synced: !!best.syncedLyrics,
               lines: best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics),
               source: 'LRCLIB (Title Search)',
               instrumental: best.instrumental || false,
               trackDuration: best.duration,
+              autoOffset,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -393,17 +441,30 @@ export const lyricsService = {
       }
     }
 
-    // 2. Standard LRC: Realistic Syllabic Character Weight Calculation
+    // 2. Standard LRC: Realistic Syllabic & Vowel Weight Calculation (Indonesian & Global cadence)
     const clean = rawText.replace(/<\d{2}:\d{2}(?:\.\d{2,3})?>/g, '').trim();
     const rawWords = clean.split(/\s+/).filter(w => w.length > 0);
     if (rawWords.length === 0) return [];
 
-    const totalChars = rawWords.reduce((sum, w) => sum + Math.max(1, w.length), 0);
+    // Count vowel clusters (singers hold vowels, not consonants)
+    const countSyllables = (word) => {
+      const cleaned = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!cleaned) return 1;
+      const matches = cleaned.match(/[aiueo]+/g);
+      return matches ? Math.max(1, matches.length) : 1;
+    };
+
+    const weights = rawWords.map(w => {
+      const syl = countSyllables(w);
+      return Math.max(1, syl * 1.5 + w.length * 0.4);
+    });
+
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
     const activeSingingDuration = Math.max(0.6, lineDuration * 0.94);
 
     let currentOffset = 0;
     return rawWords.map((word, idx) => {
-      const wordWeight = Math.max(1, word.length) / totalChars;
+      const wordWeight = weights[idx] / totalWeight;
       const wordDuration = Math.max(0.18, activeSingingDuration * wordWeight);
       const startTime = lineStart + currentOffset;
       const endTime = startTime + wordDuration;
