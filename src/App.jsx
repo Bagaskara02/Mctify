@@ -229,6 +229,36 @@ export default function App() {
     }, 1200);
   };
 
+  // Handle Play Track from Search: Builds an Artist & Genre Radio queue (randomized)
+  // preventing next playback from continuing down raw search results
+  const handlePlayTrackFromSearch = async (track) => {
+    if (!track) return;
+
+    // 1. Start playing immediately with zero latency
+    await handlePlayTrack(track, [track]);
+
+    // 2. Display notification
+    setSmartToast(`Radio Artis: Menyiapkan musik acak untuk ${track.artist || track.title}...`);
+
+    // 3. Asynchronously fetch randomized artist & genre tracks
+    try {
+      const radioTracks = await musicApi.getArtistGenreRadio(track);
+      if (radioTracks && radioTracks.length > 0) {
+        setQueue((prevQueue) => {
+          const current = prevQueue.find(t => t.id === track.id) || track;
+          const remaining = radioTracks.filter(
+            t => t.id !== current.id && t.title?.toLowerCase().trim() !== current.title?.toLowerCase().trim()
+          );
+          return [current, ...remaining];
+        });
+        setSmartToast(`Radio Aktif: ${track.artist} & lagu serupa diputar acak`);
+        setTimeout(() => setSmartToast(null), 3500);
+      }
+    } catch (err) {
+      console.warn('Failed to load search radio tracks:', err);
+    }
+  };
+
   // Toggle Play / Pause
   const handlePlayPause = () => {
     if (!currentTrack) {
@@ -681,6 +711,7 @@ export default function App() {
               likedTrackIds={likedTrackIds}
               playlists={playlists}
               onPlayTrack={handlePlayTrack}
+              onPlayTrackFromSearch={handlePlayTrackFromSearch}
               onTogglePlayPause={handlePlayPause}
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}

@@ -304,7 +304,7 @@ export const musicApi = {
       }
 
       if (recommended.length >= 3) {
-        return recommended.slice(0, 8);
+        return [...recommended].sort(() => Math.random() - 0.5).slice(0, 8);
       }
 
       // Step 3: Fallback query if not enough matches
@@ -317,9 +317,82 @@ export const musicApi = {
         }
       }
 
-      return recommended.slice(0, 8);
+      return [...recommended].sort(() => Math.random() - 0.5).slice(0, 8);
     } catch (e) {
       console.warn('Smart recommendation failed:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Search Radio Mode:
+   * Generates a randomized queue of songs matching the clicked track's artist and genre,
+   * completely replacing raw query results.
+   */
+  async getArtistGenreRadio(track, limit = 18) {
+    if (!track) return [];
+    const targetId = track.id;
+    const targetTitle = (track.title || '').toLowerCase().trim();
+    const targetArtist = (track.artist || '').toLowerCase().trim();
+    const targetGenre = track.genre && !['pop', 'music'].includes(track.genre.toLowerCase()) ? track.genre : null;
+
+    try {
+      const queries = [];
+      if (targetArtist) {
+        queries.push(this.searchTracks(targetArtist, 14).catch(() => []));
+      }
+      if (targetGenre) {
+        queries.push(this.searchTracks(`${targetGenre} hits`, 12).catch(() => []));
+      } else if (targetArtist) {
+        queries.push(this.searchTracks(`${targetArtist} radio hits`, 12).catch(() => []));
+      }
+      queries.push(this.fetchTrendingTracks().catch(() => []));
+
+      const results = await Promise.all(queries);
+      const artistTracks = results[0] || [];
+      const genreTracks = results[1] || [];
+      const trendingTracks = results[2] || [];
+
+      const seen = new Set();
+      if (targetId) seen.add(targetId);
+      seen.add(targetTitle);
+
+      const artistPool = [];
+      for (const t of artistTracks) {
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (!seen.has(t.id) && !seen.has(cleanT)) {
+          seen.add(t.id);
+          seen.add(cleanT);
+          artistPool.push(t);
+        }
+      }
+
+      const relatedPool = [];
+      for (const t of [...genreTracks, ...trendingTracks]) {
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (!seen.has(t.id) && !seen.has(cleanT)) {
+          seen.add(t.id);
+          seen.add(cleanT);
+          relatedPool.push(t);
+        }
+      }
+
+      // Shuffle pools for fresh, non-deterministic playback
+      const shuffledArtist = artistPool.sort(() => Math.random() - 0.5);
+      const shuffledRelated = relatedPool.sort(() => Math.random() - 0.5);
+
+      // Interleave artist songs with similar genre songs for ideal radio experience
+      const radioQueue = [];
+      const maxLen = Math.max(shuffledArtist.length, shuffledRelated.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < shuffledArtist.length) radioQueue.push(shuffledArtist[i]);
+        if (i < shuffledRelated.length) radioQueue.push(shuffledRelated[i]);
+      }
+
+      // Shuffle final queue
+      return radioQueue.sort(() => Math.random() - 0.5).slice(0, limit);
+    } catch (e) {
+      console.warn('getArtistGenreRadio error:', e);
       return [];
     }
   },

@@ -20,6 +20,7 @@ export default function SearchView({
   likedTrackIds = new Set(),
   playlists = [],
   onPlayTrack,
+  onPlayTrackFromSearch,
   onTogglePlayPause,
   onToggleLike,
   onOpenLyrics,
@@ -174,8 +175,10 @@ export default function SearchView({
                       onClick={() => {
                         if (currentTrack?.id === topSong.id) {
                           onTogglePlayPause();
+                        } else if (onPlayTrackFromSearch) {
+                          onPlayTrackFromSearch(topSong);
                         } else {
-                          onPlayTrack(topSong, songs);
+                          onPlayTrack(topSong, [topSong]);
                         }
                       }}
                       onContextMenu={(e) => {
@@ -244,8 +247,10 @@ export default function SearchView({
                           onClick={() => {
                             if (isCurrent) {
                               onTogglePlayPause();
+                            } else if (onPlayTrackFromSearch) {
+                              onPlayTrackFromSearch(t);
                             } else {
-                              onPlayTrack(t, songs);
+                              onPlayTrack(t, [t]);
                             }
                           }}
                           onContextMenu={(e) => {
@@ -390,8 +395,10 @@ export default function SearchView({
                       onClick={() => {
                         if (isCurrent) {
                           onTogglePlayPause();
+                        } else if (onPlayTrackFromSearch) {
+                          onPlayTrackFromSearch(t);
                         } else {
-                          onPlayTrack(t, songs);
+                          onPlayTrack(t, [t]);
                         }
                       }}
                       onContextMenu={(e) => {
