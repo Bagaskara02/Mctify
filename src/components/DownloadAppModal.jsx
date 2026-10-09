@@ -66,23 +66,18 @@ export default function DownloadAppModal({ isOpen, onClose }) {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-            <a
-              href="/downloads/McMusic.apk"
-              download="McMusic.apk"
-              className="py-3 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
-            >
-              <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download APK Universal</span>
-            </a>
+          <div className="pt-2">
             <a
               href="/downloads/McMusic-arm64.apk"
-              download="McMusic-arm64.apk"
-              className="py-3 px-4 rounded-xl bg-[#00a3ff]/20 hover:bg-[#00a3ff]/30 text-[#00a3ff] border border-[#00a3ff]/40 font-black text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer no-underline text-center"
+              download="McMusic.apk"
+              className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download ARM64 (19MB)</span>
+              <span>Download McMusic Mobile APK (19.8 MB)</span>
             </a>
+            <p className="text-center text-[11px] text-[#b3b3b3] mt-2">
+              Mendukung semua smartphone Android modern (ARM64) • Ringan & Cepat
+            </p>
           </div>
           <div className="text-center pt-1">
             <a
