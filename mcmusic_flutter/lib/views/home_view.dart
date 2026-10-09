@@ -26,16 +26,24 @@ class _HomeViewState extends State<HomeView> {
   final StorageService _storage = StorageService();
 
   String _selectedFilter = 'All'; // All, Music, Podcasts
+  List<Track> _quickCards = [];
   List<Track> _recentRotation = [];
   List<Track> _startListening = [];
-  String _startListeningTitle = 'Start listening';
-  String _startListeningSubtitle = 'Jump into a session based on your tastes';
+  String _startListeningTitle = 'Rekomendasi Cerdas';
+  String _startListeningSubtitle = 'Berdasarkan selera musikmu';
   List<Track> _likedTracks = [];
   List<Playlist> _playlists = [];
   bool _isLoading = true;
   final Set<String> _likedIds = {};
   List<Map<String, dynamic>> _popularRadios = [];
   String? _lastRecordedTrackId;
+
+  String get _greeting {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Selamat Pagi';
+    if (hour < 18) return 'Selamat Siang';
+    return 'Selamat Malam';
+  }
 
   List<Map<String, dynamic>> _buildDynamicRadios({
     String? topArtist,
@@ -110,10 +118,65 @@ class _HomeViewState extends State<HomeView> {
       final playlists = await _storage.getPlaylists();
       final topArtist = await _storage.getTopArtist();
 
+      // Gather candidate tracks for dynamic 6 Quick Cards matching web
+      final candidateTracks = <Track>[...history, ...liked];
+      for (final pl in playlists) {
+        candidateTracks.addAll(pl.tracks);
+      }
+      candidateTracks.shuffle();
+
+      final seenKeys = <String>{};
+      final artistCount = <String, int>{};
+      final List<Track> quickCards = [];
+
+      // Pass 1: max 1 track per artist
+      for (final t in candidateTracks) {
+        final artKey = t.artist.trim().toLowerCase();
+        final titleKey = t.title.trim().toLowerCase();
+        final fullKey = '${titleKey}_$artKey';
+        if (!seenKeys.contains(fullKey) && (artistCount[artKey] ?? 0) < 1) {
+          seenKeys.add(fullKey);
+          artistCount[artKey] = (artistCount[artKey] ?? 0) + 1;
+          quickCards.add(t);
+          if (quickCards.length >= 6) break;
+        }
+      }
+
+      // Pass 2: max 2 tracks per artist
+      if (quickCards.length < 6) {
+        for (final t in candidateTracks) {
+          final artKey = t.artist.trim().toLowerCase();
+          final titleKey = t.title.trim().toLowerCase();
+          final fullKey = '${titleKey}_$artKey';
+          if (!seenKeys.contains(fullKey) && (artistCount[artKey] ?? 0) < 2) {
+            seenKeys.add(fullKey);
+            artistCount[artKey] = (artistCount[artKey] ?? 0) + 1;
+            quickCards.add(t);
+            if (quickCards.length >= 6) break;
+          }
+        }
+      }
+
+      // Pass 3: supplement from live trending hits if fewer than 6
+      if (quickCards.length < 6) {
+        final trending = await _api.getTrendingTracks();
+        final shuffledTrending = List<Track>.from(trending)..shuffle();
+        for (final t in shuffledTrending) {
+          final artKey = t.artist.trim().toLowerCase();
+          final titleKey = t.title.trim().toLowerCase();
+          final fullKey = '${titleKey}_$artKey';
+          if (!seenKeys.contains(fullKey)) {
+            seenKeys.add(fullKey);
+            quickCards.add(t);
+            if (quickCards.length >= 6) break;
+          }
+        }
+      }
+
       List<Track> recentRotation = [];
       List<Track> startListening = [];
-      String startListeningSubtitle = 'Jump into a session based on your tastes';
-      String startListeningTitle = 'Start listening';
+      String startListeningSubtitle = 'Berdasarkan selera musikmu';
+      String startListeningTitle = 'Rekomendasi Cerdas';
 
       if (history.isNotEmpty) {
         // Collect diverse recent rotation with maximum 1 track per artist
@@ -174,6 +237,7 @@ class _HomeViewState extends State<HomeView> {
 
       if (mounted) {
         setState(() {
+          _quickCards = quickCards;
           _recentRotation = recentRotation;
           _startListening = startListening;
           _startListeningTitle = startListeningTitle;
@@ -306,24 +370,77 @@ class _HomeViewState extends State<HomeView> {
               ),
             ),
 
-            // Section 1: "Your recent rotation" (Exact Spotify match from screenshot)
+            // Section 1: Dynamic Greeting + 6 Quick Cards Grid (Matching web screenshot)
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Your recent rotation',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _greeting,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: const [
+                                  Icon(Icons.auto_awesome, color: AppTheme.primaryAzure, size: 12),
+                                  SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Dipersonalisasi berdasarkan lagu & artis yang sering kamu putar',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: AppTheme.textMuted,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: AppTheme.primaryAzure, size: 22),
+                          tooltip: 'Segarkan Rekomendasi',
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            _loadHomeData();
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    ..._recentRotation.map((t) => _buildRecentTrackTile(t)),
+                    const SizedBox(height: 14),
+                    if (_quickCards.isNotEmpty)
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 2.7,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: _quickCards.length,
+                        itemBuilder: (context, idx) {
+                          return _buildQuickCard(_quickCards[idx]);
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -331,7 +448,7 @@ class _HomeViewState extends State<HomeView> {
 
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
-            // Section 2: "Popular radio" (Exact Spotify radio cards from screenshot)
+            // Section 2: "Radio Campuran Artis" (Exact Spotify radio cards)
             SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,7 +456,7 @@ class _HomeViewState extends State<HomeView> {
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
-                      'Popular radio',
+                      'Radio Campuran Artis',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -367,7 +484,7 @@ class _HomeViewState extends State<HomeView> {
 
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
-            // Section 3: "Recents" (2-column square cards from screenshot 2)
+            // Section 3: "Koleksi & Playlist Kamu"
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -378,7 +495,7 @@ class _HomeViewState extends State<HomeView> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: const [
                         Text(
-                          'Recents',
+                          'Koleksi & Playlist Kamu',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -387,7 +504,7 @@ class _HomeViewState extends State<HomeView> {
                           ),
                         ),
                         Text(
-                          'Show all',
+                          'Lihat semua',
                           style: TextStyle(
                             color: AppTheme.textMuted,
                             fontSize: 12,
@@ -516,6 +633,83 @@ class _HomeViewState extends State<HomeView> {
 
             // Extra clearance for MiniPlayer and BottomNavigationBar
             const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 6 Quick Cards matching web screenshot
+  Widget _buildQuickCard(Track t) {
+    final isCurrent = widget.player.currentTrack?.id == t.id;
+    final isPlaying = isCurrent && widget.player.isPlaying;
+
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        if (isCurrent) {
+          widget.player.togglePlayPause();
+        } else {
+          widget.player.playTrack(t, _quickCards);
+        }
+      },
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        height: 56,
+        decoration: BoxDecoration(
+          color: isCurrent ? AppTheme.primaryAzure.withValues(alpha: 0.18) : const Color(0xFF1E232E),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isCurrent ? AppTheme.primaryAzure.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Row(
+          children: [
+            OptimizedImage(
+              imageUrl: t.artwork,
+              width: 56,
+              height: 56,
+              borderRadius: BorderRadius.zero,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isCurrent ? AppTheme.primaryAzure : Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    t.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.textMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isCurrent)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  isPlaying ? Icons.equalizer : Icons.play_arrow,
+                  color: AppTheme.primaryAzure,
+                  size: 18,
+                ),
+              ),
           ],
         ),
       ),

@@ -45,6 +45,8 @@ class McMusicApp extends StatelessWidget {
       title: 'McMusic',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
       home: MainNavigationScreen(mediaHandler: mediaHandler),
     );
   }
