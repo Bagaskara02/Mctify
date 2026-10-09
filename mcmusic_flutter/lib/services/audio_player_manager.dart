@@ -313,7 +313,12 @@ class AudioPlayerManager extends ChangeNotifier {
     }
   }
 
+  // TWS & Remote Previous Click Tracker (3x Tap detection)
+  DateTime? _lastPreviousActionTime;
+
   Future<void> playTrack(Track track, [List<Track>? newQueue]) async {
+    // 1. INSTANT UI UPDATE (0ms Perceived Latency):
+    // Instantly reflect track title, album, cover, and playing state on UI & Lockscreen
     _currentTrack = track;
     if (newQueue != null && newQueue.isNotEmpty) {
       _queue = List.from(newQueue);
@@ -322,11 +327,13 @@ class AudioPlayerManager extends ChangeNotifier {
     }
 
     _position = Duration.zero;
-    _duration = Duration(seconds: track.duration);
+    _duration = Duration(seconds: track.duration > 0 ? track.duration : 180);
+    _isPlaying = true;
     _mediaHandler?.updateTrack(track, _duration);
     _syncMediaHandler();
+    notifyListeners(); // Synchronous notification for 0ms lag!
 
-    // Stop previous audio immediately
+    // Stop previous audio engine immediately
     try {
       await _player.stop();
     } catch (_) {}
@@ -334,28 +341,54 @@ class AudioPlayerManager extends ChangeNotifier {
     // Record play in storage
     _storageService.recordPlay(track);
 
+    // 2. Multi-tier stream resolution with resilient fallbacks
     try {
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
 
-      // Play via official YouTube Player Engine (100% full song, 0% 403 errors, official Google embed)
-      if (videoId != null && videoId.isNotEmpty) {
+      // Tier 1: Official YouTube Player Engine (full length)
+      if (videoId != null && videoId.isNotEmpty && _ytController != null) {
         debugPrint('[AudioPlayerManager] Loading videoId=$videoId into official YouTube Player');
-        if (_ytController != null) {
-          _ytController!.loadVideoById(videoId: videoId);
-          _ytController!.playVideo();
-          _isPlaying = true;
-          _syncMediaHandler();
-          notifyListeners();
-          return;
-        }
+        _ytController!.loadVideoById(videoId: videoId);
+        _ytController!.playVideo();
+        _isPlaying = true;
+        _syncMediaHandler();
+        notifyListeners();
+        return;
       }
 
+      // Tier 2: Pre-existing direct audio URL on track
       if (track.audioUrl.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Playing direct track.audioUrl');
         await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
+        _syncMediaHandler();
+        notifyListeners();
+        return;
+      }
+
+      // Tier 3: High-bitrate Apple Music / AAC / Deezer preview stream fallback
+      final fallbackUrl = await _apiService.resolveAudioUrl(track.title, track.artist);
+      if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Playing high-bitrate AAC fallbackUrl');
+        await _player.play(UrlSource(fallbackUrl));
+        _isPlaying = true;
+        _syncMediaHandler();
+        notifyListeners();
+        return;
+      }
+
+      // Tier 4: Direct MP4 audio stream from YouTube Explode
+      final directStream = await _apiService.resolveFullAudioStream(track.title, track.artist, _audioQuality, track.duration);
+      if (directStream != null && directStream.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Playing directStream from YoutubeExplode');
+        await _player.play(UrlSource(directStream));
+        _isPlaying = true;
+        _syncMediaHandler();
+        notifyListeners();
+        return;
       }
     } catch (e) {
       debugPrint('Playback error: $e');
@@ -406,11 +439,26 @@ class AudioPlayerManager extends ChangeNotifier {
     _position = pos;
     _syncMediaHandler();
     notifyListeners();
-    if (_ytController != null) {
-      _ytController!.seekTo(seconds: pos.inSeconds.toDouble());
-    } else {
-      await _player.seek(pos);
+    final wasPlaying = _isPlaying;
+    try {
+      if (_ytController != null) {
+        _ytController!.seekTo(seconds: pos.inSeconds.toDouble(), allowSeekAhead: true);
+        if (wasPlaying) {
+          _ytController!.playVideo();
+          _isPlaying = true;
+        }
+      } else {
+        await _player.seek(pos);
+        if (wasPlaying) {
+          await _player.resume();
+          _isPlaying = true;
+        }
+      }
+    } catch (e) {
+      debugPrint('Seek error: $e');
     }
+    _syncMediaHandler();
+    notifyListeners();
   }
 
   Future<void> next() async {
@@ -435,10 +483,23 @@ class AudioPlayerManager extends ChangeNotifier {
   }
 
   Future<void> previous() async {
-    if (_position.inSeconds > 3) {
+    final now = DateTime.now();
+    final wasRecentlyRewound = _lastPreviousActionTime != null &&
+        now.difference(_lastPreviousActionTime!).inMilliseconds < 2800;
+
+    // Standard Spotify / TWS behavior:
+    // If audio is > 3 seconds in and not recently rewound: rewind to 00:00!
+    // If audio is <= 3 seconds in, OR if user taps previous AGAIN within 2.8s: skip to previous track!
+    if (!wasRecentlyRewound && _position.inSeconds > 3) {
+      _lastPreviousActionTime = now;
       await seek(Duration.zero);
+      if (!_isPlaying) {
+        await togglePlayPause();
+      }
       return;
     }
+
+    _lastPreviousActionTime = null;
     if (_queue.isEmpty || _currentTrack == null) return;
 
     final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);

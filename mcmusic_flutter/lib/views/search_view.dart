@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/artist.dart';
 import '../models/track.dart';
 import '../services/audio_player_manager.dart';
@@ -6,7 +7,7 @@ import '../services/music_api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/artist_card.dart';
-import '../widgets/track_tile.dart';
+import '../widgets/optimized_image.dart';
 import 'artist_view.dart';
 
 class SearchView extends StatefulWidget {
@@ -32,26 +33,70 @@ class _SearchViewState extends State<SearchView> {
   bool _isLoading = false;
   final Set<String> _likedIds = {};
 
-  final List<String> _quickChips = [
-    'HONNE',
-    'Justin Bieber',
-    'Coldplay',
-    'Shawn Mendes',
-    'Taylor Swift',
-    'The Weeknd',
-    'Billie Eilish',
-    'Bernadya',
+  final List<Map<String, dynamic>> _genreCategories = [
+    {
+      'name': 'Music',
+      'color': const Color(0xFFE91E63),
+      'image': 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Podcasts',
+      'color': const Color(0xFF00897B),
+      'image': 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Live Events',
+      'color': const Color(0xFF8E24AA),
+      'image': 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'K-Pop ON!',
+      'color': const Color(0xFF1E88E5),
+      'image': 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Made For You',
+      'color': const Color(0xFF5E35B1),
+      'image': 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Indo Hits',
+      'color': const Color(0xFF0288D1),
+      'image': 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Rock',
+      'color': const Color(0xFF3949AB),
+      'image': 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=200',
+    },
+    {
+      'name': 'Chill & Folk',
+      'color': const Color(0xFF00ACC1),
+      'image': 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=200',
+    },
   ];
 
-  final List<Map<String, dynamic>> _genreCategories = [
-    {'name': 'Pop', 'color': Color(0xFF2563EB)},
-    {'name': 'Hip-Hop', 'color': Color(0xFF3B82F6)},
-    {'name': 'Indie & Folk', 'color': Color(0xFF0284C7)},
-    {'name': 'Rock & Metal', 'color': Color(0xFF6366F1)},
-    {'name': 'R&B & Soul', 'color': Color(0xFF4F46E5)},
-    {'name': 'Akustik & Chill', 'color': Color(0xFF0EA5E9)},
-    {'name': 'K-Pop', 'color': Color(0xFF0072CE)},
-    {'name': 'Dance & EDM', 'color': Color(0xFF00A3FF)},
+  final List<Map<String, String>> _discoverStories = [
+    {
+      'tag': '#admiration',
+      'image': 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=300',
+      'query': 'admiration chill',
+    },
+    {
+      'tag': '#downtown vibes',
+      'image': 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=300',
+      'query': 'downtown night drive',
+    },
+    {
+      'tag': '#make out',
+      'image': 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=300',
+      'query': 'romantic slow',
+    },
+    {
+      'tag': '#chill beats',
+      'image': 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=300',
+      'query': 'lofi chill',
+    },
   ];
 
   @override
@@ -95,6 +140,7 @@ class _SearchViewState extends State<SearchView> {
   }
 
   void _toggleLike(Track track) async {
+    HapticFeedback.lightImpact();
     await _storage.toggleLikeTrack(track);
     setState(() {
       if (_likedIds.contains(track.id)) {
@@ -119,126 +165,138 @@ class _SearchViewState extends State<SearchView> {
 
   @override
   Widget build(BuildContext context) {
+    final isSearching = _searchController.text.trim().isNotEmpty;
+
     return Scaffold(
-      backgroundColor: AppTheme.darkBackground,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: Container(
-          height: 42,
-          decoration: BoxDecoration(
-            color: const Color(0xFF242424),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: TextField(
-            controller: _searchController,
-            onChanged: _onSearch,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Apa yang ingin kamu putar?',
-              hintStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
-              prefixIcon: const Icon(Icons.search, color: AppTheme.textMuted, size: 20),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, color: AppTheme.textMuted, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        _onSearch('');
-                      },
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
-            ),
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          // Filter Tabs matching media_1791353069505.png
-          Container(
-            height: 46,
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: ['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) {
-                final isSelected = _selectedTab == tab;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(tab),
-                    selected: isSelected,
-                    onSelected: (_) => setState(() => _selectedTab = tab),
-                    selectedColor: Colors.white,
-                    backgroundColor: const Color(0xFF242424),
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.black : Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+      backgroundColor: const Color(0xFF121212),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top Header: "Search" title + Camera icon - NO PROFILE ICON!
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Search',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                );
-              }).toList(),
-            ),
-          ),
-
-          // Quick Suggestion Chips
-          SizedBox(
-            height: 38,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _quickChips.length,
-              itemBuilder: (context, index) {
-                final chip = _quickChips[index];
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ActionChip(
-                    label: Text(chip),
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    labelStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                  IconButton(
+                    icon: const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 26),
+                    tooltip: 'Pindai Musik',
                     onPressed: () {
-                      _searchController.text = chip;
-                      _onSearch(chip);
+                      HapticFeedback.lightImpact();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Pencarian audio aktif. Mulai dengarkan di sekitarmu!'),
+                          duration: Duration(milliseconds: 1200),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
                     },
                   ),
-                );
-              },
+                ],
+              ),
             ),
-          ),
 
-          // Main Search Body
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppTheme.primaryAzure),
-                  )
-                : _searchController.text.trim().isEmpty
-                    ? _buildBrowseGenres()
-                    : _buildSearchResults(),
-          ),
-        ],
+            // White Spotify Search Box ("What do you want to listen to?")
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: _onSearch,
+                  style: const TextStyle(color: Colors.black, fontSize: 15, fontWeight: FontWeight.w600),
+                  cursorColor: Colors.black,
+                  decoration: InputDecoration(
+                    hintText: 'What do you want to listen to?',
+                    hintStyle: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500),
+                    prefixIcon: const Icon(Icons.search, color: Colors.black87, size: 24),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, color: Colors.black54, size: 20),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearch('');
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Tabs row when searching (Semua, Lagu, Artis, Playlist)
+            if (isSearching)
+              Container(
+                height: 40,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: ['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) {
+                    final isSelected = _selectedTab == tab;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedTab = tab),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppTheme.primaryAzure : const Color(0xFF242426),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            tab,
+                            style: TextStyle(
+                              color: isSelected ? Colors.black : Colors.white,
+                              fontSize: 12,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+
+            // Main Content Area
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAzure))
+                  : isSearching
+                      ? _buildSearchResults()
+                      : _buildBrowseCategories(),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // Genre categories grid (when query is empty) matching media_1791353002996.png
-  Widget _buildBrowseGenres() {
+  // Spotify Browse Categories + Discover Something New (matching screenshot 5)
+  Widget _buildBrowseCategories() {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
       children: [
-        const Text(
-          'Jelajahi Semua Genre',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
+        // 2-column Category Cards with signature angled art in bottom-right corner!
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -246,44 +304,156 @@ class _SearchViewState extends State<SearchView> {
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 1.6,
+            childAspectRatio: 1.8,
           ),
           itemCount: _genreCategories.length,
           itemBuilder: (context, index) {
             final cat = _genreCategories[index];
-            return InkWell(
+            final color = cat['color'] as Color;
+            final name = cat['name'] as String;
+            final img = cat['image'] as String;
+
+            return GestureDetector(
               onTap: () {
-                _searchController.text = cat['name'];
-                _onSearch(cat['name']);
+                _searchController.text = name;
+                _onSearch(name);
               },
-              borderRadius: BorderRadius.circular(8),
               child: Container(
                 decoration: BoxDecoration(
-                  color: cat['color'],
+                  color: color,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  cat['name'],
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  children: [
+                    // Category Title at top-left
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      right: 48,
+                      child: Text(
+                        name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    // Angled cover art at bottom-right (Spotify signature design!)
+                    Positioned(
+                      right: -12,
+                      bottom: -8,
+                      child: Transform.rotate(
+                        angle: 0.45,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: OptimizedImage(
+                            imageUrl: img,
+                            width: 64,
+                            height: 64,
+                            memCacheWidth: 120,
+                            memCacheHeight: 120,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );
           },
         ),
+
+        const SizedBox(height: 24),
+
+        // Section: "Discover something new" (Exact match to screenshot 5)
+        const Text(
+          'Discover something new',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 190,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _discoverStories.length,
+            itemBuilder: (context, idx) {
+              final story = _discoverStories[idx];
+              return GestureDetector(
+                onTap: () {
+                  _searchController.text = story['query'] ?? '';
+                  _onSearch(story['query'] ?? '');
+                },
+                child: Container(
+                  width: 125,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      OptimizedImage(
+                        imageUrl: story['image']!,
+                        memCacheWidth: 250,
+                        memCacheHeight: 380,
+                      ),
+                      Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black87],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 10,
+                        left: 8,
+                        right: 8,
+                        child: Text(
+                          story['tag']!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }
 
+  // Search Results List
   Widget _buildSearchResults() {
-    // TAB: ARTIS (matching media_1791353069505.png)
+    if (_searchResults.isEmpty && _artistResults.isEmpty) {
+      return Center(
+        child: Text(
+          'Tidak menemukan hasil untuk "${_searchController.text}"',
+          style: const TextStyle(color: AppTheme.textMuted),
+        ),
+      );
+    }
+
     if (_selectedTab == 'Artis') {
       return GridView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
           crossAxisSpacing: 12,
@@ -301,96 +471,93 @@ class _SearchViewState extends State<SearchView> {
       );
     }
 
-    // TAB: LAGU
-    if (_selectedTab == 'Lagu') {
-      return ListView.builder(
-        cacheExtent: 300,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: _searchResults.length,
-        itemBuilder: (context, index) {
-          final track = _searchResults[index];
-          final isCurrent = widget.player.currentTrack?.id == track.id;
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      itemCount: _searchResults.length,
+      itemBuilder: (context, index) {
+        final track = _searchResults[index];
+        final isCurrent = widget.player.currentTrack?.id == track.id;
+        final isLiked = _likedIds.contains(track.id);
 
-          return TrackTile(
-            track: track,
-            index: index,
-            isCurrent: isCurrent,
-            isPlaying: widget.player.isPlaying,
-            isLiked: _likedIds.contains(track.id),
-            onPlay: () {
-              if (isCurrent) {
-                widget.player.togglePlayPause();
-              } else {
-                widget.player.playTrackFromSearch(track);
-              }
-            },
-            onToggleLike: () => _toggleLike(track),
-          );
-        },
-      );
-    }
-
-    // TAB: SEMUA
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      children: [
-        // Top Artists Horizontal Scroll Row
-        if (_artistResults.isNotEmpty) ...[
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              'Artis',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ),
-          SizedBox(
-            height: 160,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _artistResults.length,
-              itemBuilder: (context, index) {
-                final art = _artistResults[index];
-                return Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: ArtistCard(
-                    artist: art,
-                    onTap: () => _openArtist(art),
+        return InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            if (isCurrent) {
+              widget.player.togglePlayPause();
+            } else {
+              widget.player.playTrackFromSearch(track);
+            }
+          },
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: OptimizedImage(
+                    imageUrl: track.artwork,
+                    width: 48,
+                    height: 48,
+                    memCacheWidth: 100,
+                    memCacheHeight: 100,
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrent ? AppTheme.primaryAzure : Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          if (track.isExplicit) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: const Text('E', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                          Expanded(
+                            child: Text(
+                              track.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    isLiked ? Icons.check_circle : Icons.check_circle_outline,
+                    color: isLiked ? AppTheme.primaryAzure : Colors.white24,
+                    size: 22,
+                  ),
+                  onPressed: () => _toggleLike(track),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-        ],
-
-        // Songs section
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            'Lagu',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        ..._searchResults.map((track) {
-          final isCurrent = widget.player.currentTrack?.id == track.id;
-          return TrackTile(
-            track: track,
-            index: _searchResults.indexOf(track),
-            isCurrent: isCurrent,
-            isPlaying: widget.player.isPlaying,
-            isLiked: _likedIds.contains(track.id),
-            onPlay: () {
-              if (isCurrent) {
-                widget.player.togglePlayPause();
-              } else {
-                widget.player.playTrackFromSearch(track);
-              }
-            },
-            onToggleLike: () => _toggleLike(track),
-          );
-        }),
-      ],
+        );
+      },
     );
   }
 }

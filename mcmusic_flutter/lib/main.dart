@@ -8,6 +8,7 @@ import 'theme/app_theme.dart';
 import 'views/home_view.dart';
 import 'views/library_view.dart';
 import 'views/search_view.dart';
+import 'views/import_playlist_view.dart';
 import 'widgets/mini_player.dart';
 import 'widgets/floating_bubble_player.dart';
 
@@ -108,6 +109,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       HomeView(player: _player),
       SearchView(player: _player),
       LibraryView(player: _player),
+      ImportPlaylistView(player: _player),
     ];
 
     return Scaffold(
@@ -178,6 +180,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF0F141C),
+        selectedItemColor: AppTheme.primaryAzure,
+        unselectedItemColor: AppTheme.textMuted,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_filled),
@@ -188,8 +196,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             label: 'Cari',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.library_music),
+            icon: Icon(Icons.library_music_rounded),
             label: 'Koleksi',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.swap_horizontal_circle_rounded),
+            label: 'Impor',
           ),
         ],
       ),

@@ -35,8 +35,25 @@ class MusicApiService {
         }
       }
     } catch (e) {
-      debugPrint('resolveAudioUrl error: $e');
+      debugPrint('resolveAudioUrl iTunes error: $e');
     }
+
+    try {
+      final deezerUrl = Uri.parse('https://api.deezer.com/search?q=${Uri.encodeComponent('$title $artist')}&limit=3');
+      final dRes = await http.get(deezerUrl).timeout(const Duration(seconds: 3));
+      if (dRes.statusCode == 200) {
+        final dData = jsonDecode(dRes.body);
+        final dList = (dData['data'] as List? ?? []);
+        for (final item in dList) {
+          final preview = item['preview'] as String?;
+          if (preview != null && preview.isNotEmpty) {
+            _streamCache[cleanKey] = preview;
+            return preview;
+          }
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 
@@ -453,21 +470,28 @@ class MusicApiService {
       }
     }
 
+    final Set<String> seenIds = results.map((t) => t.id).toSet();
+    final Set<String> seenTitles = results.map((t) => '${t.title.toLowerCase()}_${t.artist.toLowerCase()}').toSet();
+
     // 2. Query iTunes ID regional API
     try {
       final url = Uri.parse('https://itunes.apple.com/search?term=${Uri.encodeComponent(query)}&country=ID&entity=song&limit=25');
-      final res = await http.get(url);
+      final res = await http.get(url).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final list = (data['results'] as List? ?? []);
         for (final item in list) {
           final title = item['trackName'] ?? '';
           final artist = item['artistName'] ?? '';
-          if (title.isNotEmpty) {
+          final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+          if (title.isNotEmpty && !seenTitles.contains(key)) {
+            seenTitles.add(key);
+            final tid = (item['trackId'] ?? '').toString();
+            seenIds.add(tid);
             String art = item['artworkUrl100'] ?? defaultArtwork;
             art = art.replaceAll('100x100bb', '600x600bb');
             results.add(Track(
-              id: (item['trackId'] ?? '').toString(),
+              id: tid,
               title: title,
               artist: artist,
               album: item['collectionName'] ?? 'Single',
@@ -481,6 +505,66 @@ class MusicApiService {
         }
       }
     } catch (_) {}
+
+    // 3. Multi-source fallback: Deezer Global Music Catalog (90M+ tracks)
+    try {
+      final deezerUrl = Uri.parse('https://api.deezer.com/search?q=${Uri.encodeComponent(query)}&limit=15');
+      final deezerRes = await http.get(deezerUrl).timeout(const Duration(seconds: 3));
+      if (deezerRes.statusCode == 200) {
+        final dData = jsonDecode(deezerRes.body);
+        final dList = (dData['data'] as List? ?? []);
+        for (final item in dList) {
+          final title = (item['title'] ?? '').toString();
+          final artist = (item['artist']?['name'] ?? '').toString();
+          final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+          if (title.isNotEmpty && !seenTitles.contains(key)) {
+            seenTitles.add(key);
+            final tid = 'dz_${item['id']}';
+            seenIds.add(tid);
+            results.add(Track(
+              id: tid,
+              title: title,
+              artist: artist,
+              album: (item['album']?['title'] ?? 'Single').toString(),
+              artwork: (item['album']?['cover_big'] ?? item['album']?['cover_medium'] ?? defaultArtwork).toString(),
+              audioUrl: (item['preview'] ?? '').toString(),
+              duration: (item['duration'] as num?)?.toInt() ?? 180,
+              streamCount: '${(80 + results.length * 12)}.000.000',
+              isExplicit: item['explicit_lyrics'] == true,
+            ));
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 4. Multi-source fallback: Direct YouTube Search for Indie, Covers & Niche Tracks
+    if (results.length < 8) {
+      final yt = YoutubeExplode();
+      try {
+        final ytResults = await yt.search.search(query).timeout(const Duration(seconds: 4));
+        for (final v in ytResults.take(10)) {
+          final key = '${v.title.toLowerCase()}_${v.author.toLowerCase()}';
+          if (!seenTitles.contains(key)) {
+            seenTitles.add(key);
+            results.add(Track(
+              id: 'yt_${v.id.value}',
+              videoId: v.id.value,
+              title: v.title,
+              artist: v.author,
+              album: 'YouTube Music',
+              artwork: v.thumbnails.highResUrl,
+              audioUrl: '',
+              duration: v.duration?.inSeconds ?? 210,
+              streamCount: '${(50 + results.length * 8)}.000.000',
+              isExplicit: false,
+            ));
+          }
+        }
+      } catch (_) {
+      } finally {
+        yt.close();
+      }
+    }
 
     return results;
   }
