@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
 import '../theme/app_theme.dart';
+import 'audio_quality_modal.dart';
 import 'fullscreen_player.dart';
 import 'optimized_image.dart';
 
@@ -44,7 +45,7 @@ class MiniPlayer extends StatelessWidget {
           ),
         );
       },
-      // Spotify-style Swipe to Skip / Previous
+      // Spotify-style Horizontal Swipe to Skip / Previous
       onHorizontalDragEnd: (details) {
         final velocity = details.primaryVelocity ?? 0;
         if (velocity < -200) {
@@ -87,32 +88,22 @@ class MiniPlayer extends StatelessWidget {
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        height: 64,
+        height: 56,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [
-              Color(0xFF13223A),
-              Color(0xFF0F1A2D),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.primaryAzure.withAlpha(50)),
+          color: const Color(0xFF222429),
+          borderRadius: BorderRadius.circular(8),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(180),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-            BoxShadow(
-              color: AppTheme.primaryAzure.withAlpha(20),
-              blurRadius: 12,
-              offset: const Offset(0, 2),
+              color: Colors.black.withAlpha(160),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
+        clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            // Bottom hairline progress indicator
+            // Hairline progress indicator at the very bottom edge (Spotify exact match)
             Positioned(
               left: 0,
               right: 0,
@@ -124,31 +115,32 @@ class MiniPlayer extends StatelessWidget {
                   child: Container(
                     height: 2.5,
                     decoration: const BoxDecoration(
-                      color: AppTheme.primaryAzure,
-                      borderRadius: BorderRadius.only(
-                        bottomLeft: Radius.circular(10),
-                      ),
+                      color: Colors.white,
                     ),
                   ),
                 ),
               ),
             ),
 
-            // Main Content Row
+            // Content row
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Row(
                 children: [
-                  // Artwork
-                  OptimizedImage(
-                    imageUrl: track.artwork,
-                    width: 44,
-                    height: 44,
-                    borderRadius: BorderRadius.circular(6),
+                  // Album Artwork (Spotify style rounded square)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: OptimizedImage(
+                      imageUrl: track.artwork,
+                      width: 40,
+                      height: 40,
+                      memCacheWidth: 80,
+                      memCacheHeight: 80,
+                    ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
 
-                  // Title & Artist + TWS Info
+                  // Track Title & Artist
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -165,57 +157,63 @@ class MiniPlayer extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            const Icon(Icons.headphones, color: AppTheme.primaryAzure, size: 12),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                '${track.artist} • Geser skip / TWS 2x tap',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppTheme.textMuted,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                          ],
+                        Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 11,
+                          ),
                         ),
                       ],
                     ),
                   ),
 
-                  // Bubble Play toggle button
-                  if (onToggleBubble != null)
-                    IconButton(
-                      icon: Icon(
-                        isBubbleActive ? Icons.bubble_chart : Icons.bubble_chart_outlined,
-                        color: isBubbleActive ? AppTheme.primaryAzure : AppTheme.textMuted,
-                        size: 22,
-                      ),
-                      tooltip: 'Bubble Play',
-                      onPressed: onToggleBubble,
-                    ),
-
-                  // Like button
+                  // Devices Connect Button (Spotify icon)
                   IconButton(
-                    icon: Icon(
-                      isLiked ? Icons.favorite : Icons.favorite_border,
-                      color: isLiked ? AppTheme.primaryAzure : AppTheme.textMuted,
-                      size: 22,
-                    ),
-                    onPressed: onToggleLike,
+                    icon: const Icon(Icons.devices_rounded, color: Colors.white70, size: 20),
+                    tooltip: 'Perangkat',
+                    onPressed: () => AudioQualityModal.show(context, player),
                   ),
 
-                  // Play / Pause button
+                  // Saved Checkmark Button (Blue Accent Palette!)
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      onToggleLike();
+                    },
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: isLiked ? AppTheme.primaryAzure : Colors.transparent,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isLiked ? AppTheme.primaryAzure : Colors.white54,
+                          width: 1.8,
+                        ),
+                      ),
+                      child: Icon(
+                        isLiked ? Icons.check : Icons.add,
+                        color: isLiked ? Colors.black : Colors.white70,
+                        size: 15,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+
+                  // Play / Pause Icon Button (Solid white Spotify style)
                   IconButton(
                     icon: Icon(
-                      player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                      player.isPlaying ? Icons.pause : Icons.play_arrow,
                       color: Colors.white,
-                      size: 36,
+                      size: 28,
                     ),
-                    onPressed: () => player.togglePlayPause(),
+                    onPressed: () {
+                      HapticFeedback.mediumImpact();
+                      player.togglePlayPause();
+                    },
                   ),
                 ],
               ),

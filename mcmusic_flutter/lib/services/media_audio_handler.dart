@@ -78,23 +78,19 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
         break;
       case MediaButton.media:
         // TWS Multi-Tap Detection:
-        // 1 tap: Play/Pause (debounced by 350ms)
-        // 2 taps: Skip to next track
-        // 3 taps: Undo / Skip to previous track
+        // 1 tap: Play/Pause (debounced by 320ms)
+        // 2 taps: Skip to next track (debounced by 320ms)
+        // 3 taps: Rewind to 00:00 / Previous track (fires immediately on 3rd tap)
         _mediaClickCount++;
         _mediaClickTimer?.cancel();
 
-        if (_mediaClickCount == 2) {
-          // Double-tap detected: Skip to next
-          _mediaClickCount = 0;
-          await skipToNext();
-        } else if (_mediaClickCount >= 3) {
-          // Triple-tap detected: Undo / Previous
+        if (_mediaClickCount >= 3) {
+          // 3 taps reached: Fire previous immediately
           _mediaClickCount = 0;
           await skipToPrevious();
         } else {
-          // 1 tap: Wait 350ms to verify if another tap is incoming
-          _mediaClickTimer = Timer(const Duration(milliseconds: 350), () async {
+          // Wait 320ms to see if another tap occurs
+          _mediaClickTimer = Timer(const Duration(milliseconds: 320), () async {
             final count = _mediaClickCount;
             _mediaClickCount = 0;
             if (count == 1) {
@@ -104,10 +100,11 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
               } else {
                 await play();
               }
+            } else if (count == 2) {
+              await skipToNext();
             }
           });
         }
-        break;
     }
   }
 
