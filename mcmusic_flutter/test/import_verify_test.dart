@@ -27,15 +27,16 @@ void main() {
       print('${i + 1}. [${t.duration}s] "${t.title}" by "${t.artist}" (Album: ${t.album})');
     }
 
-    expect(playlist.tracks.length, 12);
+    expect(playlist.tracks.length, 13);
 
     final unique = titles.map((e) => e.toLowerCase()).toSet();
-    expect(unique.length, 12, reason: 'Duplicate tracks found!');
+    expect(unique.length, 13, reason: 'Duplicate tracks found!');
 
     expect(titles.any((t) => t.toLowerCase().contains('television')), isTrue, reason: 'Television / So Far So Good missing!');
     expect(titles.any((t) => t.toLowerCase().contains('brooklyn session')), isTrue, reason: 'Brooklyn Session missing!');
     expect(titles.any((t) => t.toLowerCase().contains('acoustic')), isTrue, reason: 'Acoustic Version missing!');
+    expect(titles.any((t) => t.toLowerCase().contains('multo')), isTrue, reason: 'Multo missing!');
 
-    print('\n[ALL CHECKS PASSED PERFECTLY!]');
+    print('\n[ALL 13 TRACK CHECKS PASSED PERFECTLY WITH ZERO DUPLICATES!]');
   }, timeout: const Timeout(Duration(minutes: 2)));
 }

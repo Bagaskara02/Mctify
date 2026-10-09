@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       duration: Math.round((t.duration || 180000) / 1000),
     })).filter(t => t.title && t.artist);
 
-    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.end(JSON.stringify({
       id: playlistId,
       name: playlistName,

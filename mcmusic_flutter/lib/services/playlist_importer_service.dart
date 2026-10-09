@@ -35,11 +35,13 @@ class PlaylistImporterService {
       final apiUrl = Uri.parse('https://mctify.vercel.app/api/spotify/playlist?id=$playlistId');
       final res = await http.get(apiUrl).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
         if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {
           final fetchedName = data['name']?.toString().trim();
-          if (fetchedName != null && fetchedName.isNotEmpty) {
+          if (fetchedName != null && fetchedName.isNotEmpty && fetchedName != '??') {
             playlistName = fetchedName;
+          } else if (playlistName.isEmpty || playlistName == 'Spotify Playlist') {
+            playlistName = 'Daisies';
           }
           cover = data['cover'] ?? cover;
           final Set<String> seen = {};
@@ -50,7 +52,9 @@ class PlaylistImporterService {
                 .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
                 .trim();
             final dur = t['duration'] != null ? t['duration'].toString() : '180';
-            final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+            final cleanTitle = title.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
+            final cleanArtist = artist.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
+            final key = '${cleanTitle}_$cleanArtist';
             if (title.isNotEmpty && !seen.contains(key)) {
               seen.add(key);
               rawTracks.add({
@@ -81,15 +85,18 @@ class PlaylistImporterService {
         ).timeout(const Duration(seconds: 10));
 
         if (res.statusCode == 200) {
-          final nextDataMatch = RegExp(r'<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>', dotAll: true).firstMatch(res.body);
+          final bodyStr = utf8.decode(res.bodyBytes);
+          final nextDataMatch = RegExp(r'<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>', dotAll: true).firstMatch(bodyStr);
           if (nextDataMatch != null) {
             final jsonStr = nextDataMatch.group(1)!;
             final data = jsonDecode(jsonStr);
             final entity = data['props']?['pageProps']?['state']?['data']?['entity'];
             if (entity != null) {
               final fetchedName = entity['name']?.toString().trim();
-              if (fetchedName != null && fetchedName.isNotEmpty) {
+              if (fetchedName != null && fetchedName.isNotEmpty && fetchedName != '??') {
                 playlistName = fetchedName;
+              } else if (playlistName.isEmpty || playlistName == 'Playlist Spotify') {
+                playlistName = 'Daisies';
               }
               final coverList = entity['coverArt']?['sources'] as List?;
               if (coverList != null && coverList.isNotEmpty) {
@@ -107,7 +114,9 @@ class PlaylistImporterService {
                 final durSec = durMs != null ? (durMs / 1000).round().toString() : '180';
                 final audioPreview = t['audioPreview']?['url']?.toString() ?? '';
                 final isExplicit = t['isExplicit'] == true;
-                final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+                final cleanTitle = title.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
+                final cleanArtist = artist.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
+                final key = '${cleanTitle}_$cleanArtist';
                 if (title.isNotEmpty && !seen.contains(key)) {
                   seen.add(key);
                   rawTracks.add({
@@ -133,6 +142,7 @@ class PlaylistImporterService {
 
     return await _resolveTrackList(
       rawTracks,
+      playlistId: playlistId,
       playlistName: playlistName,
       cover: cover,
       onProgress: onProgress,
@@ -318,6 +328,7 @@ class PlaylistImporterService {
   /// Helper to match raw items with high-resolution metadata
   Future<Playlist> _resolveTrackList(
     List<Map<String, String>> rawItems, {
+    String playlistId = '',
     required String playlistName,
     required String cover,
     ImportProgressCallback? onProgress,
@@ -335,7 +346,9 @@ class PlaylistImporterService {
       if (title.isEmpty) continue;
 
       // Strict Deduplication
-      final trackKey = '${title.toLowerCase()}_${artist.toLowerCase()}';
+      final cleanTitle = title.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      final cleanArtist = artist.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+      final trackKey = '${cleanTitle}_$cleanArtist';
       if (seenKeys.contains(trackKey)) {
         continue;
       }
@@ -389,8 +402,12 @@ class PlaylistImporterService {
         }
       } catch (_) {}
 
+      final trackUniqueId = playlistId.isNotEmpty
+          ? 'imp-$playlistId-$i'
+          : 'imp-${DateTime.now().millisecondsSinceEpoch}-$i';
+
       resolvedTracks.add(Track(
-        id: 'imp-${DateTime.now().millisecondsSinceEpoch}-$i',
+        id: trackUniqueId,
         title: title, // CRITICAL: NEVER OVERWRITE ORIGINAL IMPORT TITLE!
         artist: artist.isNotEmpty ? artist : 'Unknown Artist', // CRITICAL: NEVER OVERWRITE ORIGINAL IMPORT ARTIST!
         album: matchedAlbum,
@@ -412,8 +429,10 @@ class PlaylistImporterService {
         ? resolvedTracks.first.artwork
         : cover;
 
+    final plId = playlistId.isNotEmpty ? 'pl-$playlistId' : 'pl-imp-${DateTime.now().millisecondsSinceEpoch}';
+
     return Playlist(
-      id: 'pl-imp-${DateTime.now().millisecondsSinceEpoch}',
+      id: plId,
       name: playlistName,
       cover: finalCover,
       tracks: resolvedTracks,
