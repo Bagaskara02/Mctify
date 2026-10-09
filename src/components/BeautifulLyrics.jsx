@@ -16,15 +16,97 @@ import { DEFAULT_ARTWORK, getHighResArtworkUrl } from '../services/musicApi';
 import { lyricsService } from '../services/lyricsService';
 
 /**
- * BeautifulLyrics Component
- * High-precision Karaoke Engine:
- * - Word-by-word syllable karaoke animation & vocal bounce
- * - Anticipatory vocal-onset lead compensation (~120ms)
- * - Fine-grain sync calibration (-0.5s to +0.5s) with per-track persistence
- * - Visual instrumental countdown & break indicators
- * - Dynamic mesh-gradient background
- * - Interactive click-to-seek by word or line
+ * Syllable & Character-by-Character Karaoke Fade-Wipe Widget (Apple Music & Lyra style)
+ * Sweeps smoothly across letters from left to right as the singer sings ("BA GUS", etc.)
  */
+function KaraokeWordWipe({ word, currentTimeSec, onTap }) {
+  const start = word.startTime;
+  const end = word.endTime;
+  const dur = Math.max(0.04, word.duration || (end - start));
+
+  let progress = 0;
+  if (currentTimeSec < start) {
+    progress = 0;
+  } else if (currentTimeSec >= end) {
+    progress = 1;
+  } else {
+    progress = (currentTimeSec - start) / dur;
+    progress = Math.max(0, Math.min(1, progress));
+  }
+
+  const isActivelySinging = progress > 0 && progress < 1;
+  const p = progress * 100;
+
+  return (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        onTap?.();
+      }}
+      className={`inline-block transition-transform duration-100 cursor-pointer select-none ${
+        isActivelySinging
+          ? 'scale-[1.05] -translate-y-0.5 font-black'
+          : progress >= 1
+          ? 'text-white font-extrabold'
+          : 'text-white/35 font-bold hover:text-white/60'
+      }`}
+      style={{
+        letterSpacing: '-0.02em',
+        ...(isActivelySinging
+          ? {
+              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 6).toFixed(1)}%, #00E5FF ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 8).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              filter: 'drop-shadow(0 0 16px rgba(0, 229, 255, 0.9)) drop-shadow(0 0 4px #00E5FF)',
+            }
+          : progress >= 1
+          ? {
+              filter: 'drop-shadow(0 0 10px rgba(0, 163, 255, 0.35))',
+            }
+          : {}),
+      }}
+    >
+      {word.word}
+    </span>
+  );
+}
+
+function KaraokeLineWipe({ line, currentTimeSec }) {
+  const dur = Math.max(0.5, line.duration || (line.endTime - line.time) || 3.5);
+  let progress = 0;
+  if (currentTimeSec < line.time) {
+    progress = 0;
+  } else if (currentTimeSec >= (line.endTime || line.time + dur)) {
+    progress = 1;
+  } else {
+    progress = Math.max(0, Math.min(1, (currentTimeSec - line.time) / dur));
+  }
+  const p = progress * 100;
+  const isActivelySinging = progress > 0 && progress < 1;
+
+  return (
+    <span
+      className={`inline-block transition-all duration-100 ${
+        isActivelySinging ? 'font-black scale-[1.01]' : 'font-extrabold'
+      }`}
+      style={
+        isActivelySinging
+          ? {
+              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 4).toFixed(1)}%, #00E5FF ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 6).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              filter: 'drop-shadow(0 0 16px rgba(0, 229, 255, 0.85))',
+            }
+          : {
+              color: progress >= 1 ? '#FFFFFF' : 'rgba(255, 255, 255, 0.35)',
+            }
+      }
+    >
+      {line.text}
+    </span>
+  );
+}
+
 export default function BeautifulLyrics({
   track,
   currentTime,
@@ -37,10 +119,15 @@ export default function BeautifulLyrics({
 }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fontSize, setFontSize] = useState('large'); // 'normal' | 'large' | 'huge'
-  const [syncOffset, setSyncOffset] = useState(0);
+  const [manualOffset, setManualOffset] = useState(null); // null = Auto-Sync mode active!
   const [palette, setPalette] = useState({ primary: '#00a3ff', secondary: '#2eb4ff', tertiary: '#0055b3' });
   const [autoScroll, setAutoScroll] = useState(true);
   const [userScrolled, setUserScrolled] = useState(false);
+
+  // 60 FPS sub-millisecond smooth interpolation ticker
+  const [smoothTime, setSmoothTime] = useState(currentTime);
+  const lastReportedTimeRef = useRef(currentTime);
+  const lastTimestampRef = useRef(performance.now());
 
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
@@ -48,17 +135,50 @@ export default function BeautifulLyrics({
 
   const trackKey = track ? `${(track.artist || '').trim().toLowerCase()}:::${(track.title || '').trim().toLowerCase()}` : '';
 
-  // Load persistent sync offset for current track
+  // Synchronize reference with player's 80ms time polling
+  useEffect(() => {
+    lastReportedTimeRef.current = currentTime;
+    lastTimestampRef.current = performance.now();
+    setSmoothTime(currentTime);
+  }, [currentTime]);
+
+  // High-precision animation frame ticker for buttery smooth letter-wipe
+  useEffect(() => {
+    if (!isPlaying) return;
+    let animId;
+    const loop = () => {
+      const elapsed = (performance.now() - lastTimestampRef.current) / 1000;
+      if (elapsed >= 0 && elapsed <= 0.25) {
+        setSmoothTime(lastReportedTimeRef.current + elapsed);
+      }
+      animId = requestAnimationFrame(loop);
+    };
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isPlaying]);
+
+  // Load persistent sync offset for current track if user manually adjusted it earlier
   useEffect(() => {
     if (trackKey) {
       const saved = lyricsService.getTrackSyncOffset(trackKey);
-      setSyncOffset(saved);
+      if (typeof saved === 'number') {
+        setManualOffset(saved);
+      } else {
+        setManualOffset(null);
+      }
+    } else {
+      setManualOffset(null);
     }
   }, [trackKey]);
 
+  const autoOffset = lyricsData?.autoOffset || 0;
+  const isAutoSync = manualOffset === null;
+  const effectiveOffset = isAutoSync ? autoOffset : manualOffset;
+
   const updateSyncOffset = (delta) => {
-    setSyncOffset(prev => {
-      const next = Math.round((prev + delta) * 10) / 10;
+    setManualOffset(prev => {
+      const base = prev !== null ? prev : autoOffset;
+      const next = Math.round((base + delta) * 10) / 10;
       if (trackKey) {
         lyricsService.saveTrackSyncOffset(trackKey, next);
       }
@@ -66,10 +186,10 @@ export default function BeautifulLyrics({
     });
   };
 
-  const resetSyncOffset = () => {
-    setSyncOffset(0);
+  const resetToAutoSync = () => {
+    setManualOffset(null);
     if (trackKey) {
-      lyricsService.saveTrackSyncOffset(trackKey, 0);
+      lyricsService.removeTrackSyncOffset(trackKey);
     }
   };
 
@@ -86,8 +206,8 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  // Apply vocal anticipation lead (+0.12s) so the visual prompt aligns with natural vocal onset
-  const effectiveTime = Math.max(0, currentTime + syncOffset + 0.12);
+  // Effective playback time with calibrated auto/manual offset
+  const effectiveTime = Math.max(0, smoothTime + effectiveOffset);
   const lines = lyricsData?.lines || [];
 
   // Determine active line index
@@ -199,12 +319,26 @@ export default function BeautifulLyrics({
             {/* Sync Tuner & Calibration Widget */}
             <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80">
               <Clock className="w-3.5 h-3.5 text-[#00a3ff]" />
-              <span className="hidden sm:inline text-white/60 text-[11px]">Sync:</span>
-              <span className={`font-mono font-bold tabular-nums text-xs ${syncOffset === 0 ? 'text-[#00a3ff]' : syncOffset > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                {syncOffset === 0 ? 'Tepat' : syncOffset > 0 ? `+${syncOffset.toFixed(1)}s` : `${syncOffset.toFixed(1)}s`}
-              </span>
+              
+              {/* Auto / Manual Indicator Pill */}
+              {isAutoSync ? (
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#00a3ff]/15 border border-[#00a3ff]/30 text-[10px] text-[#00e5ff] font-bold">
+                  <Sparkles className="w-2.5 h-2.5 text-[#00e5ff] animate-pulse" />
+                  <span>Auto-Sync</span>
+                  <span className="font-mono tabular-nums text-white/90">
+                    {effectiveOffset === 0 ? '0.0s' : effectiveOffset > 0 ? `+${effectiveOffset.toFixed(1)}s` : `${effectiveOffset.toFixed(1)}s`}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] text-amber-300 font-bold">
+                  <span>Manual</span>
+                  <span className="font-mono tabular-nums">
+                    {effectiveOffset > 0 ? `+${effectiveOffset.toFixed(1)}s` : `${effectiveOffset.toFixed(1)}s`}
+                  </span>
+                </div>
+              )}
 
-              {/* -0.5s / -0.1s */}
+              {/* Fast Rewind / Advance Sync Buttons */}
               <button 
                 onClick={() => updateSyncOffset(-0.5)}
                 className="hidden lg:inline-block px-1.5 py-0.5 rounded hover:bg-white/10 text-white/70 active:scale-95 text-[11px]"
@@ -220,17 +354,17 @@ export default function BeautifulLyrics({
                 <Minus className="w-3 h-3" />
               </button>
 
-              {syncOffset !== 0 && (
+              {!isAutoSync && (
                 <button 
-                  onClick={resetSyncOffset}
-                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white"
-                  title="Reset kalibrasi sync ke 0.0s"
+                  onClick={resetToAutoSync}
+                  className="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-[#00e5ff] hover:text-white flex items-center gap-1 text-[11px] font-bold border border-[#00e5ff]/30 bg-[#00a3ff]/10"
+                  title="Kembalikan ke Auto-Sync"
                 >
                   <RotateCcw className="w-2.5 h-2.5" />
+                  <span className="hidden sm:inline">Auto</span>
                 </button>
               )}
 
-              {/* +0.1s / +0.5s */}
               <button 
                 onClick={() => updateSyncOffset(0.1)}
                 className="px-1.5 py-0.5 rounded hover:bg-white/10 text-white/90 active:scale-95 font-bold"
@@ -410,40 +544,34 @@ export default function BeautifulLyrics({
                           }`} 
                         />
                         
-                        {/* If Active Line: Animate Word-by-Word (Syllables)! */}
-                        {isActive && line.words && line.words.length > 0 ? (
-                          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                            {line.words.map((w) => {
-                              const isWordCurrent = effectiveTime >= w.startTime && effectiveTime < w.endTime;
-                              const isWordFinished = effectiveTime >= w.endTime;
-
-                              return (
-                                <span
+                        {/* If Active Line: Animate Word-by-Word with Syllable & Character Fade-Wipe! */}
+                        {isActive ? (
+                          line.words && line.words.length > 0 ? (
+                            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
+                              {line.words.map((w) => (
+                                <KaraokeWordWipe
                                   key={w.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSeek(w.startTime);
-                                  }}
-                                  className={`inline-block transition-all duration-150 transform hover:scale-110 ${
-                                    isWordCurrent
-                                      ? 'text-[#00e5ff] font-black scale-105 -translate-y-0.5 drop-shadow-[0_0_16px_rgba(0,163,255,1)]'
-                                      : isWordFinished
-                                      ? 'text-white font-extrabold opacity-100 scale-100'
-                                      : 'text-white/40 opacity-40 font-bold scale-95'
-                                  }`}
-                                >
-                                  {w.word}
-                                </span>
-                              );
-                            })}
-                          </div>
+                                  word={w}
+                                  currentTimeSec={effectiveTime}
+                                  onTap={() => onSeek(w.startTime)}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <KaraokeLineWipe
+                              line={line}
+                              currentTimeSec={effectiveTime}
+                            />
+                          )
                         ) : (
-                          /* Inactive or plain-line fallback */
+                          /* Inactive line */
                           <span
                             className={`inline-block transition-all duration-300 ${
-                              isActive ? 'text-white' : 'text-white/70 group-hover:text-white'
+                              isPast
+                                ? 'text-white/40 font-semibold'
+                                : 'text-white/25 group-hover:text-white/60 font-semibold'
                             } ${
-                              line.isBackgroundVocal ? 'italic text-white/50 text-[0.85em]' : ''
+                              line.isBackgroundVocal ? 'italic text-white/35 text-[0.85em]' : ''
                             }`}
                           >
                             {line.text}
