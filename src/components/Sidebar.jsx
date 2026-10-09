@@ -216,7 +216,7 @@ export default function Sidebar({
                       {pl.name}
                     </p>
                     <p className="text-xs text-[#b3b3b3] truncate mt-0.5">
-                      Playlist • Bagas Kara
+                      Playlist • User
                     </p>
                   </div>
                 </div>
