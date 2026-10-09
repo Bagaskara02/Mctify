@@ -13,9 +13,10 @@ class AppTheme {
 
   static ThemeData get darkTheme {
     final baseTextTheme = ThemeData.dark().textTheme;
-    // Spotify Circular & Modern Grotesque: Bundled Figtree Font (All Weights)
+    // Spotify Authentic Circular Std Typography (Book, Medium, Bold, Black)
     final spotifyTextTheme = baseTextTheme.apply(
-      fontFamily: 'Figtree',
+      fontFamily: 'CircularStd',
+      fontFamilyFallback: ['Figtree', 'sans-serif'],
       bodyColor: Colors.white,
       displayColor: Colors.white,
     );
@@ -26,7 +27,8 @@ class AppTheme {
       primaryColor: primaryAzure,
       canvasColor: darkBackground,
       cardColor: darkCard,
-      fontFamily: 'Figtree',
+      fontFamily: 'CircularStd',
+      fontFamilyFallback: const ['Figtree', 'sans-serif'],
       textTheme: spotifyTextTheme,
       primaryTextTheme: spotifyTextTheme,
       colorScheme: const ColorScheme.dark(

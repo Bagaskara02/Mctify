@@ -15,7 +15,17 @@ class StorageService {
     if (raw == null) return [];
     try {
       final list = jsonDecode(raw) as List;
-      return list.map((e) => Track.fromJson(e)).toList();
+      final rawList = list.map((e) => Track.fromJson(e)).toList();
+      final seen = <String>{};
+      final unique = <Track>[];
+      for (final t in rawList) {
+        final key = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+        if (!seen.contains(key)) {
+          seen.add(key);
+          unique.add(t);
+        }
+      }
+      return unique;
     } catch (_) {
       return [];
     }
@@ -54,7 +64,49 @@ class StorageService {
     }
     try {
       final list = jsonDecode(raw) as List;
-      return list.map((e) => Playlist.fromJson(e)).toList();
+      final rawPlaylists = list.map((e) => Playlist.fromJson(e)).toList();
+
+      final Map<String, Playlist> uniqueByName = {};
+      bool needsRewrite = false;
+
+      for (final p in rawPlaylists) {
+        final seenTracks = <String>{};
+        final cleanedTracks = <Track>[];
+        for (final t in p.tracks) {
+          final trackKey = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+          if (!seenTracks.contains(trackKey)) {
+            seenTracks.add(trackKey);
+            cleanedTracks.add(t);
+          } else {
+            needsRewrite = true;
+          }
+        }
+
+        final cleanedPlaylist = Playlist(
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          cover: p.cover,
+          tracks: cleanedTracks,
+        );
+
+        final normName = p.name.trim().toLowerCase();
+        if (!uniqueByName.containsKey(normName)) {
+          uniqueByName[normName] = cleanedPlaylist;
+        } else {
+          needsRewrite = true;
+          final existing = uniqueByName[normName]!;
+          if (cleanedTracks.length > existing.tracks.length) {
+            uniqueByName[normName] = cleanedPlaylist;
+          }
+        }
+      }
+
+      final result = uniqueByName.values.toList();
+      if (needsRewrite || result.length != rawPlaylists.length) {
+        savePlaylists(result);
+      }
+      return result;
     } catch (_) {
       return [];
     }
@@ -71,7 +123,17 @@ class StorageService {
     if (raw == null) return [];
     try {
       final list = jsonDecode(raw) as List;
-      return list.map((e) => Track.fromJson(e)).toList();
+      final rawList = list.map((e) => Track.fromJson(e)).toList();
+      final seen = <String>{};
+      final unique = <Track>[];
+      for (final t in rawList) {
+        final key = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+        if (!seen.contains(key)) {
+          seen.add(key);
+          unique.add(t);
+        }
+      }
+      return unique;
     } catch (_) {
       return [];
     }
