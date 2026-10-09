@@ -84,6 +84,15 @@ export default function DownloadAppModal({ isOpen, onClose }) {
               <span>Download ARM64 (19MB)</span>
             </a>
           </div>
+          <div className="text-center pt-1">
+            <a
+              href="/downloads"
+              className="text-xs text-[#00a3ff] hover:underline inline-flex items-center gap-1 font-semibold"
+            >
+              <span>Buka Halaman Download Center Lengkap</span>
+              <span>→</span>
+            </a>
+          </div>
           <button
             onClick={onClose}
             className="w-full py-2.5 rounded-full text-xs text-[#b3b3b3] hover:text-white transition-colors"
