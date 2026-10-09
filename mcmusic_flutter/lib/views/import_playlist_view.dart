@@ -224,7 +224,21 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   Future<void> _saveImportedPlaylist() async {
     if (_importedResult == null) return;
     final currentPlaylists = await _storage.getPlaylists();
-    final updated = [...currentPlaylists, _importedResult!];
+    
+    // Check if playlist already exists by ID or name
+    final existingIdx = currentPlaylists.indexWhere(
+      (p) => p.id == _importedResult!.id || 
+             p.name.trim().toLowerCase() == _importedResult!.name.trim().toLowerCase(),
+    );
+
+    List<Playlist> updated;
+    if (existingIdx != -1) {
+      updated = List<Playlist>.from(currentPlaylists);
+      updated[existingIdx] = _importedResult!;
+    } else {
+      updated = [...currentPlaylists, _importedResult!];
+    }
+
     await _storage.savePlaylists(updated);
 
     widget.onPlaylistImported?.call();

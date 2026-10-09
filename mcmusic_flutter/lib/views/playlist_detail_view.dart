@@ -37,7 +37,40 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
   @override
   void initState() {
     super.initState();
-    _currentPlaylist = widget.playlist;
+    // Auto-clean any duplicate tracks that might exist in storage
+    final seen = <String>{};
+    final uniqueTracks = <Track>[];
+    bool hadDuplicates = false;
+    for (final t in widget.playlist.tracks) {
+      final key = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+      if (!seen.contains(key)) {
+        seen.add(key);
+        uniqueTracks.add(t);
+      } else {
+        hadDuplicates = true;
+      }
+    }
+    if (hadDuplicates) {
+      _currentPlaylist = Playlist(
+        id: widget.playlist.id,
+        name: widget.playlist.name,
+        cover: widget.playlist.cover,
+        tracks: uniqueTracks,
+      );
+      _cleanDuplicatesInStorage(_currentPlaylist);
+    } else {
+      _currentPlaylist = widget.playlist;
+    }
+  }
+
+  Future<void> _cleanDuplicatesInStorage(Playlist cleanedPl) async {
+    final allPl = await _storage.getPlaylists();
+    final idx = allPl.indexWhere((p) => p.id == cleanedPl.id);
+    if (idx != -1) {
+      allPl[idx] = cleanedPl;
+      await _storage.savePlaylists(allPl);
+      widget.onPlaylistChanged?.call();
+    }
   }
 
   @override
@@ -585,67 +618,6 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                 childCount: filteredTracks.length,
               ),
             ),
-
-          // Smart Recommendations Section (Matching reference Image 2)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Rekomendasi Cerdas',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Berdasarkan musik di playlist ini',
-                    style: TextStyle(
-                      color: AppTheme.textMuted,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...MusicApiService.officialTopTracks
-                      .where((t) => !_currentPlaylist.tracks.any((pt) => pt.id == t.id))
-                      .take(3)
-                      .map((t) {
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: OptimizedImage(imageUrl: t.artwork, width: 44, height: 44, borderRadius: BorderRadius.circular(6)),
-                      title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                      subtitle: Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: AppTheme.primaryAzure, size: 24),
-                        onPressed: () async {
-                          HapticFeedback.lightImpact();
-                          final updatedTracks = [..._currentPlaylist.tracks, t];
-                          final updatedPl = Playlist(
-                            id: _currentPlaylist.id,
-                            name: _currentPlaylist.name,
-                            cover: _currentPlaylist.cover,
-                            tracks: updatedTracks,
-                          );
-                          final allPl = await _storage.getPlaylists();
-                          final idx = allPl.indexWhere((p) => p.id == _currentPlaylist.id);
-                          if (idx != -1) {
-                            allPl[idx] = updatedPl;
-                            await _storage.savePlaylists(allPl);
-                          }
-                          setState(() => _currentPlaylist = updatedPl);
-                          widget.onPlaylistChanged?.call();
-                        },
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
-          ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],

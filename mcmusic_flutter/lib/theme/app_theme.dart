@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Electric Azure Spotify Palette
@@ -14,8 +13,9 @@ class AppTheme {
 
   static ThemeData get darkTheme {
     final baseTextTheme = ThemeData.dark().textTheme;
-    // Spotify Circular equivalent: Figtree (Geometric, Rounded, Modern Grotesque)
-    final spotifyTextTheme = GoogleFonts.figtreeTextTheme(baseTextTheme).apply(
+    // Spotify Circular & Modern Grotesque: Bundled Figtree Font (All Weights)
+    final spotifyTextTheme = baseTextTheme.apply(
+      fontFamily: 'Figtree',
       bodyColor: Colors.white,
       displayColor: Colors.white,
     );
@@ -26,8 +26,9 @@ class AppTheme {
       primaryColor: primaryAzure,
       canvasColor: darkBackground,
       cardColor: darkCard,
-      fontFamily: GoogleFonts.figtree().fontFamily,
+      fontFamily: 'Figtree',
       textTheme: spotifyTextTheme,
+      primaryTextTheme: spotifyTextTheme,
       colorScheme: const ColorScheme.dark(
         primary: primaryAzure,
         secondary: primaryAzureHover,
