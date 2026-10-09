@@ -765,6 +765,7 @@ export default function App() {
               isPlaying={isPlaying}
               likedTrackIds={likedTrackIds}
               onPlayTrack={handlePlayTrack}
+              onPlayTrackWithRadio={handlePlayTrackFromSearch}
               onTogglePlayPause={handlePlayPause}
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}

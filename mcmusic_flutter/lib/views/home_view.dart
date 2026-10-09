@@ -116,7 +116,29 @@ class _HomeViewState extends State<HomeView> {
       String startListeningTitle = 'Start listening';
 
       if (history.isNotEmpty) {
-        recentRotation = history.take(4).toList();
+        // Collect diverse recent rotation with maximum 1 track per artist
+        final seenArtists = <String>{};
+        final seenIds = <String>{};
+        final List<Track> diverseRecent = [];
+        for (final t in history) {
+          final a = t.artist.trim().toLowerCase();
+          if (!seenIds.contains(t.id) && !seenArtists.contains(a)) {
+            seenIds.add(t.id);
+            seenArtists.add(a);
+            diverseRecent.add(t);
+            if (diverseRecent.length >= 4) break;
+          }
+        }
+        if (diverseRecent.length < 4) {
+          for (final t in history) {
+            if (!seenIds.contains(t.id)) {
+              seenIds.add(t.id);
+              diverseRecent.add(t);
+              if (diverseRecent.length >= 4) break;
+            }
+          }
+        }
+        recentRotation = diverseRecent;
         final lastTrack = history.first;
         final lastArtist = lastTrack.artist;
 
@@ -537,7 +559,7 @@ class _HomeViewState extends State<HomeView> {
         if (isCurrent) {
           widget.player.togglePlayPause();
         } else {
-          widget.player.playTrack(t, [..._recentRotation, ..._startListening]);
+          widget.player.playTrackFromSearch(t);
         }
       },
       borderRadius: BorderRadius.circular(6),
