@@ -43,7 +43,8 @@ export default function App() {
   const [volume, setVolume] = useState(0.85);
   const [isMuted, setIsMuted] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
-  const [isRepeat, setIsRepeat] = useState(false);
+  const [repeatMode, setRepeatMode] = useState('off'); // 'off' | 'all' | 'one'
+  const isRepeat = repeatMode !== 'off';
   const [seekTime, setSeekTime] = useState(null);
 
   // Modals, Drawers, & Context Menu State
@@ -344,11 +345,25 @@ export default function App() {
     handlePlayTrack(queue[prevIndex]);
   };
 
+  // 3-State Repeat Handler ('off' -> 'all' -> 'one' -> 'off')
+  const handleToggleRepeat = () => {
+    setRepeatMode((prev) => {
+      if (prev === 'off') return 'all';
+      if (prev === 'all') return 'one';
+      return 'off';
+    });
+  };
+
   // Track ended event
   const handleEnded = () => {
-    if (isRepeat) {
+    if (repeatMode === 'one') {
       handleSeek(0);
       setIsPlaying(true);
+    } else if (repeatMode === 'all') {
+      if (queue.length === 0) return;
+      const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
+      const nextIndex = (currentIndex + 1) % queue.length;
+      handlePlayTrack(queue[nextIndex]);
     } else {
       handleNext(true);
     }
@@ -933,6 +948,7 @@ export default function App() {
           isMuted={isMuted}
           isShuffle={isShuffle}
           isRepeat={isRepeat}
+          repeatMode={repeatMode}
           isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
           isLyricsOpen={isLyricsOpen}
           isQueueOpen={isQueueOpen}
@@ -944,7 +960,7 @@ export default function App() {
           onVolumeChange={handleVolumeChange}
           onToggleMute={handleToggleMute}
           onToggleShuffle={() => setIsShuffle(!isShuffle)}
-          onToggleRepeat={() => setIsRepeat(!isRepeat)}
+          onToggleRepeat={handleToggleRepeat}
           onToggleLike={handleToggleLike}
           onToggleLyrics={() => setIsLyricsOpen(!isLyricsOpen)}
           onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
@@ -987,13 +1003,14 @@ export default function App() {
         duration={duration}
         isShuffle={isShuffle}
         isRepeat={isRepeat}
+        repeatMode={repeatMode}
         isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
         onPlayPause={handlePlayPause}
         onPrev={handlePrev}
         onNext={() => handleNext(false)}
         onSeek={handleSeek}
         onToggleShuffle={() => setIsShuffle(!isShuffle)}
-        onToggleRepeat={() => setIsRepeat(!isRepeat)}
+        onToggleRepeat={handleToggleRepeat}
         onToggleLike={handleToggleLike}
         onOpenLyrics={() => setIsLyricsOpen(true)}
         onOpenQueue={() => setIsQueueOpen(true)}

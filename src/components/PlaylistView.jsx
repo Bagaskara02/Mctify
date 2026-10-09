@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Play, 
   Pause,
@@ -29,6 +29,9 @@ export default function PlaylistView({
   onDeletePlaylist,
   onTrackContextMenu,
 }) {
+  const [isHeaderSticky, setIsHeaderSticky] = useState(false);
+  const scrollContainerRef = useRef(null);
+
   if (!playlist) {
     return (
       <div className="flex-1 flex items-center justify-center text-neutral-400 bg-[#121212]">
@@ -41,8 +44,46 @@ export default function PlaylistView({
   const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
   const totalMinutes = Math.floor(totalDuration / 60);
 
+  const handleScroll = (e) => {
+    if (e.currentTarget.scrollTop > 240) {
+      if (!isHeaderSticky) setIsHeaderSticky(true);
+    } else {
+      if (isHeaderSticky) setIsHeaderSticky(false);
+    }
+  };
+
   return (
-    <div className="flex-1 overflow-y-auto select-none bg-[#121212] text-white">
+    <div 
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto select-none bg-[#121212] text-white relative"
+    >
+      {/* Spotify Desktop Sticky Top Header */}
+      <div 
+        className={`sticky top-0 z-30 px-4 sm:px-8 py-3 bg-[#121212]/95 backdrop-blur-md border-b border-white/10 flex items-center justify-between transition-all duration-200 ${
+          isHeaderSticky ? 'opacity-100 translate-y-0 shadow-lg' : 'opacity-0 -translate-y-2 pointer-events-none'
+        }`}
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <button
+            onClick={() => onPlayAll(tracks)}
+            disabled={tracks.length === 0}
+            className="w-10 h-10 rounded-full bg-[#00a3ff] hover:bg-[#2eb4ff] text-black flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all flex-shrink-0"
+            title="Putar Playlist"
+          >
+            <Play className="w-4 h-4 fill-black ml-0.5" />
+          </button>
+          <div className="min-w-0">
+            <h2 className="text-white font-black text-lg truncate tracking-tight">
+              {playlist.name}
+            </h2>
+          </div>
+        </div>
+        <span className="text-xs text-[#a7a7a7] hidden sm:block font-medium">
+          {tracks.length} lagu
+        </span>
+      </div>
+
       {/* Spotify Playlist Banner Header */}
       <div className="p-4 sm:p-8 bg-gradient-to-b from-[#092b52] via-[#161616] to-[#121212] flex flex-col sm:flex-row items-center sm:items-end gap-5 sm:gap-8 pb-6 border-b border-white/[0.04]">
         <img

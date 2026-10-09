@@ -478,16 +478,8 @@ class MusicApiService {
     if (cleanQ.isEmpty) return [];
 
     final List<Track> results = [];
-
-    // 1. Check official top tracks first
-    for (final t in officialTopTracks) {
-      if (t.title.toLowerCase().contains(cleanQ) || t.artist.toLowerCase().contains(cleanQ)) {
-        results.add(t);
-      }
-    }
-
-    final Set<String> seenIds = results.map((t) => t.id).toSet();
-    final Set<String> seenTitles = results.map((t) => '${t.title.toLowerCase()}_${t.artist.toLowerCase()}').toSet();
+    final Set<String> seenIds = <String>{};
+    final Set<String> seenTitles = <String>{};
 
     // 2. Query iTunes ID regional API
     try {
@@ -579,6 +571,15 @@ class MusicApiService {
       } catch (_) {
       } finally {
         yt.close();
+      }
+    }
+
+    // 5. Offline fallback only if all network sources fail completely
+    if (results.isEmpty) {
+      for (final t in officialTopTracks) {
+        if (t.title.toLowerCase().contains(cleanQ) || t.artist.toLowerCase().contains(cleanQ)) {
+          results.add(t);
+        }
       }
     }
 
