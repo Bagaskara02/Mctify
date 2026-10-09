@@ -46,6 +46,69 @@ export function getHighResArtworkUrl(url) {
   return clean;
 }
 
+/**
+ * Quality & Popularity Filter:
+ * Rejects obscure amateur covers, karaoke versions, instrumentals, parodies,
+ * tutorials, and junk uploads to ensure ONLY verified, well-known popular hits.
+ */
+export function isCleanPopularTrack(t) {
+  if (!t || !t.title || !t.artist) return false;
+  const title = t.title.toLowerCase();
+  const artist = t.artist.toLowerCase();
+
+  const bannedKeywords = [
+    'karaoke', 'instrumental', 'backing track', 'cover by', 'tribute to',
+    'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb',
+    '8d audio', 'tutorial', 'chord', 'guitar lesson', 'bass tab',
+    'drum cover', 'reaction', 'teaser', 'trailer', 'podcast',
+    'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
+    'lirik video', 'lyrics video', 'acapella'
+  ];
+
+  if (bannedKeywords.some(w => title.includes(w) || artist.includes(w))) {
+    return false;
+  }
+
+  // Reasonably standard radio track duration (between 1:15 and 7:30)
+  const dur = t.duration || 180;
+  if (dur < 75 || dur > 450) return false;
+
+  return true;
+}
+
+/**
+ * Curated Top Hitmaker Clusters:
+ * Groups the biggest, most beloved, and recognizable artists so that
+ * recommendations always feature household-name hits.
+ */
+export const POPULAR_ARTIST_CLUSTERS = [
+  {
+    name: 'Indie & Alternative Hits',
+    keywords: ['hindia', 'feast', 'bernadya', 'nadin amizah', 'sal priadi', 'kunto aji', 'pamungkas', 'danilla', 'fourtwnty', 'barasuara', 'reality club', 'efek rumah kaca', 'sore', 'the adams', 'morad', 'fiersa besari'],
+    peers: ['Hindia', '.Feast', 'Bernadya', 'Nadin Amizah', 'Sal Priadi', 'Kunto Aji', 'Pamungkas', 'Fourtwnty', 'Reality Club']
+  },
+  {
+    name: 'Indonesian Pop & Viral Hits',
+    keywords: ['mahalini', 'tulus', 'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya', 'yura yunita', 'rizky febian', 'jaz', 'raisa', 'afgan', 'fabio asher', 'budi doremi', 'judika', 'virgoun', 'keisya levronka', 'arash buana', 'idgitaf'],
+    peers: ['Bernadya', 'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra', 'Yura Yunita', 'Rizky Febian', 'Raisa']
+  },
+  {
+    name: 'Indonesian Pop Rock & Legend Hits',
+    keywords: ['sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', 'd\'masiv', 'ada band', 'kotak', 'gigi', 'slank', 'chrisye', 'glenn fredly', 'ari lasso'],
+    peers: ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu', 'D\'Masiv', 'Glenn Fredly']
+  },
+  {
+    name: 'Global & Western Pop Hits',
+    keywords: ['the weeknd', 'bruno mars', 'taylor swift', 'billie eilish', 'olivia rodrigo', 'ed sheeran', 'coldplay', 'dua lipa', 'maroon 5', 'post malone', 'sabrina carpenter', 'ariana grande', 'justin bieber', 'harry styles', 'lady gaga', 'shawn mendes'],
+    peers: ['The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish', 'Olivia Rodrigo', 'Coldplay', 'Sabrina Carpenter', 'Ed Sheeran', 'Dua Lipa']
+  },
+  {
+    name: 'K-Pop Hits',
+    keywords: ['newjeans', 'bts', 'blackpink', 'aespa', 'le sserafim', 'twice', 'iu', 'seventeen', 'stray kids', 'rosé', 'jennie', 'jungkook', 'ive', 'txt', 'enhypen'],
+    peers: ['NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM', 'IU', 'TWICE', 'ROSÉ']
+  }
+];
+
 export const musicApi = {
   /**
    * Resolve Full Song YouTube Video ID & Duration
@@ -242,16 +305,19 @@ export const musicApi = {
   },
 
   /**
-   * Fetch Live Trending Tracks directly from iTunes API
+   * Fetch Live Trending Tracks directly from iTunes API using verified hitmaker artists
    */
   async fetchTrendingTracks() {
     try {
-      const queries = ['Viral Hits Indonesia', 'Global Top Hits', 'The Weeknd', 'Taylor Swift', 'NIKI', 'Coldplay'];
+      const topArtists = [
+        'Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy',
+        'Mahalini', 'Tulus', 'The Weeknd', 'Bruno Mars', 'Billie Eilish'
+      ];
       // Shuffle slightly so home is fresh
-      const shuffledQueries = [...queries].sort(() => Math.random() - 0.5).slice(0, 4);
+      const shuffledQueries = [...topArtists].sort(() => Math.random() - 0.5).slice(0, 4);
       const promises = shuffledQueries.map(q => this.searchTracks(q, 4));
       const resultsArrays = await Promise.all(promises);
-      const combined = resultsArrays.flat();
+      const combined = resultsArrays.flat().filter(isCleanPopularTrack);
 
       if (combined.length > 0) {
         const unique = [];
@@ -268,129 +334,116 @@ export const musicApi = {
       console.warn('Failed to fetch live trending tracks', e);
     }
 
-    const fallbackResults = await this.searchTracks('Top Hits', 14);
+    const fallbackResults = (await this.searchTracks('Tulus', 10)).filter(isCleanPopularTrack);
     return fallbackResults.length > 0 ? fallbackResults : [];
   },
 
   /**
-   * Smart Next / Autoplay: Intelligently finds next tracks related to current track
-   * when a playlist or queue reaches the end.
+   * Smart Next / Autoplay: Intelligently finds famous, popular tracks related to current track
    */
   async getSmartRecommendations(currentTrack, existingQueue = []) {
     if (!currentTrack) return [];
-
+    const radioTracks = await this.getArtistGenreRadio(currentTrack, 10);
     const existingIds = new Set(existingQueue.map(t => t.id));
-    const currentTitle = (currentTrack.title || '').toLowerCase().trim();
-    const currentArtist = (currentTrack.artist || '').toLowerCase().trim();
-
-    try {
-      // Step 1: Query by artist to find more songs by same artist
-      const artistTracks = await this.searchTracks(currentTrack.artist, 10);
-
-      // Step 2: Query by genre or top hits in same style
-      const genreQuery = currentTrack.genre ? `${currentTrack.genre} hits` : 'pop hits';
-      const genreTracks = await this.searchTracks(genreQuery, 10);
-
-      const combined = [...artistTracks, ...genreTracks];
-      const recommended = [];
-      const seenTitles = new Set([currentTitle]);
-
-      for (const t of combined) {
-        const cleanT = (t.title || '').toLowerCase().trim();
-        if (!existingIds.has(t.id) && !seenTitles.has(cleanT)) {
-          seenTitles.add(cleanT);
-          recommended.push(t);
-        }
-      }
-
-      if (recommended.length >= 3) {
-        return [...recommended].sort(() => Math.random() - 0.5).slice(0, 8);
-      }
-
-      // Step 3: Fallback query if not enough matches
-      const trending = await this.fetchTrendingTracks();
-      for (const t of trending) {
-        const cleanT = (t.title || '').toLowerCase().trim();
-        if (!existingIds.has(t.id) && !seenTitles.has(cleanT)) {
-          seenTitles.add(cleanT);
-          recommended.push(t);
-        }
-      }
-
-      return [...recommended].sort(() => Math.random() - 0.5).slice(0, 8);
-    } catch (e) {
-      console.warn('Smart recommendation failed:', e);
-      return [];
-    }
+    return radioTracks.filter(t => !existingIds.has(t.id));
   },
 
   /**
    * Search Radio Mode:
-   * Generates a randomized queue of songs matching the clicked track's artist and genre,
-   * completely replacing raw query results.
+   * Generates a randomized queue of TOP POPULAR, FAMOUS songs matching the artist or peer hitmakers.
+   * Strictly filters out obscure songs, covers, and amateur tracks.
    */
   async getArtistGenreRadio(track, limit = 18) {
     if (!track) return [];
     const targetId = track.id;
     const targetTitle = (track.title || '').toLowerCase().trim();
     const targetArtist = (track.artist || '').toLowerCase().trim();
-    const targetGenre = track.genre && !['pop', 'music'].includes(track.genre.toLowerCase()) ? track.genre : null;
 
     try {
-      const queries = [];
-      if (targetArtist) {
-        queries.push(this.searchTracks(targetArtist, 14).catch(() => []));
-      }
-      if (targetGenre) {
-        queries.push(this.searchTracks(`${targetGenre} hits`, 12).catch(() => []));
-      } else if (targetArtist) {
-        queries.push(this.searchTracks(`${targetArtist} radio hits`, 12).catch(() => []));
-      }
-      queries.push(this.fetchTrendingTracks().catch(() => []));
+      // 1. Fetch artist's verified top songs
+      const artistDetailsPromise = this.getArtistDetails('', track.artist).catch(() => null);
+      const artistSearchPromise = this.searchTracks(track.artist, 12).catch(() => []);
 
-      const results = await Promise.all(queries);
-      const artistTracks = results[0] || [];
-      const genreTracks = results[1] || [];
-      const trendingTracks = results[2] || [];
+      // 2. Identify peer hitmaker cluster
+      let peerArtists = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
+      for (const cluster of POPULAR_ARTIST_CLUSTERS) {
+        if (cluster.keywords.some(k => targetArtist.includes(k) || k.includes(targetArtist))) {
+          peerArtists = cluster.peers.filter(p => p.toLowerCase() !== targetArtist);
+          break;
+        }
+      }
+
+      // Pick 2-3 random famous peer hitmakers from the cluster
+      const shuffledPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 3);
+      const peerPromises = shuffledPeers.map(peer => this.searchTracks(peer, 6).catch(() => []));
+
+      // 3. Await all verified popular sources in parallel
+      const [artistDetails, artistSearch, ...peerResults] = await Promise.all([
+        artistDetailsPromise,
+        artistSearchPromise,
+        ...peerPromises,
+      ]);
 
       const seen = new Set();
       if (targetId) seen.add(targetId);
       seen.add(targetTitle);
 
-      const artistPool = [];
-      for (const t of artistTracks) {
+      // Collect artist's popular tracks (from topSongs or search)
+      const rawArtistPool = [
+        ...(artistDetails?.topSongs || []),
+        ...(artistDetails?.allSongs || []),
+        ...artistSearch,
+      ];
+
+      const cleanArtistHits = [];
+      for (const t of rawArtistPool) {
         const cleanT = (t.title || '').toLowerCase().trim();
-        if (!seen.has(t.id) && !seen.has(cleanT)) {
+        if (isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
           seen.add(t.id);
           seen.add(cleanT);
-          artistPool.push(t);
+          cleanArtistHits.push(t);
         }
       }
 
-      const relatedPool = [];
-      for (const t of [...genreTracks, ...trendingTracks]) {
+      // Collect peer hitmakers' popular tracks
+      const rawPeerTracks = peerResults.flat();
+      const cleanPeerHits = [];
+      for (const t of rawPeerTracks) {
         const cleanT = (t.title || '').toLowerCase().trim();
-        if (!seen.has(t.id) && !seen.has(cleanT)) {
+        if (isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
           seen.add(t.id);
           seen.add(cleanT);
-          relatedPool.push(t);
+          cleanPeerHits.push(t);
         }
       }
 
-      // Shuffle pools for fresh, non-deterministic playback
-      const shuffledArtist = artistPool.sort(() => Math.random() - 0.5);
-      const shuffledRelated = relatedPool.sort(() => Math.random() - 0.5);
+      // Fallback: If not enough hits found, fetch from trending
+      if (cleanArtistHits.length + cleanPeerHits.length < 8) {
+        const trending = await this.fetchTrendingTracks();
+        for (const t of trending) {
+          const cleanT = (t.title || '').toLowerCase().trim();
+          if (isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+            seen.add(t.id);
+            seen.add(cleanT);
+            cleanPeerHits.push(t);
+          }
+        }
+      }
 
-      // Interleave artist songs with similar genre songs for ideal radio experience
-      const radioQueue = [];
-      const maxLen = Math.max(shuffledArtist.length, shuffledRelated.length);
+      // Shuffle both pools for genuine randomness among POPULAR HITS
+      const shuffledArtist = cleanArtistHits.sort(() => Math.random() - 0.5);
+      const shuffledPeersHits = cleanPeerHits.sort(() => Math.random() - 0.5);
+
+      // Interleave: artist's popular songs + famous peer songs
+      const finalRadioQueue = [];
+      const maxLen = Math.max(shuffledArtist.length, shuffledPeersHits.length);
       for (let i = 0; i < maxLen; i++) {
-        if (i < shuffledArtist.length) radioQueue.push(shuffledArtist[i]);
-        if (i < shuffledRelated.length) radioQueue.push(shuffledRelated[i]);
+        if (i < shuffledArtist.length) finalRadioQueue.push(shuffledArtist[i]);
+        if (i < shuffledPeersHits.length) finalRadioQueue.push(shuffledPeersHits[i]);
       }
 
-      // Shuffle final queue
-      return radioQueue.sort(() => Math.random() - 0.5).slice(0, limit);
+      // Return shuffled final queue of famous songs
+      return finalRadioQueue.sort(() => Math.random() - 0.5).slice(0, limit);
     } catch (e) {
       console.warn('getArtistGenreRadio error:', e);
       return [];

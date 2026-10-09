@@ -264,20 +264,42 @@ class AudioPlayerManager extends ChangeNotifier {
     // 1. Play clicked track immediately with single-track queue (instant playback)
     await playTrack(track, [track]);
 
-    // 2. Fetch tracks by the same artist & related genre in background
+    // 2. Fetch verified tracks by the same artist & related genre in background
     try {
       final artistTracks = await _apiService.searchTracks(track.artist);
       final seen = <String>{track.id, track.title.toLowerCase().trim()};
       final pool = <Track>[];
+      final banned = ['karaoke', 'instrumental', 'cover by', 'tribute to', 'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb', 'remake', 'tutorial'];
+
       for (final t in artistTracks) {
         final clean = t.title.toLowerCase().trim();
-        if (!seen.contains(t.id) && !seen.contains(clean)) {
+        final isJunk = banned.any((b) => clean.contains(b));
+        if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
           seen.add(t.id);
           seen.add(clean);
           pool.add(t);
         }
       }
-      // Shuffle for randomized artist/genre radio
+
+      // If artist has fewer than 5 tracks, supplement with popular hitmaker peers
+      if (pool.length < 5) {
+        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
+        peers.shuffle(Random());
+        for (final peer in peers.take(2)) {
+          final peerTracks = await _apiService.searchTracks(peer);
+          for (final t in peerTracks) {
+            final clean = t.title.toLowerCase().trim();
+            final isJunk = banned.any((b) => clean.contains(b));
+            if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
+              seen.add(t.id);
+              seen.add(clean);
+              pool.add(t);
+            }
+          }
+        }
+      }
+
+      // Shuffle for randomized hit radio
       pool.shuffle(Random());
       if (pool.isNotEmpty) {
         _queue = [
