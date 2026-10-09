@@ -434,6 +434,67 @@ export default function App() {
     }
   }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, isPlaying]);
 
+  // Global Desktop Spotify Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if user is actively typing in an input or textarea
+      const target = e.target;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        if (e.key === 'Escape') {
+          target.blur();
+        }
+        return;
+      }
+
+      // Space: Toggle Play/Pause
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handlePlayPause();
+      } else if (e.key === 'Escape') {
+        // Escape: Close Right Sidebar, Lyrics, Modals, Menus
+        if (isRightSidebarOpen) setIsRightSidebarOpen(false);
+        if (isLyricsOpen) setIsLyricsOpen(false);
+        if (isQueueOpen) setIsQueueOpen(false);
+        if (isImportModalOpen) setIsImportModalOpen(false);
+        if (isDownloadModalOpen) setIsDownloadModalOpen(false);
+        if (contextMenuData) setContextMenuData(null);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight') {
+        // Ctrl+Right / Cmd+Right: Skip Next
+        e.preventDefault();
+        handleNext();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft') {
+        // Ctrl+Left / Cmd+Left: Previous
+        e.preventDefault();
+        handlePrevious();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        // Ctrl+K / Cmd+K: Focus Search View
+        e.preventDefault();
+        setCurrentView('search');
+        setSelectedPlaylistId(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    isPlaying,
+    currentTrack,
+    queue,
+    isRightSidebarOpen,
+    isLyricsOpen,
+    isQueueOpen,
+    isImportModalOpen,
+    isDownloadModalOpen,
+    contextMenuData,
+    personalizedFeed,
+    trendingTracks,
+  ]);
+
   // Like Song
   const handleToggleLike = (track) => {
     const updated = storageService.toggleLikeTrack(track);

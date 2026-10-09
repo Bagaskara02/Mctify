@@ -81,7 +81,16 @@ class MusicApiService {
 
   /// Resolves YouTube video ID for full-length song streaming (3 - 5+ minutes)
   Future<String?> resolveVideoId(String title, String artist, [int? expectedDuration]) async {
-    final cleanKey = 'vid_${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
+    final sanitizedTitle = title
+        .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+        .replaceAll('◐', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final firstArtist = artist
+        .split(',')[0]
+        .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+        .trim();
+    final cleanKey = 'vid_${sanitizedTitle.toLowerCase()}_${firstArtist.toLowerCase()}';
     if (_streamCache.containsKey(cleanKey)) {
       return _streamCache[cleanKey];
     }
@@ -89,11 +98,11 @@ class MusicApiService {
     final yt = YoutubeExplode();
     try {
       // 1. Primary: Search via YoutubeExplode
-      final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 8));
+      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 8));
       if (searchResults.isNotEmpty) {
         final scored = searchResults.map((v) {
           final dur = v.duration?.inSeconds;
-          final score = _scoreCandidate(v.title, title, artist, dur, expectedDuration);
+          final score = _scoreCandidate(v.title, sanitizedTitle, firstArtist, dur, expectedDuration);
           return MapEntry(v.id.value, score);
         }).toList();
 
@@ -276,8 +285,15 @@ class MusicApiService {
       'reaction', 'slowed', 'reverb', 'instrumental', 'guitar cover'
     ];
     for (final term in unwanted) {
-      if (lower.contains(term)) {
+      if (lower.contains(term) && !cleanTitle.contains(term)) {
         score -= 90;
+      }
+    }
+
+    // Explicit bonus if requested version is matched
+    for (final term in ['brooklyn session', 'acoustic', 'remix', 'live', 'session']) {
+      if (cleanTitle.contains(term) && lower.contains(term)) {
+        score += 45;
       }
     }
 
@@ -621,8 +637,75 @@ class MusicApiService {
     };
   }
 
-  // Fetch Trending / Starter Tracks
+  // Fetch Trending / Starter Tracks dynamically from popular hitmaker charts
   Future<List<Track>> getTrendingTracks() async {
+    try {
+      final topArtists = [
+        'Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy',
+        'Mahalini', 'Tulus', 'Coldplay', 'The Weeknd', 'Bruno Mars', 'Billie Eilish'
+      ];
+      final shuffled = List<String>.from(topArtists)..shuffle();
+      final results = <Track>[];
+      final seen = <String>{};
+
+      for (final artist in shuffled.take(4)) {
+        final artistTracks = await searchTracks(artist);
+        for (final t in artistTracks) {
+          final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
+          if (!seen.contains(key)) {
+            seen.add(key);
+            results.add(t);
+            if (results.length >= 20) break;
+          }
+        }
+        if (results.length >= 20) break;
+      }
+
+      if (results.isNotEmpty) {
+        return results;
+      }
+    } catch (e) {
+      debugPrint('getTrendingTracks dynamic fetch note: $e');
+    }
     return officialTopTracks;
+  }
+
+  /// Finds famous, popular tracks related to current track for smart radio / next queue
+  Future<List<Track>> getSmartRecommendations(Track currentTrack) async {
+    final pool = <Track>[];
+    final seen = <String>{'${currentTrack.title.toLowerCase().trim()}_${currentTrack.artist.toLowerCase().trim()}'};
+
+    try {
+      // 1. Search artist tracks
+      final artistTracks = await searchTracks(currentTrack.artist);
+      for (final t in artistTracks) {
+        final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
+        if (!seen.contains(key)) {
+          seen.add(key);
+          pool.add(t);
+          if (pool.length >= 6) break;
+        }
+      }
+
+      // 2. Add peer hitmaker tracks
+      final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Coldplay', 'The Weeknd'];
+      peers.shuffle();
+      for (final peer in peers.take(2)) {
+        final peerTracks = await searchTracks(peer);
+        for (final t in peerTracks) {
+          final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
+          if (!seen.contains(key)) {
+            seen.add(key);
+            pool.add(t);
+            if (pool.length >= 12) break;
+          }
+        }
+        if (pool.length >= 12) break;
+      }
+
+      pool.shuffle();
+    } catch (_) {}
+
+    return pool.isNotEmpty ? pool : officialTopTracks;
   }
 }

@@ -37,13 +37,28 @@ class PlaylistImporterService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {
-          playlistName = data['name'] ?? playlistName;
+          final fetchedName = data['name']?.toString().trim();
+          if (fetchedName != null && fetchedName.isNotEmpty) {
+            playlistName = fetchedName;
+          }
           cover = data['cover'] ?? cover;
+          final Set<String> seen = {};
           for (final t in data['tracks']) {
             final title = (t['title'] ?? '').toString().trim();
-            final artist = (t['artist'] ?? '').toString().trim();
-            if (title.isNotEmpty) {
-              rawTracks.add({'title': title, 'artist': artist});
+            final artist = (t['artist'] ?? '')
+                .toString()
+                .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+                .trim();
+            final dur = t['duration'] != null ? t['duration'].toString() : '180';
+            final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+            if (title.isNotEmpty && !seen.contains(key)) {
+              seen.add(key);
+              rawTracks.add({
+                'title': title,
+                'artist': artist,
+                'duration': dur,
+                if (t['isExplicit'] == true) 'isExplicit': 'true',
+              });
             }
           }
         }
@@ -72,17 +87,36 @@ class PlaylistImporterService {
             final data = jsonDecode(jsonStr);
             final entity = data['props']?['pageProps']?['state']?['data']?['entity'];
             if (entity != null) {
-              playlistName = entity['name'] ?? playlistName;
+              final fetchedName = entity['name']?.toString().trim();
+              if (fetchedName != null && fetchedName.isNotEmpty) {
+                playlistName = fetchedName;
+              }
               final coverList = entity['coverArt']?['sources'] as List?;
               if (coverList != null && coverList.isNotEmpty) {
                 cover = coverList[0]['url'] ?? cover;
               }
               final trackList = entity['trackList'] as List? ?? [];
+              final Set<String> seen = {};
               for (final t in trackList) {
                 final title = (t['title'] ?? '').toString().trim();
-                final artist = (t['subtitle'] ?? '').toString().trim();
-                if (title.isNotEmpty) {
-                  rawTracks.add({'title': title, 'artist': artist});
+                final artist = (t['subtitle'] ?? '')
+                    .toString()
+                    .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+                    .trim();
+                final durMs = t['duration'] as num?;
+                final durSec = durMs != null ? (durMs / 1000).round().toString() : '180';
+                final audioPreview = t['audioPreview']?['url']?.toString() ?? '';
+                final isExplicit = t['isExplicit'] == true;
+                final key = '${title.toLowerCase()}_${artist.toLowerCase()}';
+                if (title.isNotEmpty && !seen.contains(key)) {
+                  seen.add(key);
+                  rawTracks.add({
+                    'title': title,
+                    'artist': artist,
+                    'duration': durSec,
+                    if (audioPreview.isNotEmpty) 'audioUrl': audioPreview,
+                    if (isExplicit) 'isExplicit': 'true',
+                  });
                 }
               }
             }
@@ -289,74 +323,92 @@ class PlaylistImporterService {
     ImportProgressCallback? onProgress,
   }) async {
     final List<Track> resolvedTracks = [];
+    final Set<String> seenKeys = {};
     final total = rawItems.length;
 
     for (int i = 0; i < total; i++) {
       final item = rawItems[i];
-      final title = item['title'] ?? '';
-      final artist = item['artist'] ?? '';
+      final title = (item['title'] ?? '').trim();
+      final artist = (item['artist'] ?? '')
+          .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+          .trim();
+      if (title.isEmpty) continue;
+
+      // Strict Deduplication
+      final trackKey = '${title.toLowerCase()}_${artist.toLowerCase()}';
+      if (seenKeys.contains(trackKey)) {
+        continue;
+      }
+      seenKeys.add(trackKey);
+
       final explicitVid = item['videoId'];
-      final explicitDur = int.tryParse(item['duration'] ?? '');
+      final explicitDur = int.tryParse(item['duration'] ?? '') ?? 180;
+      final explicitPreview = item['audioUrl'] ?? '';
+      final isExplicit = item['isExplicit'] == 'true';
 
       onProgress?.call(i + 1, total, 'Mencocokkan lagu (${i + 1}/$total): "$title"...');
 
+      String matchedArtwork = item['artwork'] ?? (cover.isNotEmpty ? cover : MusicApiService.defaultArtwork);
+      String matchedAlbum = item['album'] ?? playlistName;
+      String matchedAudioUrl = explicitPreview;
+
       try {
-        // Search track in regional database for cover art & album info
+        // Query catalog only for high-resolution album cover and preview
         final matches = await _apiService.searchTracks('$title $artist'.trim());
-        Track? bestTrack;
-        if (matches.isNotEmpty) {
-          bestTrack = matches.first;
+        Track? bestMatch;
+
+        final targetWords = title.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
+        final targetArtist = artist.toLowerCase();
+
+        for (final cand in matches) {
+          final candTitle = cand.title.toLowerCase();
+          final candArtist = cand.artist.toLowerCase();
+
+          final artistMatch = candArtist.contains(targetArtist) || targetArtist.contains(candArtist) ||
+              targetArtist.split(',').any((a) => candArtist.contains(a.trim()));
+
+          final candWords = candTitle.replaceAll(RegExp(r'[^\w\s]'), '').split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
+          final overlap = targetWords.intersection(candWords).length;
+
+          if (artistMatch && (candTitle.contains(title.toLowerCase()) || title.toLowerCase().contains(candTitle) || (targetWords.isNotEmpty && overlap >= (targetWords.length / 2).ceil()))) {
+            bestMatch = cand;
+            break;
+          }
         }
 
-        if (bestTrack != null) {
-          resolvedTracks.add(Track(
-            id: bestTrack.id,
-            title: bestTrack.title,
-            artist: bestTrack.artist,
-            album: bestTrack.album,
-            artwork: bestTrack.artwork,
-            audioUrl: bestTrack.audioUrl,
-            videoId: explicitVid ?? bestTrack.videoId,
-            duration: explicitDur ?? bestTrack.duration,
-            streamCount: bestTrack.streamCount,
-            isExplicit: bestTrack.isExplicit,
-          ));
-        } else {
-          resolvedTracks.add(Track(
-            id: 'imp-${DateTime.now().millisecondsSinceEpoch}-$i',
-            title: title,
-            artist: artist.isNotEmpty ? artist : 'Unknown Artist',
-            album: playlistName,
-            artwork: cover.isNotEmpty ? cover : MusicApiService.defaultArtwork,
-            audioUrl: '',
-            videoId: explicitVid,
-            duration: explicitDur ?? 180,
-            streamCount: '500.000',
-            isExplicit: false,
-          ));
+        if (bestMatch != null) {
+          if (bestMatch.artwork.isNotEmpty && !bestMatch.artwork.contains('default')) {
+            matchedArtwork = bestMatch.artwork;
+          }
+          if (bestMatch.album.isNotEmpty && bestMatch.album != 'Single') {
+            matchedAlbum = bestMatch.album;
+          }
+          if (matchedAudioUrl.isEmpty && bestMatch.audioUrl.isNotEmpty) {
+            matchedAudioUrl = bestMatch.audioUrl;
+          }
         }
-      } catch (_) {
-        resolvedTracks.add(Track(
-          id: 'imp-${DateTime.now().millisecondsSinceEpoch}-$i',
-          title: title,
-          artist: artist.isNotEmpty ? artist : 'Unknown Artist',
-          album: playlistName,
-          artwork: cover.isNotEmpty ? cover : MusicApiService.defaultArtwork,
-          audioUrl: '',
-          videoId: explicitVid,
-          duration: explicitDur ?? 180,
-          streamCount: '500.000',
-          isExplicit: false,
-        ));
-      }
+      } catch (_) {}
+
+      resolvedTracks.add(Track(
+        id: 'imp-${DateTime.now().millisecondsSinceEpoch}-$i',
+        title: title, // CRITICAL: NEVER OVERWRITE ORIGINAL IMPORT TITLE!
+        artist: artist.isNotEmpty ? artist : 'Unknown Artist', // CRITICAL: NEVER OVERWRITE ORIGINAL IMPORT ARTIST!
+        album: matchedAlbum,
+        artwork: matchedArtwork,
+        audioUrl: matchedAudioUrl,
+        videoId: explicitVid,
+        duration: explicitDur,
+        streamCount: '1.000.000',
+        isExplicit: isExplicit,
+      ));
 
       // Small throttling delay to avoid rate limits
       if (i < total - 1 && i % 4 == 0) {
-        await Future.delayed(const Duration(milliseconds: 50));
+        await Future.delayed(const Duration(milliseconds: 30));
       }
     }
 
-    final finalCover = resolvedTracks.isNotEmpty && resolvedTracks.first.artwork.isNotEmpty
+    final finalCover = resolvedTracks.isNotEmpty && resolvedTracks.first.artwork.isNotEmpty && !resolvedTracks.first.artwork.contains('default')
         ? resolvedTracks.first.artwork
         : cover;
 

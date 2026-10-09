@@ -33,7 +33,11 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   int _activeLineIndex = 0;
   bool _userScrolled = false;
   Timer? _userScrollTimer;
-  double _syncOffset = 0.0;
+  double? _manualOffset;
+  double _autoOffset = 0.0;
+
+  bool get isAutoSync => _manualOffset == null;
+  double get effectiveSyncOffset => isAutoSync ? _autoOffset : _manualOffset!;
 
   // 60 FPS Sub-second Interpolation Ticker
   late final Ticker _ticker;
@@ -52,7 +56,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
     _lastKnownPlayerSec = widget.player.position.inMilliseconds / 1000.0;
     _lastKnownTimestampMs = DateTime.now().millisecondsSinceEpoch;
-    _currentEffectiveSec = _lastKnownPlayerSec + _syncOffset;
+    _currentEffectiveSec = _lastKnownPlayerSec + effectiveSyncOffset;
 
     _ticker = createTicker(_onTick);
     _ticker.start();
@@ -70,18 +74,19 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
       _lastKnownTimestampMs = now;
     }
 
+    final curOffset = effectiveSyncOffset;
     if (widget.player.isPlaying) {
       final dt = (now - _lastKnownTimestampMs) / 1000.0;
       // Clamp interpolation to not drift too far ahead before next player update
       final clampedDt = dt.clamp(0.0, 0.45);
-      final interpolated = _lastKnownPlayerSec + clampedDt + _syncOffset;
+      final interpolated = _lastKnownPlayerSec + clampedDt + curOffset;
       if ((interpolated - _currentEffectiveSec).abs() > 0.01) {
         setState(() {
           _currentEffectiveSec = interpolated;
         });
       }
     } else {
-      final staticPos = playerSec + _syncOffset;
+      final staticPos = playerSec + curOffset;
       if ((staticPos - _currentEffectiveSec).abs() > 0.01) {
         setState(() {
           _currentEffectiveSec = staticPos;
@@ -92,21 +97,24 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
   Future<void> _loadStoredSyncOffset() async {
     final saved = await _storageService.getLyricsSyncOffset(_trackKey);
-    if (mounted) {
-      setState(() => _syncOffset = saved);
+    if (mounted && saved != 0.0) {
+      setState(() => _manualOffset = saved);
     }
   }
 
   void _updateSyncOffset(double delta) {
     setState(() {
-      _syncOffset = ((_syncOffset + delta) * 10).roundToDouble() / 10.0;
+      final base = _manualOffset ?? _autoOffset;
+      _manualOffset = ((base + delta) * 10).roundToDouble() / 10.0;
     });
-    _storageService.setLyricsSyncOffset(_trackKey, _syncOffset);
+    if (_manualOffset != null) {
+      _storageService.setLyricsSyncOffset(_trackKey, _manualOffset!);
+    }
     HapticFeedback.selectionClick();
   }
 
-  void _resetSyncOffset() {
-    setState(() => _syncOffset = 0.0);
+  void _resetToAutoSync() {
+    setState(() => _manualOffset = null);
     _storageService.setLyricsSyncOffset(_trackKey, 0.0);
     HapticFeedback.mediumImpact();
   }
@@ -120,14 +128,15 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   }
 
   Future<void> _loadLyrics() async {
-    final lines = await _lyricsService.fetchLyrics(
+    final result = await _lyricsService.fetchLyricsResult(
       widget.track.artist,
       widget.track.title,
       widget.track.duration,
     );
     if (mounted) {
       setState(() {
-        _lyrics = lines;
+        _lyrics = result.lines;
+        _autoOffset = result.autoOffset;
         _isLoading = false;
       });
     }
@@ -222,41 +231,52 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                         ],
                       ),
                     ),
-                    // Blue Sync Tuning Pill
+                    // Auto Sync & Tuning Pill
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF141923),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.primaryAzure.withAlpha(80)),
+                        color: isAutoSync ? const Color(0xFF0F2231) : const Color(0xFF1F1D14),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isAutoSync
+                              ? const Color(0xFF00E5FF).withAlpha(120)
+                              : Colors.amberAccent.withAlpha(120),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.timer_outlined, size: 13, color: AppTheme.primaryAzure),
-                          const SizedBox(width: 2),
                           InkWell(
                             onTap: () => _updateSyncOffset(-0.1),
                             borderRadius: BorderRadius.circular(8),
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
                               child: Icon(Icons.remove, size: 13, color: Colors.white70),
                             ),
                           ),
                           GestureDetector(
-                            onTap: _resetSyncOffset,
+                            onTap: _resetToAutoSync,
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 2),
-                              child: Text(
-                                _syncOffset == 0.0
-                                    ? 'Sync'
-                                    : '${_syncOffset > 0 ? '+' : ''}${_syncOffset.toStringAsFixed(1)}s',
-                                style: const TextStyle(
-                                  color: Color(0xFF00E5FF),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'monospace',
-                                ),
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isAutoSync) ...[
+                                    const Icon(Icons.bolt, size: 13, color: Color(0xFF00E5FF)),
+                                    const SizedBox(width: 2),
+                                  ],
+                                  Text(
+                                    isAutoSync
+                                        ? 'AUTO SYNC'
+                                        : '${effectiveSyncOffset >= 0 ? '+' : ''}${effectiveSyncOffset.toStringAsFixed(1)}s',
+                                    style: TextStyle(
+                                      color: isAutoSync ? const Color(0xFF00E5FF) : Colors.amberAccent,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: isAutoSync ? 0.4 : 0.0,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -264,10 +284,17 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                             onTap: () => _updateSyncOffset(0.1),
                             borderRadius: BorderRadius.circular(8),
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
                               child: Icon(Icons.add, size: 13, color: Colors.white70),
                             ),
                           ),
+                          if (!isAutoSync) ...[
+                            const SizedBox(width: 2),
+                            GestureDetector(
+                              onTap: _resetToAutoSync,
+                              child: const Icon(Icons.refresh, size: 12, color: Color(0xFF00E5FF)),
+                            ),
+                          ],
                         ],
                       ),
                     ),

@@ -28,73 +28,146 @@ class _HomeViewState extends State<HomeView> {
   String _selectedFilter = 'All'; // All, Music, Podcasts
   List<Track> _recentRotation = [];
   List<Track> _startListening = [];
+  String _startListeningTitle = 'Start listening';
+  String _startListeningSubtitle = 'Jump into a session based on your tastes';
   List<Track> _likedTracks = [];
   List<Playlist> _playlists = [];
   bool _isLoading = true;
   final Set<String> _likedIds = {};
+  List<Map<String, dynamic>> _popularRadios = [];
+  String? _lastRecordedTrackId;
 
-  final List<Map<String, dynamic>> _popularRadios = [
-    {
-      'title': 'Dewa 19',
-      'bgColor': const Color(0xFF68D391), // Mint green-cyan
-      'artists': 'Dewa 19, Pamungkas, Dewa 19, Yovie Widianto, Padi',
-      'images': [
-        'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=200',
-        'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=200',
-      ],
-      'search': 'Dewa 19',
-    },
-    {
-      'title': 'Sheila On 7',
-      'bgColor': const Color(0xFFF6AD55), // Coral peach
-      'artists': 'Sheila On 7, Raim Laode, Pamungkas, HiVi!, Maliq',
-      'images': [
-        'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=200',
-        'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=200',
-      ],
-      'search': 'Sheila On 7',
-    },
-    {
-      'title': 'Bernadya',
-      'bgColor': const Color(0xFF63B3ED), // Sky Azure
-      'artists': 'Bernadya, Sal Priadi, Hindia, Nadin Amizah, Mahalini',
-      'images': [
-        'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=200',
-        'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=200',
-      ],
-      'search': 'Bernadya',
-    },
-    {
-      'title': 'Bruno Mars',
-      'bgColor': const Color(0xFF4FD1C5), // Teal
-      'artists': 'Bruno Mars, The Weeknd, Justin Bieber, Maroon 5',
-      'images': [
-        'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=200',
-      ],
-      'search': 'Bruno Mars',
-    },
-  ];
+  List<Map<String, dynamic>> _buildDynamicRadios({
+    String? topArtist,
+    String? lastArtist,
+    required List<Track> tracksPool,
+  }) {
+    final List<Map<String, dynamic>> radios = [];
+    final List<Color> colors = [
+      const Color(0xFF00A3FF), // Electric Azure
+      const Color(0xFF68D391), // Mint
+      const Color(0xFFF6AD55), // Coral
+      const Color(0xFF9F7AEA), // Violet
+      const Color(0xFF4FD1C5), // Teal
+    ];
+
+    final artistsToFeature = <String>{};
+    if (topArtist != null && topArtist.isNotEmpty) artistsToFeature.add(topArtist);
+    if (lastArtist != null && lastArtist.isNotEmpty) artistsToFeature.add(lastArtist);
+    artistsToFeature.addAll(['Bernadya', 'Sal Priadi', 'The Weeknd', 'Bruno Mars', 'Coldplay']);
+
+    int colorIdx = 0;
+    for (final artist in artistsToFeature.take(5)) {
+      final matching = tracksPool.where((t) => t.artist.toLowerCase().contains(artist.toLowerCase())).toList();
+      final images = <String>[];
+      if (matching.isNotEmpty) {
+        images.addAll(matching.map((t) => t.artwork).take(2));
+      }
+      if (images.isEmpty) {
+        images.add(MusicApiService.defaultArtwork);
+      }
+
+      radios.add({
+        'title': artist,
+        'bgColor': colors[colorIdx % colors.length],
+        'artists': 'Radio $artist • Campuran hits terbaik dan lagu serupa',
+        'images': images,
+        'search': artist,
+      });
+      colorIdx++;
+    }
+
+    return radios;
+  }
 
   @override
   void initState() {
     super.initState();
     _loadHomeData();
+    widget.player.addListener(_onPlayerStateChanged);
+  }
+
+  void _onPlayerStateChanged() {
+    final current = widget.player.currentTrack;
+    if (current != null && current.id != _lastRecordedTrackId) {
+      _lastRecordedTrackId = current.id;
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (mounted) _loadHomeData();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.player.removeListener(_onPlayerStateChanged);
+    super.dispose();
   }
 
   Future<void> _loadHomeData() async {
-    final trending = await _api.getTrendingTracks();
-    final liked = await _storage.getLikedTracks();
-    final playlists = await _storage.getPlaylists();
+    try {
+      final history = await _storage.getHistory();
+      final liked = await _storage.getLikedTracks();
+      final playlists = await _storage.getPlaylists();
+      final topArtist = await _storage.getTopArtist();
 
-    if (mounted) {
-      setState(() {
-        _recentRotation = trending.take(3).toList();
-        _startListening = trending.skip(3).take(4).toList();
-        _likedTracks = liked;
-        _playlists = playlists;
-        _likedIds.addAll(liked.map((t) => t.id));
-        _isLoading = false;
-      });
+      List<Track> recentRotation = [];
+      List<Track> startListening = [];
+      String startListeningSubtitle = 'Jump into a session based on your tastes';
+      String startListeningTitle = 'Start listening';
+
+      if (history.isNotEmpty) {
+        recentRotation = history.take(4).toList();
+        final lastTrack = history.first;
+        final lastArtist = lastTrack.artist;
+
+        // Fetch smart recommendations dynamically based on actual played track
+        final recommended = await _api.getSmartRecommendations(lastTrack);
+        startListening = recommended.take(4).toList();
+
+        if (topArtist != null && topArtist.isNotEmpty) {
+          startListeningSubtitle = 'Karena kamu sering memutar $topArtist & ${lastTrack.title}';
+          startListeningTitle = 'Rekomendasi Untukmu';
+        } else {
+          startListeningSubtitle = 'Berdasarkan "${lastTrack.title}"';
+          startListeningTitle = 'Radio & Rekomendasi';
+        }
+
+        final pool = [...history, ...startListening, ...liked];
+        _popularRadios = _buildDynamicRadios(
+          topArtist: topArtist,
+          lastArtist: lastArtist,
+          tracksPool: pool,
+        );
+      } else {
+        // Brand new user: fetch live trending hits
+        final trending = await _api.getTrendingTracks();
+        recentRotation = trending.take(3).toList();
+        startListening = trending.skip(3).take(4).toList();
+        _popularRadios = _buildDynamicRadios(
+          topArtist: null,
+          lastArtist: null,
+          tracksPool: trending,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _recentRotation = recentRotation;
+          _startListening = startListening;
+          _startListeningTitle = startListeningTitle;
+          _startListeningSubtitle = startListeningSubtitle;
+          _likedTracks = liked;
+          _playlists = playlists;
+          _likedIds.clear();
+          _likedIds.addAll(liked.map((t) => t.id));
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading dynamic home data: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -331,18 +404,18 @@ class _HomeViewState extends State<HomeView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Jump into a session based on your tastes',
-                      style: TextStyle(
+                    Text(
+                      _startListeningSubtitle,
+                      style: const TextStyle(
                         color: AppTheme.textMuted,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 2),
-                    const Text(
-                      'Start listening',
-                      style: TextStyle(
+                    Text(
+                      _startListeningTitle,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 22,
                         fontWeight: FontWeight.bold,

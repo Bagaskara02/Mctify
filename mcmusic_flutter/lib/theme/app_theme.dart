@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Electric Azure Spotify Palette
@@ -12,19 +13,26 @@ class AppTheme {
   static const Color textLight = Color(0xFFFFFFFF);
 
   static ThemeData get darkTheme {
+    final baseTextTheme = ThemeData.dark().textTheme;
+    // Spotify Circular equivalent: Figtree (Geometric, Rounded, Modern Grotesque)
+    final spotifyTextTheme = GoogleFonts.figtreeTextTheme(baseTextTheme).apply(
+      bodyColor: Colors.white,
+      displayColor: Colors.white,
+    );
+
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: Colors.black,
       primaryColor: primaryAzure,
       canvasColor: darkBackground,
       cardColor: darkCard,
+      textTheme: spotifyTextTheme,
       colorScheme: const ColorScheme.dark(
         primary: primaryAzure,
         secondary: primaryAzureHover,
         surface: darkBackground,
         surfaceContainerHighest: darkSurface,
       ),
-      fontFamily: 'Roboto',
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.black,
         elevation: 0,

@@ -2,8 +2,44 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/lyric_line.dart';
 
+class LyricsResult {
+  final List<LyricLine> lines;
+  final double autoOffset;
+  final bool isSynced;
+  final String source;
+
+  const LyricsResult({
+    required this.lines,
+    this.autoOffset = 0.0,
+    this.isSynced = false,
+    this.source = 'LRCLIB',
+  });
+}
+
 class LyricsService {
-  static final Map<String, List<LyricLine>> _cache = {};
+  static final Map<String, LyricsResult> _cache = {};
+
+  /// Calculate intelligent auto-sync offset based on LRC [offset: xxx] tags
+  /// and audio stream vs studio metadata duration differential.
+  static double calculateAutoSyncOffset(String? syncedLyrics, int? targetDuration, double? trackDuration) {
+    double offset = 0.0;
+    if (syncedLyrics != null && syncedLyrics.isNotEmpty) {
+      final match = RegExp(r'\[offset:\s*([+-]?\d+)\]', caseSensitive: false).firstMatch(syncedLyrics);
+      if (match != null) {
+        final parsed = int.tryParse(match.group(1) ?? '0') ?? 0;
+        offset += parsed / 1000.0;
+      }
+    }
+    if (targetDuration != null && trackDuration != null && targetDuration > 5 && trackDuration > 5) {
+      final diff = targetDuration - trackDuration;
+      if (diff >= 0.3 && diff <= 3.5) {
+        offset -= (diff * 0.2).clamp(0.0, 0.4);
+      } else if (diff <= -0.3 && diff >= -3.5) {
+        offset += (diff.abs() * 0.2).clamp(0.0, 0.4);
+      }
+    }
+    return (offset * 10).roundToDouble() / 10.0;
+  }
 
   static Map<String, String> cleanTitleAndArtist(String rawTitle, String rawArtist) {
     var title = rawTitle.trim();
@@ -37,7 +73,7 @@ class LyricsService {
     return {'title': title, 'artist': artist};
   }
 
-  Future<List<LyricLine>> fetchLyrics(String artist, String title, int duration) async {
+  Future<LyricsResult> fetchLyricsResult(String artist, String title, int duration) async {
     final cleaned = cleanTitleAndArtist(title, artist);
     final cleanTitle = cleaned['title'] ?? title;
     final cleanArtist = cleaned['artist'] ?? artist;
@@ -58,18 +94,26 @@ class LyricsService {
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           final synced = data['syncedLyrics'] as String?;
+          final trackDur = (data['duration'] as num?)?.toDouble();
           if (synced != null && synced.isNotEmpty) {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
-              _cache[cacheKey] = parsed;
-              return parsed;
+              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final result = LyricsResult(
+                lines: parsed,
+                autoOffset: autoOffset,
+                isSynced: true,
+                source: 'LRCLIB (Exact Match)',
+              );
+              _cache[cacheKey] = result;
+              return result;
             }
           }
         }
       } catch (_) {}
     }
 
-    // --- TIER 2: Exact lookup without duration (verify returned duration is within tolerance) ---
+    // --- TIER 2: Exact lookup without duration ---
     try {
       final url = Uri.parse(
         'https://lrclib.net/api/get?artist_name=${Uri.encodeComponent(cleanArtist)}&track_name=${Uri.encodeComponent(cleanTitle)}',
@@ -86,8 +130,15 @@ class LyricsService {
         if (synced != null && synced.isNotEmpty && isAcceptable) {
           final parsed = parseLrc(synced);
           if (parsed.isNotEmpty) {
-            _cache[cacheKey] = parsed;
-            return parsed;
+            final autoOffset = calculateAutoSyncOffset(synced, targetDuration, returnedDuration);
+            final result = LyricsResult(
+              lines: parsed,
+              autoOffset: autoOffset,
+              isSynced: true,
+              source: 'LRCLIB (Name Match)',
+            );
+            _cache[cacheKey] = result;
+            return result;
           }
         }
       }
@@ -103,11 +154,19 @@ class LyricsService {
         if (list is List && list.isNotEmpty) {
           final best = _pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
           final synced = best?['syncedLyrics'] as String?;
+          final trackDur = (best?['duration'] as num?)?.toDouble();
           if (synced != null && synced.isNotEmpty) {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
-              _cache[cacheKey] = parsed;
-              return parsed;
+              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final result = LyricsResult(
+                lines: parsed,
+                autoOffset: autoOffset,
+                isSynced: true,
+                source: 'LRCLIB (Ranked Match)',
+              );
+              _cache[cacheKey] = result;
+              return result;
             }
           }
         }
@@ -124,18 +183,33 @@ class LyricsService {
         if (list is List && list.isNotEmpty) {
           final best = _pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
           final synced = best?['syncedLyrics'] as String?;
+          final trackDur = (best?['duration'] as num?)?.toDouble();
           if (synced != null && synced.isNotEmpty) {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
-              _cache[cacheKey] = parsed;
-              return parsed;
+              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final result = LyricsResult(
+                lines: parsed,
+                autoOffset: autoOffset,
+                isSynced: true,
+                source: 'LRCLIB (Title Search)',
+              );
+              _cache[cacheKey] = result;
+              return result;
             }
           }
         }
       }
     } catch (_) {}
 
-    return [];
+    final empty = const LyricsResult(lines: [], autoOffset: 0.0, isSynced: false);
+    _cache[cacheKey] = empty;
+    return empty;
+  }
+
+  Future<List<LyricLine>> fetchLyrics(String artist, String title, int duration) async {
+    final res = await fetchLyricsResult(artist, title, duration);
+    return res.lines;
   }
 
   Map<String, dynamic>? _pickBestSearchResult(
