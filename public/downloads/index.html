@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download McMusic Mobile (Android APK v1.0.7+8)</title>
+  <meta name="description" content="Download aplikasi McMusic Mobile untuk Android. Streaming musik gratis tanpa batas, UI persis Spotify, lirik real-time, dan import playlist.">
+  <link rel="icon" type="image/svg+xml" href="/vite.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0b0e14;
+      color: #ffffff;
+      font-family: 'Figtree', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 32px 16px 64px;
+      overflow-x: hidden;
+      position: relative;
+    }
+    /* Ambient Glow */
+    .glow {
+      position: absolute;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(0, 163, 255, 0.22) 0%, rgba(0, 163, 255, 0.05) 50%, transparent 75%);
+      filter: blur(60px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .app-icon {
+      width: 88px;
+      height: 88px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #00A3FF 0%, #0077c8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 16px 36px rgba(0, 163, 255, 0.35);
+      margin-bottom: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .app-icon svg {
+      width: 46px;
+      height: 46px;
+      fill: #000000;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(0, 163, 255, 0.12);
+      border: 1px solid rgba(0, 163, 255, 0.3);
+      color: #00A3FF;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+    }
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #00A3FF;
+      box-shadow: 0 0 10px #00A3FF;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+      line-height: 1.2;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 15px;
+      line-height: 1.5;
+      max-width: 480px;
+      margin-bottom: 32px;
+    }
+    /* Cards Container */
+    .download-grid {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 32px;
+    }
+    .dl-card {
+      background: #141923;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      text-align: left;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      color: inherit;
+    }
+    .dl-card:hover {
+      border-color: rgba(0, 163, 255, 0.4);
+      background: #181f2c;
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+    }
+    .dl-card.recommended {
+      border: 1.5px solid #00A3FF;
+      background: linear-gradient(180deg, #16202f 0%, #121822 100%);
+      box-shadow: 0 10px 30px rgba(0, 163, 255, 0.15);
+    }
+    .dl-info {
+      flex: 1;
+    }
+    .dl-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .tag-rec {
+      font-size: 10px;
+      font-weight: 800;
+      background: #00A3FF;
+      color: #000000;
+      padding: 2px 7px;
+      border-radius: 6px;
+      letter-spacing: 0.3px;
+    }
+    .dl-desc {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .dl-meta {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .dl-btn {
+      padding: 12px 20px;
+      border-radius: 12px;
+      background: #00A3FF;
+      color: #000000;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .dl-card:hover .dl-btn {
+      background: #2eb4ff;
+    }
+    .dl-btn.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .dl-card:hover .dl-btn.secondary {
+      background: rgba(0, 163, 255, 0.15);
+      border-color: #00A3FF;
+      color: #00A3FF;
+    }
+    /* Features Card */
+    .features-card {
+      width: 100%;
+      background: #141923;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 24px;
+      text-align: left;
+      margin-bottom: 24px;
+    }
+    .features-card h2 {
+      font-size: 17px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .features-list {
+      list-style: none;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 560px) {
+      .features-list {
+        grid-template-columns: 1fr;
+      }
+      .dl-card {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .dl-btn {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+    .features-list li {
+      font-size: 13px;
+      color: #cbd5e1;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+    .features-list li svg {
+      width: 16px;
+      height: 16px;
+      stroke: #00A3FF;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    /* Instructions */
+    .instructions {
+      width: 100%;
+      background: rgba(0, 163, 255, 0.05);
+      border: 1px solid rgba(0, 163, 255, 0.2);
+      border-radius: 16px;
+      padding: 18px 20px;
+      text-align: left;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    .instructions strong {
+      color: #ffffff;
+    }
+    .footer-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .web-btn {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.2s;
+    }
+    .web-btn:hover {
+      color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="container">
+    <!-- App Logo -->
+    <div class="app-icon">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+      </svg>
+    </div>
+
+    <!-- Badge -->
+    <div class="badge">
+      <span class="badge-dot"></span>
+      Versi 1.0.7+8 • Rilis Terbaru
+    </div>
+
+    <h1>Unduh McMusic Mobile</h1>
+    <p class="subtitle">
+      Streaming musik resolusi tinggi tanpa batasan, tipografi Spotify Figtree asli, pemutaran background, dan sinkronisasi playlist instan.
+    </p>
+
+    <!-- Download Options -->
+    <div class="download-grid">
+      <!-- Option 1: ARM64 (Recommended) -->
+      <a href="/downloads/McMusic-arm64.apk" download="McMusic-v1.0.7-arm64.apk" class="dl-card recommended">
+        <div class="dl-info">
+          <div class="dl-title">
+            <span>ARM64 APK</span>
+            <span class="tag-rec">Disarankan</span>
+          </div>
+          <div class="dl-desc">Cocok untuk 99% smartphone Android modern (Samsung, Xiaomi, Oppo, Vivo, Poco, Realme, Pixel, dll).</div>
+          <div class="dl-meta">Ukuran file: ~19.7 MB • Cepat & Ringan</div>
+        </div>
+        <div class="dl-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download
+        </div>
+      </a>
+
+      <!-- Option 2: Universal APK -->
+      <a href="/downloads/McMusic.apk" download="McMusic-v1.0.7-universal.apk" class="dl-card">
+        <div class="dl-info">
+          <div class="dl-title">Universal APK</div>
+          <div class="dl-desc">Mencakup semua arsitektur prosesor dalam satu file paket installer lengkap.</div>
+          <div class="dl-meta">Ukuran file: ~58 MB • Kompatibilitas Menyeluruh</div>
+        </div>
+        <div class="dl-btn secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download
+        </div>
+      </a>
+
+      <!-- Option 3: ARMv7 (Legacy) -->
+      <a href="/downloads/McMusic-armv7.apk" download="McMusic-v1.0.7-armv7.apk" class="dl-card">
+        <div class="dl-info">
+          <div class="dl-title">ARMv7 APK (32-bit)</div>
+          <div class="dl-desc">Dikhususkan untuk perangkat Android 32-bit lawas atau perangkat berspesifikasi rendah.</div>
+          <div class="dl-meta">Ukuran file: ~17.5 MB • 32-bit Device</div>
+        </div>
+        <div class="dl-btn secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download
+        </div>
+      </a>
+    </div>
+
+    <!-- Highlights -->
+    <div class="features-card">
+      <h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00A3FF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+        Pembaruan di Versi 1.0.7+8:
+      </h2>
+      <ul class="features-list">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><strong>Font Figtree Asli:</strong> Tipografi modern Spotify 100% offline tanpa kaku.</span>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><strong>Perbaikan Import Spotify:</strong> Semua lagu (termasuk Multo & emoji) masuk 100% tanpa hilang atau double.</span>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><strong>Aksen Electric Azure:</strong> Tampilan konsisten biru terang Spotify.</span>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span><strong>Bebas Iklan & Background:</strong> Putar lagu terus berjalan saat layar HP mati.</span>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Installation Guide -->
+    <div class="instructions">
+      <strong>💡 Cara Pasang / Memperbarui:</strong><br>
+      1. Klik tombol <strong>Download</strong> pada pilihan <strong>ARM64 APK</strong> di atas.<br>
+      2. Jika muncul peringatan browser, pilih <em>"Tetap download"</em> atau <em>"Izinkan dari sumber ini"</em>.<br>
+      3. Buka file APK yang selesai diunduh dan pilih <strong>"Perbarui"</strong> atau <strong>"Pasang"</strong>.
+    </div>
+
+    <!-- Actions -->
+    <div class="footer-actions">
+      <a href="/" class="web-btn">← Buka McMusic Versi Web</a>
+    </div>
+  </div>
+</body>
+</html>
