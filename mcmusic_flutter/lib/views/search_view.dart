@@ -321,7 +321,7 @@ class _SearchViewState extends State<SearchView> {
               if (isCurrent) {
                 widget.player.togglePlayPause();
               } else {
-                widget.player.playTrack(track, _searchResults);
+                widget.player.playTrackFromSearch(track);
               }
             },
             onToggleLike: () => _toggleLike(track),
@@ -384,7 +384,7 @@ class _SearchViewState extends State<SearchView> {
               if (isCurrent) {
                 widget.player.togglePlayPause();
               } else {
-                widget.player.playTrack(track, _searchResults);
+                widget.player.playTrackFromSearch(track);
               }
             },
             onToggleLike: () => _toggleLike(track),

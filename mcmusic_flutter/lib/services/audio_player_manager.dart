@@ -260,6 +260,37 @@ class AudioPlayerManager extends ChangeNotifier {
 
   // --- PLAYBACK METHODS ---
 
+  Future<void> playTrackFromSearch(Track track) async {
+    // 1. Play clicked track immediately with single-track queue (instant playback)
+    await playTrack(track, [track]);
+
+    // 2. Fetch tracks by the same artist & related genre in background
+    try {
+      final artistTracks = await _apiService.searchTracks(track.artist);
+      final seen = <String>{track.id, track.title.toLowerCase().trim()};
+      final pool = <Track>[];
+      for (final t in artistTracks) {
+        final clean = t.title.toLowerCase().trim();
+        if (!seen.contains(t.id) && !seen.contains(clean)) {
+          seen.add(t.id);
+          seen.add(clean);
+          pool.add(t);
+        }
+      }
+      // Shuffle for randomized artist/genre radio
+      pool.shuffle(Random());
+      if (pool.isNotEmpty) {
+        _queue = [
+          if (_currentTrack != null) _currentTrack! else track,
+          ...pool,
+        ];
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('playTrackFromSearch error: $e');
+    }
+  }
+
   Future<void> playTrack(Track track, [List<Track>? newQueue]) async {
     _currentTrack = track;
     if (newQueue != null && newQueue.isNotEmpty) {
