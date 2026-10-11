@@ -69,20 +69,28 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _loadStoredAudioQuality();
   }
 
+  static const String _desktopUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       if (_isPlaying && _isUsingYoutubeIframe && !_userRequestedPause && _ytController != null) {
+        _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
-        Future.delayed(const Duration(milliseconds: 250), () {
-          if (_isPlaying && !_userRequestedPause) {
-            _ytController?.playVideo();
-          }
-        });
+        _ytController?.playVideo();
       }
     }
+  }
+
+  void _setJsUserRequestedPause(bool requested) {
+    try {
+      _ytController?.webViewController.runJavaScript(
+        'window.__userRequestedPause = $requested;'
+      );
+    } catch (_) {}
   }
 
   Future<void> _injectBackgroundPlaybackScripts() async {
@@ -91,13 +99,50 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (controller == null) return;
       await controller.runJavaScript('''
         (function() {
+          window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
+
           try {
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
             Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
             Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
-            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
           } catch(e) {}
+
+          window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+          window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+          document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+
+          function attachPlayerListener() {
+            if (typeof player !== 'undefined' && player && typeof player.addEventListener === 'function') {
+              try {
+                player.addEventListener('onStateChange', function(event) {
+                  var state = typeof event === 'object' && event !== null ? event.data : event;
+                  if (state === 2 && !window.__userRequestedPause) {
+                    setTimeout(function() {
+                      if (!window.__userRequestedPause && typeof player !== 'undefined' && player) {
+                        player.playVideo();
+                      }
+                    }, 60);
+                  }
+                });
+              } catch(e) {}
+            }
+          }
+
+          attachPlayerListener();
+
+          if (!window.__mcmusicWatchdog) {
+            window.__mcmusicWatchdog = setInterval(function() {
+              try {
+                attachPlayerListener();
+                if (typeof player !== 'undefined' && player && typeof player.getPlayerState === 'function') {
+                  var state = player.getPlayerState();
+                  if (state === 2 && !window.__userRequestedPause) {
+                    player.playVideo();
+                  }
+                }
+              } catch(e) {}
+            }, 600);
+          }
         })();
       ''');
     } catch (_) {}
@@ -112,6 +157,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           mute: false,
           enableCaption: false,
           showVideoAnnotations: false,
+          playsInline: true,
+          userAgent: _desktopUserAgent,
         ),
       );
 
@@ -120,10 +167,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         if (value.playerState == ytp.PlayerState.playing) {
           _isPlaying = true;
           _userRequestedPause = false;
+          _setJsUserRequestedPause(false);
           _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
           if (!_userRequestedPause && _isPlaying) {
             // Auto-resume continuous background & screen-off playback
+            _setJsUserRequestedPause(false);
             _ytController?.playVideo();
             return;
           }
@@ -414,7 +463,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // Record play in storage
     _storageService.recordPlay(track);
 
-    // 2. Playback resolution (100% Full Song playback, no 30s preview limits, no 403 errors):
+    // 2. Full Song Playback Resolution (Instant 0ms start, 100% Full Song, continuous background audio)
     try {
       // Step A: Direct Audio URL if explicitly provided (e.g. self-hosted / direct link, not preview and not raw googlevideo)
       if (track.audioUrl.isNotEmpty &&
@@ -431,40 +480,25 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Resolve Native MP4 (AAC) Audio Stream
-      // Native audio runs through Android's Foreground MediaService with WakeLock,
-      // enabling 100% genuine background playback & lockscreen controls when the screen is locked or app is minimized!
-      final directStream = await _apiService.resolveDirectAudioStream(track, _audioQuality);
-      if (directStream != null && directStream.isNotEmpty) {
-        try {
-          debugPrint('[AudioPlayerManager] Playing native MP4 stream: $directStream');
-          _isUsingYoutubeIframe = false;
-          _isPlaying = true;
-          _userRequestedPause = false;
-          await _player.play(UrlSource(directStream, mimeType: 'audio/mp4'));
-          _syncMediaHandler();
-          notifyListeners();
-          _prefetchNextTrackStream();
-          return;
-        } catch (e) {
-          debugPrint('[AudioPlayerManager] Native stream error: $e, falling back to YouTube Player Engine');
-        }
-      }
-
-      // Step C: Fallback to YouTube Player Engine
+      // Step B: Fast Full Song Playback via YouTube Player Engine (Instant, 0ms delay, Full song)
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
+        if (videoId != null && videoId.isNotEmpty) {
+          track = track.copyWith(videoId: videoId);
+          _currentTrack = track;
+        }
       }
 
       if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Playing via YouTube Engine fallback: videoId=$videoId');
+        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
         _isUsingYoutubeIframe = true;
         _isPlaying = true;
         _userRequestedPause = false;
         await _player.stop();
         _ytController!.loadVideoById(videoId: videoId);
         _ytController!.playVideo();
+        _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
         _syncMediaHandler();
         notifyListeners();
@@ -490,10 +524,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (_isUsingYoutubeIframe && _ytController != null) {
       if (_isPlaying) {
         _userRequestedPause = true;
+        _setJsUserRequestedPause(true);
         _ytController!.pauseVideo();
         _isPlaying = false;
       } else {
         _userRequestedPause = false;
+        _setJsUserRequestedPause(false);
         _ytController!.playVideo();
         _isPlaying = true;
         _injectBackgroundPlaybackScripts();
@@ -531,6 +567,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _ytController!.seekTo(seconds: pos.inSeconds.toDouble(), allowSeekAhead: true);
         if (wasPlaying) {
           _userRequestedPause = false;
+          _setJsUserRequestedPause(false);
           _ytController!.playVideo();
           _isPlaying = true;
           _injectBackgroundPlaybackScripts();

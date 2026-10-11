@@ -29,6 +29,17 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         try {
