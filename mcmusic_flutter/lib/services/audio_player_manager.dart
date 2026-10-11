@@ -77,7 +77,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      if (_isPlaying && _isUsingYoutubeIframe && !_userRequestedPause && _ytController != null) {
+      if (!_userRequestedPause && _currentTrack != null && _ytController != null) {
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
         _ytController?.playVideo();
@@ -111,9 +111,43 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
           document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
 
-          function attachPlayerListener() {
-            if (typeof player !== 'undefined' && player && typeof player.addEventListener === 'function') {
-              try {
+          if (!window.__mcmusicAudioContext) {
+            try {
+              var AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                var ctx = new AudioCtx();
+                var osc = ctx.createOscillator();
+                var gain = ctx.createGain();
+                gain.gain.value = 0.0001;
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                window.__mcmusicAudioContext = ctx;
+              }
+            } catch(e) {}
+          } else if (window.__mcmusicAudioContext.state === 'suspended') {
+            try { window.__mcmusicAudioContext.resume(); } catch(e) {}
+          }
+
+          function attachWatchers() {
+            try {
+              var v = document.querySelector('video');
+              if (v && !v.__mcmusicHooked) {
+                v.__mcmusicHooked = true;
+                v.addEventListener('pause', function(e) {
+                  if (!window.__userRequestedPause) {
+                    setTimeout(function() {
+                      if (!window.__userRequestedPause) {
+                        try { v.play(); } catch(err) {}
+                        try { if (typeof player !== 'undefined' && player) player.playVideo(); } catch(err) {}
+                      }
+                    }, 50);
+                  }
+                });
+              }
+
+              if (typeof player !== 'undefined' && player && typeof player.addEventListener === 'function' && !window.__playerHooked) {
+                window.__playerHooked = true;
                 player.addEventListener('onStateChange', function(event) {
                   var state = typeof event === 'object' && event !== null ? event.data : event;
                   if (state === 2 && !window.__userRequestedPause) {
@@ -121,27 +155,32 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                       if (!window.__userRequestedPause && typeof player !== 'undefined' && player) {
                         player.playVideo();
                       }
-                    }, 60);
+                    }, 50);
                   }
                 });
-              } catch(e) {}
-            }
+              }
+            } catch(e) {}
           }
 
-          attachPlayerListener();
+          attachWatchers();
 
           if (!window.__mcmusicWatchdog) {
             window.__mcmusicWatchdog = setInterval(function() {
               try {
-                attachPlayerListener();
-                if (typeof player !== 'undefined' && player && typeof player.getPlayerState === 'function') {
-                  var state = player.getPlayerState();
-                  if (state === 2 && !window.__userRequestedPause) {
-                    player.playVideo();
+                attachWatchers();
+                if (!window.__userRequestedPause) {
+                  var v = document.querySelector('video');
+                  if (v && v.paused) {
+                    v.play();
+                  }
+                  if (typeof player !== 'undefined' && player && typeof player.getPlayerState === 'function') {
+                    if (player.getPlayerState() === 2) {
+                      player.playVideo();
+                    }
                   }
                 }
               } catch(e) {}
-            }, 600);
+            }, 500);
           }
         })();
       ''');

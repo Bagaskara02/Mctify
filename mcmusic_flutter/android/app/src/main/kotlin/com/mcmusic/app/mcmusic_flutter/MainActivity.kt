@@ -2,6 +2,8 @@ package com.mcmusic.app.mcmusic_flutter
 
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +12,17 @@ import com.ryanheise.audioservice.AudioServiceActivity
 
 class MainActivity : AudioServiceActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val keepAliveRunnable = object : Runnable {
+        override fun run() {
+            try {
+                window.decorView?.let { keepWebViewsAlive(it) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            mainHandler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,6 +39,7 @@ class MainActivity : AudioServiceActivity() {
             try {
                 view.onResume()
                 view.resumeTimers()
+                view.dispatchWindowVisibilityChanged(View.VISIBLE)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -43,6 +57,8 @@ class MainActivity : AudioServiceActivity() {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
             window.decorView?.let { keepWebViewsAlive(it) }
+            mainHandler.removeCallbacks(keepAliveRunnable)
+            mainHandler.post(keepAliveRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -55,6 +71,8 @@ class MainActivity : AudioServiceActivity() {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
             window.decorView?.let { keepWebViewsAlive(it) }
+            mainHandler.removeCallbacks(keepAliveRunnable)
+            mainHandler.post(keepAliveRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -63,6 +81,7 @@ class MainActivity : AudioServiceActivity() {
     override fun onResume() {
         super.onResume()
         try {
+            mainHandler.removeCallbacks(keepAliveRunnable)
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
@@ -74,6 +93,7 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onDestroy() {
         try {
+            mainHandler.removeCallbacks(keepAliveRunnable)
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }

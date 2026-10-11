@@ -22,8 +22,8 @@ void main() async {
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.mcmusic.app.channel.audio',
         androidNotificationChannelName: 'McMusic Playback',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
         androidNotificationIcon: 'mipmap/ic_launcher',
       ),
     );
