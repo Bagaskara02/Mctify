@@ -5,7 +5,6 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
-import 'local_audio_stream_server.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
@@ -171,13 +170,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _setJsUserRequestedPause(false);
           _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
-          if (!_userRequestedPause && _isPlaying) {
+          _isPlaying = false;
+          if (!_userRequestedPause) {
             // Auto-resume continuous background & screen-off playback
             _setJsUserRequestedPause(false);
             _ytController?.playVideo();
-            return;
           }
-          _isPlaying = false;
         }
         if (value.metaData.duration > Duration.zero) {
           _duration = value.metaData.duration;
@@ -431,9 +429,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (currentIndex != -1 && currentIndex + 1 < _queue.length) {
       final nextTrack = _queue[currentIndex + 1];
       _apiService.prefetchTrackStream(nextTrack, _audioQuality);
-      if (nextTrack.videoId != null && nextTrack.videoId!.isNotEmpty) {
-        LocalAudioStreamServer.resolveStreamUri(nextTrack.videoId!);
-      }
     }
   }
 
@@ -467,7 +462,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // Record play in storage
     _storageService.recordPlay(track);
 
-    // 2. Full Song Playback Resolution (Genuine Native Background Audio + YouTube Fallback):
+    // 2. Full Song Playback Resolution (Instant 0ms start, 100% Full Song, continuous background audio)
     try {
       // Step A: Direct Audio URL if explicitly provided (e.g. self-hosted / direct link, not preview and not raw googlevideo)
       if (track.audioUrl.isNotEmpty &&
@@ -484,7 +479,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Resolve videoId (instant if already present on track or cached)
+      // Step B: Fast Full Song Playback via YouTube Player Engine (Instant, 0ms delay, Full song)
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
@@ -494,44 +489,20 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      if (videoId != null && videoId.isNotEmpty) {
-        // Step C: TIER 1 - Genuine Native Background Audio via Local Stream Proxy
-        // Runs via Android MediaPlayer inside Foreground Service with WakeLock:
-        // - Keeps playing continuously when phone screen is turned off or app is minimized to home!
-        // - Android Notification & Lockscreen scrubber is 100% IN SYNC!
-        try {
-          final proxyUrl = await LocalAudioStreamServer.getProxyUrl(videoId);
-          if (proxyUrl != null && proxyUrl.isNotEmpty) {
-            debugPrint('[AudioPlayerManager] Playing native background stream via LocalAudioStreamServer: $proxyUrl');
-            _isUsingYoutubeIframe = false;
-            _isPlaying = true;
-            _userRequestedPause = false;
-            await _player.play(UrlSource(proxyUrl));
-            _syncMediaHandler();
-            notifyListeners();
-            _prefetchNextTrackStream();
-            return;
-          }
-        } catch (e) {
-          debugPrint('[AudioPlayerManager] Local proxy note: $e, falling back to YouTube Engine');
-        }
-
-        // Step D: TIER 2 - Fallback to YouTube Player Engine
-        if (_ytController != null) {
-          debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
-          _isUsingYoutubeIframe = true;
-          _isPlaying = true;
-          _userRequestedPause = false;
-          await _player.stop();
-          _ytController!.loadVideoById(videoId: videoId);
-          _ytController!.playVideo();
-          _setJsUserRequestedPause(false);
-          _injectBackgroundPlaybackScripts();
-          _syncMediaHandler();
-          notifyListeners();
-          _prefetchNextTrackStream();
-          return;
-        }
+      if (videoId != null && videoId.isNotEmpty && _ytController != null) {
+        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
+        _isUsingYoutubeIframe = true;
+        _isPlaying = true;
+        _userRequestedPause = false;
+        await _player.stop();
+        _ytController!.loadVideoById(videoId: videoId);
+        _ytController!.playVideo();
+        _setJsUserRequestedPause(false);
+        _injectBackgroundPlaybackScripts();
+        _syncMediaHandler();
+        notifyListeners();
+        _prefetchNextTrackStream();
+        return;
       }
     } catch (e) {
       debugPrint('Playback error: $e');
