@@ -7,6 +7,7 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/track_tile.dart';
+import '../widgets/mini_player.dart';
 
 class ArtistView extends StatefulWidget {
   final Artist artist;
@@ -296,6 +297,24 @@ class _ArtistViewState extends State<ArtistView> {
             child: SizedBox(height: 100),
           ),
         ],
+      ),
+      bottomNavigationBar: ListenableBuilder(
+        listenable: widget.player,
+        builder: (context, _) {
+          if (widget.player.currentTrack == null) return const SizedBox.shrink();
+          final cur = widget.player.currentTrack!;
+          return Container(
+            color: const Color(0xFF070B12),
+            child: SafeArea(
+              top: false,
+              child: MiniPlayer(
+                player: widget.player,
+                isLiked: _likedIds.contains(cur.id),
+                onToggleLike: () => _toggleLike(cur),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

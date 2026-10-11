@@ -73,10 +73,10 @@ export default function DownloadAppModal({ isOpen, onClose }) {
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McMusic Mobile APK (19.8 MB)</span>
+              <span>Download McMusic Mobile APK (20.9 MB)</span>
             </a>
             <p className="text-center text-[11px] text-[#b3b3b3] mt-2">
-              Mendukung semua smartphone Android modern (ARM64) • Ringan & Cepat
+              Mendukung semua smartphone Android modern (ARM64) • Background Playback Aktif
             </p>
           </div>
           <div className="text-center pt-1">

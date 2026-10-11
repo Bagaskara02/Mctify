@@ -23,6 +23,8 @@ class AudioPlayerManager extends ChangeNotifier {
   List<Track> _queue = [];
   bool _isShuffle = false;
   bool _isRepeat = false;
+  bool _isUsingYoutubeIframe = false;
+  bool _isLoadingRecommendations = false;
 
   // Sleep Timer state
   Timer? _sleepTimer;
@@ -78,6 +80,7 @@ class AudioPlayerManager extends ChangeNotifier {
       );
 
       _ytController!.listen((value) {
+        if (!_isUsingYoutubeIframe) return;
         _isPlaying = value.playerState == ytp.PlayerState.playing;
         if (value.metaData.duration > Duration.zero) {
           _duration = value.metaData.duration;
@@ -98,6 +101,7 @@ class AudioPlayerManager extends ChangeNotifier {
       });
 
       _ytController!.videoStateStream.listen((state) {
+        if (!_isUsingYoutubeIframe) return;
         _position = state.position;
         _syncMediaHandler();
         notifyListeners();
@@ -316,6 +320,15 @@ class AudioPlayerManager extends ChangeNotifier {
   // TWS & Remote Previous Click Tracker (3x Tap detection)
   DateTime? _lastPreviousActionTime;
 
+  void _prefetchNextTrackStream() {
+    if (_queue.isEmpty || _currentTrack == null) return;
+    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    if (currentIndex != -1 && currentIndex + 1 < _queue.length) {
+      final nextTrack = _queue[currentIndex + 1];
+      _apiService.prefetchTrackStream(nextTrack, _audioQuality);
+    }
+  }
+
   Future<void> playTrack(Track track, [List<Track>? newQueue]) async {
     // 1. INSTANT UI UPDATE (0ms Perceived Latency):
     // Instantly reflect track title, album, cover, and playing state on UI & Lockscreen
@@ -333,58 +346,46 @@ class AudioPlayerManager extends ChangeNotifier {
     _syncMediaHandler();
     notifyListeners(); // Synchronous notification for 0ms lag!
 
-    // Stop previous audio engine immediately
+    // Stop previous audio engines immediately
     try {
       await _player.stop();
     } catch (_) {}
+    try {
+      _ytController?.pauseVideo();
+    } catch (_) {}
+    _isUsingYoutubeIframe = false;
 
     // Record play in storage
     _storageService.recordPlay(track);
 
-    // 2. Multi-tier stream resolution with resilient fallbacks
+    // 2. Multi-tier stream resolution with native ExoPlayer first for background playback:
     try {
+      // Tier 1: Direct High-Quality Audio Stream via native ExoPlayer (audioplayers)
+      // Runs natively as Android Foreground Service, continues playing when screen
+      // is turned off or app is closed, and seeks in milliseconds!
+      final directStream = await _apiService.resolveDirectAudioStream(track, _audioQuality);
+      if (directStream != null && directStream.isNotEmpty) {
+        debugPrint('[AudioPlayerManager] Playing native audio stream via ExoPlayer');
+        await _player.play(UrlSource(directStream));
+        _isPlaying = true;
+        _isUsingYoutubeIframe = false;
+        _syncMediaHandler();
+        notifyListeners();
+        // Prefetch next track's audio stream in background for zero-delay transitions!
+        _prefetchNextTrackStream();
+        return;
+      }
+
+      // Tier 2: YouTube Player Engine (Fallback if stream extraction fails)
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
-
-      // Tier 1: Official YouTube Player Engine (full length)
       if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Loading videoId=$videoId into official YouTube Player');
+        debugPrint('[AudioPlayerManager] Fallback: Loading videoId=$videoId into YouTube Player');
+        _isUsingYoutubeIframe = true;
         _ytController!.loadVideoById(videoId: videoId);
         _ytController!.playVideo();
-        _isPlaying = true;
-        _syncMediaHandler();
-        notifyListeners();
-        return;
-      }
-
-      // Tier 2: Pre-existing direct audio URL on track
-      if (track.audioUrl.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing direct track.audioUrl');
-        await _player.play(UrlSource(track.audioUrl));
-        _isPlaying = true;
-        _syncMediaHandler();
-        notifyListeners();
-        return;
-      }
-
-      // Tier 3: High-bitrate Apple Music / AAC / Deezer preview stream fallback
-      final fallbackUrl = await _apiService.resolveAudioUrl(track.title, track.artist);
-      if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing high-bitrate AAC fallbackUrl');
-        await _player.play(UrlSource(fallbackUrl));
-        _isPlaying = true;
-        _syncMediaHandler();
-        notifyListeners();
-        return;
-      }
-
-      // Tier 4: Direct MP4 audio stream from YouTube Explode
-      final directStream = await _apiService.resolveFullAudioStream(track.title, track.artist, _audioQuality, track.duration);
-      if (directStream != null && directStream.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing directStream from YoutubeExplode');
-        await _player.play(UrlSource(directStream));
         _isPlaying = true;
         _syncMediaHandler();
         notifyListeners();
@@ -406,7 +407,7 @@ class AudioPlayerManager extends ChangeNotifier {
       return;
     }
 
-    if (_ytController != null) {
+    if (_isUsingYoutubeIframe && _ytController != null) {
       if (_isPlaying) {
         _ytController!.pauseVideo();
         _isPlaying = false;
@@ -441,7 +442,7 @@ class AudioPlayerManager extends ChangeNotifier {
     notifyListeners();
     final wasPlaying = _isPlaying;
     try {
-      if (_ytController != null) {
+      if (_isUsingYoutubeIframe && _ytController != null) {
         _ytController!.seekTo(seconds: pos.inSeconds.toDouble(), allowSeekAhead: true);
         if (wasPlaying) {
           _ytController!.playVideo();
@@ -449,7 +450,7 @@ class AudioPlayerManager extends ChangeNotifier {
         }
       } else {
         await _player.seek(pos);
-        if (wasPlaying) {
+        if (wasPlaying && _player.state != PlayerState.playing) {
           await _player.resume();
           _isPlaying = true;
         }
@@ -477,10 +478,108 @@ class AudioPlayerManager extends ChangeNotifier {
 
     if (currentIndex != -1 && currentIndex < _queue.length - 1) {
       await playTrack(_queue[currentIndex + 1]);
-    } else if (_queue.isNotEmpty) {
+      return;
+    }
+
+    // End of playlist reached!
+    if (_isRepeat) {
+      // Repeat is active, repeat playlist from beginning
       await playTrack(_queue.first);
+      return;
+    }
+
+    // Dynamic Autoplay / Radio matching playlist vibe!
+    await _continueWithPlaylistRecommendations();
+  }
+
+  Future<void> _continueWithPlaylistRecommendations() async {
+    if (_isLoadingRecommendations) return;
+    _isLoadingRecommendations = true;
+
+    try {
+      // 1. Gather distinct artists from the current playlist / queue
+      final playlistArtists = <String>{};
+      for (final t in _queue) {
+        final artist = t.artist.split(',')[0].trim();
+        if (artist.isNotEmpty) playlistArtists.add(artist);
+      }
+      if (_currentTrack != null) {
+        final curArtist = _currentTrack!.artist.split(',')[0].trim();
+        if (curArtist.isNotEmpty) playlistArtists.add(curArtist);
+      }
+
+      final artistList = playlistArtists.toList()..shuffle(Random());
+      final sampleArtists = artistList.take(3).toList();
+
+      final existingIds = _queue.map((t) => t.id).toSet();
+      final existingTitles = _queue.map((t) => t.title.toLowerCase().trim()).toSet();
+      final newRecommendations = <Track>[];
+
+      // 2. Search related hit tracks from these artists
+      for (final artist in sampleArtists) {
+        try {
+          final results = await _apiService.searchTracks(artist);
+          for (final t in results) {
+            final cleanTitle = t.title.toLowerCase().trim();
+            if (!existingIds.contains(t.id) &&
+                !existingTitles.contains(cleanTitle) &&
+                !_isExcludedTrack(cleanTitle)) {
+              existingIds.add(t.id);
+              existingTitles.add(cleanTitle);
+              newRecommendations.add(t);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. Supplement with popular hitmaker peers if few
+      if (newRecommendations.length < 5) {
+        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Nadin Amizah', 'Fabio Asher'];
+        peers.shuffle(Random());
+        for (final peer in peers.take(2)) {
+          final results = await _apiService.searchTracks(peer);
+          for (final t in results) {
+            final cleanTitle = t.title.toLowerCase().trim();
+            if (!existingIds.contains(t.id) &&
+                !existingTitles.contains(cleanTitle) &&
+                !_isExcludedTrack(cleanTitle)) {
+              existingIds.add(t.id);
+              existingTitles.add(cleanTitle);
+              newRecommendations.add(t);
+            }
+          }
+        }
+      }
+
+      // 4. Randomize the new recommendations to fit the playlist vibe
+      newRecommendations.shuffle(Random());
+
+      if (newRecommendations.isNotEmpty) {
+        _queue.addAll(newRecommendations);
+        notifyListeners();
+        await playTrack(newRecommendations.first);
+      } else if (_queue.isNotEmpty) {
+        await playTrack(_queue.first);
+      }
+    } catch (e) {
+      debugPrint('Error continuing playlist recommendations: $e');
+      if (_queue.isNotEmpty) {
+        await playTrack(_queue.first);
+      }
+    } finally {
+      _isLoadingRecommendations = false;
     }
   }
+
+  bool _isExcludedTrack(String title) {
+    const banned = [
+      'karaoke', 'instrumental', 'cover by', 'tribute to',
+      'parodi', 'parody', 'ringtone', 'sped up', 'slowed',
+      'reverb', 'remake', 'tutorial'
+    ];
+    return banned.any((b) => title.contains(b));
+  }
+
 
   Future<void> previous() async {
     final now = DateTime.now();

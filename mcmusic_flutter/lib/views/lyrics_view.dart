@@ -28,6 +28,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   final StorageService _storageService = StorageService();
   final ScrollController _scrollController = ScrollController();
 
+  late Track _currentTrack;
   List<LyricLine> _lyrics = [];
   bool _isLoading = true;
   int _activeLineIndex = 0;
@@ -46,11 +47,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   double _currentEffectiveSec = 0.0;
 
   String get _trackKey =>
-      '${widget.track.artist.trim().toLowerCase()}:::${widget.track.title.trim().toLowerCase()}';
+      '${_currentTrack.artist.trim().toLowerCase()}:::${_currentTrack.title.trim().toLowerCase()}';
 
   @override
   void initState() {
     super.initState();
+    _currentTrack = widget.player.currentTrack ?? widget.track;
+    widget.player.addListener(_onPlayerStateChanged);
     _loadStoredSyncOffset();
     _loadLyrics();
 
@@ -60,6 +63,29 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
     _ticker = createTicker(_onTick);
     _ticker.start();
+  }
+
+  void _onPlayerStateChanged() {
+    final active = widget.player.currentTrack;
+    if (active != null && (active.id != _currentTrack.id || active.title != _currentTrack.title)) {
+      if (!mounted) return;
+      setState(() {
+        _currentTrack = active;
+        _isLoading = true;
+        _lyrics = [];
+        _activeLineIndex = 0;
+        _manualOffset = null;
+        _autoOffset = 0.0;
+        _lastKnownPlayerSec = 0.0;
+        _currentEffectiveSec = 0.0;
+        _lastKnownTimestampMs = DateTime.now().millisecondsSinceEpoch;
+      });
+      _loadStoredSyncOffset();
+      _loadLyrics();
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
+    }
   }
 
   void _onTick(Duration elapsed) {
@@ -121,6 +147,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    widget.player.removeListener(_onPlayerStateChanged);
     _ticker.dispose();
     _userScrollTimer?.cancel();
     _scrollController.dispose();
@@ -128,12 +155,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   }
 
   Future<void> _loadLyrics() async {
+    final target = _currentTrack;
     final result = await _lyricsService.fetchLyricsResult(
-      widget.track.artist,
-      widget.track.title,
-      widget.track.duration,
+      target.artist,
+      target.title,
+      target.duration,
     );
-    if (mounted) {
+    if (mounted && _currentTrack.id == target.id) {
       setState(() {
         _lyrics = result.lines;
         _autoOffset = result.autoOffset;
@@ -209,7 +237,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Text(
-                            widget.track.title,
+                            _currentTrack.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -220,7 +248,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                           ),
                           const SizedBox(height: 1),
                           Text(
-                            widget.track.artist,
+                            _currentTrack.artist,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
