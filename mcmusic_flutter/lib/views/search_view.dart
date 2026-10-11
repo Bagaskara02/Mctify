@@ -8,6 +8,7 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/artist_card.dart';
 import '../widgets/optimized_image.dart';
+import '../widgets/track_action_sheet.dart';
 import 'artist_view.dart';
 
 class SearchView extends StatefulWidget {
@@ -552,6 +553,14 @@ class _SearchViewState extends State<SearchView> {
                     size: 22,
                   ),
                   onPressed: () => _toggleLike(track),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.more_horiz, color: Colors.white60, size: 22),
+                  onPressed: () => showTrackActionSheet(
+                    context: context,
+                    track: track,
+                    player: widget.player,
+                  ),
                 ),
               ],
             ),

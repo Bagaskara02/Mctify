@@ -12,6 +12,7 @@ import '../views/queue_view.dart';
 import 'audio_quality_modal.dart';
 import 'optimized_image.dart';
 import 'sleep_timer_modal.dart';
+import 'track_action_sheet.dart';
 
 class FullscreenPlayer extends StatefulWidget {
   final AudioPlayerManager player;
@@ -129,6 +130,20 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                 ),
                 const SizedBox(height: 12),
                 const Divider(color: Colors.white12),
+
+                // 0. Tambahkan ke Playlist
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline, color: Colors.white),
+                  title: const Text('Tambahkan ke Playlist', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showTrackActionSheet(
+                      context: context,
+                      track: track,
+                      player: widget.player,
+                    );
+                  },
+                ),
 
                 // 1. Equalizer & Bass Boost
                 ListTile(

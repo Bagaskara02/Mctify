@@ -7,6 +7,7 @@ import '../services/music_api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
+import '../widgets/track_action_sheet.dart';
 import 'playlist_detail_view.dart';
 
 class HomeView extends StatefulWidget {
@@ -272,63 +273,11 @@ class _HomeViewState extends State<HomeView> {
   }
 
   void _showTrackMenu(Track track) {
-    showModalBottomSheet(
+    showTrackActionSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E1E24),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Container(width: 36, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: OptimizedImage(imageUrl: track.artwork, width: 44, height: 44, borderRadius: BorderRadius.circular(6)),
-                title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppTheme.textMuted, fontSize: 12)),
-                trailing: IconButton(
-                  icon: Icon(
-                    _likedIds.contains(track.id) ? Icons.check_circle : Icons.favorite_border,
-                    color: _likedIds.contains(track.id) ? AppTheme.primaryAzure : Colors.white70,
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _toggleLike(track);
-                  },
-                ),
-              ),
-              const Divider(color: Colors.white12),
-              ListTile(
-                leading: const Icon(Icons.playlist_play, color: AppTheme.primaryAzure),
-                title: const Text('Putar Selanjutnya', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(context);
-                  widget.player.addToNext(track);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ditambahkan ke putar selanjutnya!'), duration: Duration(milliseconds: 900), behavior: SnackBarBehavior.floating),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.queue_music, color: AppTheme.primaryAzure),
-                title: const Text('Tambahkan ke Antrean', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(context);
-                  widget.player.addToQueue(track);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Lagu masuk ke antrean!'), duration: Duration(milliseconds: 900), behavior: SnackBarBehavior.floating),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
+      track: track,
+      player: widget.player,
+      onPlaylistModified: _loadHomeData,
     );
   }
 
