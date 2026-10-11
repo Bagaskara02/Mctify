@@ -3,6 +3,9 @@ package com.mcmusic.app.mcmusic_flutter
 import android.content.Context
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import com.ryanheise.audioservice.AudioServiceActivity
 
 class MainActivity : AudioServiceActivity() {
@@ -18,12 +21,28 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun keepWebViewsAlive(view: View) {
+        if (view is WebView) {
+            try {
+                view.onResume()
+                view.resumeTimers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        } else if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                keepWebViewsAlive(view.getChildAt(i))
+            }
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         try {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
+            window.decorView?.let { keepWebViewsAlive(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -35,6 +54,7 @@ class MainActivity : AudioServiceActivity() {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
+            window.decorView?.let { keepWebViewsAlive(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -46,6 +66,7 @@ class MainActivity : AudioServiceActivity() {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
+            window.decorView?.let { keepWebViewsAlive(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
