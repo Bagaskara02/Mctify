@@ -112,7 +112,6 @@ class PlaylistImporterService {
                     .trim();
                 final durMs = t['duration'] as num?;
                 final durSec = durMs != null ? (durMs / 1000).round().toString() : '180';
-                final audioPreview = t['audioPreview']?['url']?.toString() ?? '';
                 final isExplicit = t['isExplicit'] == true;
                 final cleanTitle = title.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
                 final cleanArtist = artist.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
@@ -123,7 +122,7 @@ class PlaylistImporterService {
                     'title': title,
                     'artist': artist,
                     'duration': durSec,
-                    if (audioPreview.isNotEmpty) 'audioUrl': audioPreview,
+                    'audioUrl': '', // CRITICAL: FULL SONGS ONLY! NEVER 30-SECOND PREVIEWS!
                     if (isExplicit) 'isExplicit': 'true',
                   });
                 }
@@ -280,7 +279,7 @@ class PlaylistImporterService {
             artist: t['artist']?.toString() ?? 'Artis',
             album: t['album']?.toString() ?? 'Album',
             artwork: t['artwork']?.toString() ?? MusicApiService.defaultArtwork,
-            audioUrl: t['audioUrl']?.toString() ?? '',
+            audioUrl: MusicApiService.isPreviewUrl(t['audioUrl']?.toString() ?? '') ? '' : (t['audioUrl']?.toString() ?? ''),
             videoId: t['videoId']?.toString(),
             duration: int.tryParse(t['duration']?.toString() ?? '180') ?? 180,
             streamCount: t['streamCount']?.toString() ?? '1.000.000',
@@ -356,17 +355,15 @@ class PlaylistImporterService {
 
       final explicitVid = item['videoId'];
       final explicitDur = int.tryParse(item['duration'] ?? '') ?? 180;
-      final explicitPreview = item['audioUrl'] ?? '';
       final isExplicit = item['isExplicit'] == 'true';
 
       onProgress?.call(i + 1, total, 'Mencocokkan lagu (${i + 1}/$total): "$title"...');
 
       String matchedArtwork = item['artwork'] ?? (cover.isNotEmpty ? cover : MusicApiService.defaultArtwork);
       String matchedAlbum = item['album'] ?? playlistName;
-      String matchedAudioUrl = explicitPreview;
 
       try {
-        // Query catalog only for high-resolution album cover and preview
+        // Query catalog only for high-resolution album cover and duration
         final matches = await _apiService.searchTracks('$title $artist'.trim());
         Track? bestMatch;
 
@@ -396,9 +393,6 @@ class PlaylistImporterService {
           if (bestMatch.album.isNotEmpty && bestMatch.album != 'Single') {
             matchedAlbum = bestMatch.album;
           }
-          if (matchedAudioUrl.isEmpty && bestMatch.audioUrl.isNotEmpty) {
-            matchedAudioUrl = bestMatch.audioUrl;
-          }
         }
       } catch (_) {}
 
@@ -412,7 +406,7 @@ class PlaylistImporterService {
         artist: artist.isNotEmpty ? artist : 'Unknown Artist', // CRITICAL: NEVER OVERWRITE ORIGINAL IMPORT ARTIST!
         album: matchedAlbum,
         artwork: matchedArtwork,
-        audioUrl: matchedAudioUrl,
+        audioUrl: '', // CRITICAL: FULL SONGS ONLY, NO 30-SECOND PREVIEW!
         videoId: explicitVid,
         duration: explicitDur,
         streamCount: '1.000.000',

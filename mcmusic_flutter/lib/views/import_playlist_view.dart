@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/track.dart';
 import '../models/playlist.dart';
 import '../services/audio_player_manager.dart';
 import '../services/playlist_importer_service.dart';
@@ -257,14 +258,29 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
           behavior: SnackBarBehavior.floating,
         ),
       );
-      Navigator.pop(context);
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        // Tab screen: reset form and keep user on page without black screen
+        setState(() {
+          _importedResult = null;
+          _statusMessage = '';
+          _progressPercent = 0.0;
+          _spotifyUrlCtrl.clear();
+          _youtubeUrlCtrl.clear();
+          _textCtrl.clear();
+          _jsonCtrl.clear();
+        });
+      }
     }
   }
 
   void _playImportedNow() {
     if (_importedResult == null || _importedResult!.tracks.isEmpty) return;
+    final firstTrack = _importedResult!.tracks.first;
+    final allTracks = List<Track>.from(_importedResult!.tracks);
     _saveImportedPlaylist();
-    widget.player.playTrack(_importedResult!.tracks.first, _importedResult!.tracks);
+    widget.player.playTrack(firstTrack, allTracks);
   }
 
   @override
@@ -274,10 +290,12 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
         title: const Text(
           'Import Playlist',
           style: TextStyle(
