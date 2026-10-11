@@ -8,6 +8,7 @@ import '../services/playlist_importer_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
+import '../widgets/mini_player.dart';
 
 class PlaylistDetailView extends StatefulWidget {
   final Playlist playlist;
@@ -33,10 +34,14 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
   late Playlist _currentPlaylist;
   String _filterQuery = '';
   final TextEditingController _searchCtrl = TextEditingController();
+  bool _isLiked = false;
+  String? _lastCheckedTrackId;
 
   @override
   void initState() {
     super.initState();
+    widget.player.addListener(_onPlayerStateChanged);
+    _checkLikedStatus();
     // Auto-clean any duplicate tracks that might exist in storage
     final seen = <String>{};
     final uniqueTracks = <Track>[];
@@ -73,8 +78,30 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     }
   }
 
+  void _onPlayerStateChanged() {
+    _checkLikedStatus();
+  }
+
+  void _checkLikedStatus() async {
+    final track = widget.player.currentTrack;
+    if (track != null && track.id != _lastCheckedTrackId) {
+      _lastCheckedTrackId = track.id;
+      final liked = await _storage.isTrackLiked(track.id);
+      if (mounted) setState(() => _isLiked = liked);
+    }
+  }
+
+  void _toggleLike() async {
+    final track = widget.player.currentTrack;
+    if (track != null) {
+      await _storage.toggleLikeTrack(track);
+      if (mounted) setState(() => _isLiked = !_isLiked);
+    }
+  }
+
   @override
   void dispose() {
+    widget.player.removeListener(_onPlayerStateChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -621,6 +648,23 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
 
           const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
+      ),
+      bottomNavigationBar: ListenableBuilder(
+        listenable: widget.player,
+        builder: (context, _) {
+          if (widget.player.currentTrack == null) return const SizedBox.shrink();
+          return Container(
+            color: const Color(0xFF080C14),
+            child: SafeArea(
+              top: false,
+              child: MiniPlayer(
+                player: widget.player,
+                isLiked: _isLiked,
+                onToggleLike: _toggleLike,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

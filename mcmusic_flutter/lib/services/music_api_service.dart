@@ -79,6 +79,57 @@ class MusicApiService {
     return null;
   }
 
+  /// Returns cached stream URL if already resolved
+  String? getCachedStream(Track track, [AudioQuality quality = AudioQuality.high]) {
+    if (track.audioUrl.isNotEmpty) return track.audioUrl;
+    if (track.videoId != null && track.videoId!.isNotEmpty) {
+      final key = 'stream_${track.videoId}';
+      if (_streamCache.containsKey(key)) return _streamCache[key];
+    }
+    final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
+    if (_streamCache.containsKey(cleanKey)) return _streamCache[cleanKey];
+    return null;
+  }
+
+  /// Silently pre-fetches and caches next audio stream in background for zero-latency playback
+  Future<void> prefetchTrackStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
+    final cached = getCachedStream(track, quality);
+    if (cached != null) return;
+    try {
+      await resolveDirectAudioStream(track, quality);
+    } catch (_) {}
+  }
+
+  /// Resolves direct audio stream for native ExoPlayer background playback
+  Future<String?> resolveDirectAudioStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
+    final cached = getCachedStream(track, quality);
+    if (cached != null) return cached;
+
+    // 1. Try resolving direct stream via videoId if already present on track
+    if (track.videoId != null && track.videoId!.isNotEmpty) {
+      final url = await resolveStreamUrlFromVideoId(track.videoId!);
+      if (url != null && url.isNotEmpty) {
+        final key = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
+        _streamCache[key] = url;
+        return url;
+      }
+    }
+
+    // 2. Resolve direct MP4 audio stream from YouTube Explode
+    final stream = await resolveFullAudioStream(track.title, track.artist, quality, track.duration);
+    if (stream != null && stream.isNotEmpty) {
+      return stream;
+    }
+
+    // 3. Ultra-fast AAC audio preview fallback (iTunes / Deezer)
+    final aac = await resolveAudioUrl(track.title, track.artist);
+    if (aac != null && aac.isNotEmpty) {
+      return aac;
+    }
+
+    return null;
+  }
+
   /// Resolves YouTube video ID for full-length song streaming (3 - 5+ minutes)
   Future<String?> resolveVideoId(String title, String artist, [int? expectedDuration]) async {
     final sanitizedTitle = title
