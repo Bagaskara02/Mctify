@@ -76,8 +76,13 @@ class MusicApiService {
     if (cached != null) return cached;
 
     // 1. Try resolving direct stream via videoId if already present on track
-    if (track.videoId != null && track.videoId!.isNotEmpty) {
-      final url = await resolveStreamUrlFromVideoId(track.videoId!);
+    String? vid = track.videoId;
+    if (vid == null || vid.isEmpty) {
+      vid = await resolveVideoId(track.title, track.artist, track.duration);
+    }
+
+    if (vid != null && vid.isNotEmpty) {
+      final url = await resolveStreamUrlFromVideoId(vid);
       if (url != null && url.isNotEmpty) {
         final key = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
         _streamCache[key] = url;

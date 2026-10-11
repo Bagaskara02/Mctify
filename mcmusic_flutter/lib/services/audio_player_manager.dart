@@ -221,50 +221,58 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _initAudioListeners() {
     _player.onPlayerStateChanged.listen((state) {
-      _isPlaying = state == PlayerState.playing;
-      _syncMediaHandler();
-      notifyListeners();
+      if (!_isUsingYoutubeIframe) {
+        _isPlaying = state == PlayerState.playing;
+        _syncMediaHandler();
+        notifyListeners();
+      }
     });
 
     int lastNotifiedMs = -1;
     _player.onPositionChanged.listen((pos) {
-      _position = pos;
-      if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 100) {
-        lastNotifiedMs = pos.inMilliseconds;
-        _syncMediaHandler();
-        notifyListeners();
-      }
+      if (!_isUsingYoutubeIframe) {
+        _position = pos;
+        if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 100) {
+          lastNotifiedMs = pos.inMilliseconds;
+          _syncMediaHandler();
+          notifyListeners();
+        }
 
-      // Safety auto-advance if within 0.8s of end
-      if (_duration.inSeconds > 5 && pos.inSeconds >= _duration.inSeconds - 1) {
-        if (_sleepTimerAtTrackEnd) {
-          _triggerSleepTimerStop();
-        } else if (!_isRepeat) {
-          next();
-        } else {
-          seek(Duration.zero);
-          _player.resume();
+        // Safety auto-advance if within 0.8s of end
+        if (_duration.inSeconds > 5 && pos.inSeconds >= _duration.inSeconds - 1) {
+          if (_sleepTimerAtTrackEnd) {
+            _triggerSleepTimerStop();
+          } else if (!_isRepeat) {
+            next();
+          } else {
+            seek(Duration.zero);
+            _player.resume();
+          }
         }
       }
     });
 
     _player.onDurationChanged.listen((dur) {
-      _duration = dur;
-      if (_currentTrack != null) {
-        _mediaHandler?.updateTrack(_currentTrack!, dur);
+      if (!_isUsingYoutubeIframe) {
+        _duration = dur;
+        if (_currentTrack != null) {
+          _mediaHandler?.updateTrack(_currentTrack!, dur);
+        }
+        _syncMediaHandler();
+        notifyListeners();
       }
-      _syncMediaHandler();
-      notifyListeners();
     });
 
     _player.onPlayerComplete.listen((_) {
-      if (_sleepTimerAtTrackEnd) {
-        _triggerSleepTimerStop();
-      } else if (_isRepeat) {
-        seek(Duration.zero);
-        _player.resume();
-      } else {
-        next();
+      if (!_isUsingYoutubeIframe) {
+        if (_sleepTimerAtTrackEnd) {
+          _triggerSleepTimerStop();
+        } else if (_isRepeat) {
+          seek(Duration.zero);
+          _player.resume();
+        } else {
+          next();
+        }
       }
     });
   }
@@ -423,28 +431,45 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Resolve YouTube videoId
+      // Step B: Resolve Native MP4 (AAC) Audio Stream
+      // Native audio runs through Android's Foreground MediaService with WakeLock,
+      // enabling 100% genuine background playback & lockscreen controls when the screen is locked or app is minimized!
+      final directStream = await _apiService.resolveDirectAudioStream(track, _audioQuality);
+      if (directStream != null && directStream.isNotEmpty) {
+        try {
+          debugPrint('[AudioPlayerManager] Playing native MP4 stream: $directStream');
+          _isUsingYoutubeIframe = false;
+          _isPlaying = true;
+          _userRequestedPause = false;
+          await _player.play(UrlSource(directStream, mimeType: 'audio/mp4'));
+          _syncMediaHandler();
+          notifyListeners();
+          _prefetchNextTrackStream();
+          return;
+        } catch (e) {
+          debugPrint('[AudioPlayerManager] Native stream error: $e, falling back to YouTube Player Engine');
+        }
+      }
+
+      // Step C: Fallback to YouTube Player Engine
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
 
-      if (videoId != null && videoId.isNotEmpty) {
-        // YouTube Player Engine (100% Full Song playback with sound, no 30s limits, continuous background audio)
-        if (_ytController != null) {
-          debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
-          _isUsingYoutubeIframe = true;
-          _isPlaying = true;
-          _userRequestedPause = false;
-          await _player.stop();
-          _ytController!.loadVideoById(videoId: videoId);
-          _ytController!.playVideo();
-          _injectBackgroundPlaybackScripts();
-          _syncMediaHandler();
-          notifyListeners();
-          _prefetchNextTrackStream();
-          return;
-        }
+      if (videoId != null && videoId.isNotEmpty && _ytController != null) {
+        debugPrint('[AudioPlayerManager] Playing via YouTube Engine fallback: videoId=$videoId');
+        _isUsingYoutubeIframe = true;
+        _isPlaying = true;
+        _userRequestedPause = false;
+        await _player.stop();
+        _ytController!.loadVideoById(videoId: videoId);
+        _ytController!.playVideo();
+        _injectBackgroundPlaybackScripts();
+        _syncMediaHandler();
+        notifyListeners();
+        _prefetchNextTrackStream();
+        return;
       }
     } catch (e) {
       debugPrint('Playback error: $e');
