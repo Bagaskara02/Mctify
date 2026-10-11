@@ -63,10 +63,9 @@ class MusicApiService {
 
   /// Silently pre-fetches and caches next audio stream in background for zero-latency playback
   Future<void> prefetchTrackStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
-    final cached = getCachedStream(track, quality);
-    if (cached != null) return;
+    if (track.videoId != null && track.videoId!.isNotEmpty) return;
     try {
-      await resolveDirectAudioStream(track, quality);
+      await resolveVideoId(track.title, track.artist, track.duration);
     } catch (_) {}
   }
 
@@ -120,7 +119,7 @@ class MusicApiService {
     final yt = YoutubeExplode();
     try {
       // 1. Primary: Search via YoutubeExplode
-      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 8));
+      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
       if (searchResults.isNotEmpty) {
         final scored = searchResults.map((v) {
           final dur = v.duration?.inSeconds;
