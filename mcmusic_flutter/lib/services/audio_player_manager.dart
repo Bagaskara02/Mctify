@@ -5,12 +5,11 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
-import 'local_audio_stream_server.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
 
-class AudioPlayerManager extends ChangeNotifier {
+class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   final AudioPlayer _player = AudioPlayer();
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
@@ -19,6 +18,7 @@ class AudioPlayerManager extends ChangeNotifier {
 
   Track? _currentTrack;
   bool _isPlaying = false;
+  bool _userRequestedPause = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   List<Track> _queue = [];
@@ -61,11 +61,46 @@ class AudioPlayerManager extends ChangeNotifier {
   AudioQuality get audioQuality => _audioQuality;
 
   AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
+    WidgetsBinding.instance.addObserver(this);
     _initAudioContext();
     _initAudioListeners();
     _initYoutube();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      if (_isPlaying && _isUsingYoutubeIframe && !_userRequestedPause && _ytController != null) {
+        _injectBackgroundPlaybackScripts();
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (_isPlaying && !_userRequestedPause) {
+            _ytController?.playVideo();
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _injectBackgroundPlaybackScripts() async {
+    try {
+      final controller = _ytController?.webViewController;
+      if (controller == null) return;
+      await controller.runJavaScript('''
+        (function() {
+          try {
+            Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+            Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+            Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+          } catch(e) {}
+        })();
+      ''');
+    } catch (_) {}
   }
 
   void _initYoutube() {
@@ -84,7 +119,14 @@ class AudioPlayerManager extends ChangeNotifier {
         if (!_isUsingYoutubeIframe) return;
         if (value.playerState == ytp.PlayerState.playing) {
           _isPlaying = true;
+          _userRequestedPause = false;
+          _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
+          if (!_userRequestedPause && _isPlaying) {
+            // Auto-resume continuous background & screen-off playback
+            _ytController?.playVideo();
+            return;
+          }
           _isPlaying = false;
         }
         if (value.metaData.duration > Duration.zero) {
@@ -347,6 +389,7 @@ class AudioPlayerManager extends ChangeNotifier {
     _position = Duration.zero;
     _duration = Duration(seconds: track.duration > 0 ? track.duration : 180);
     _isPlaying = true;
+    _userRequestedPause = false;
     _mediaHandler?.updateTrack(track, _duration);
     _syncMediaHandler();
     notifyListeners(); // Synchronous notification for 0ms lag!
@@ -373,6 +416,7 @@ class AudioPlayerManager extends ChangeNotifier {
         await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
         _isUsingYoutubeIframe = false;
+        _userRequestedPause = false;
         _syncMediaHandler();
         notifyListeners();
         _prefetchNextTrackStream();
@@ -386,33 +430,16 @@ class AudioPlayerManager extends ChangeNotifier {
       }
 
       if (videoId != null && videoId.isNotEmpty) {
-        // TIER 1: Native ExoPlayer via Local Audio Proxy Server
-        // Powers genuine Android background playback, lockscreen scrubber & controls,
-        // and keeps playing continuously even when the screen is locked/turned off!
-        try {
-          final proxyUrl = await LocalAudioStreamServer.getProxyUrl(videoId);
-          if (proxyUrl != null && proxyUrl.isNotEmpty) {
-            debugPrint('[AudioPlayerManager] Playing native background stream via LocalAudioStreamServer: $proxyUrl');
-            _isUsingYoutubeIframe = false;
-            await _player.play(UrlSource(proxyUrl));
-            _isPlaying = true;
-            _syncMediaHandler();
-            notifyListeners();
-            _prefetchNextTrackStream();
-            return;
-          }
-        } catch (e) {
-          debugPrint('[AudioPlayerManager] Local proxy playback note: $e, using YouTube Engine fallback');
-        }
-
-        // TIER 2: YouTube Player Engine (Fallback)
+        // YouTube Player Engine (100% Full Song playback with sound, no 30s limits, continuous background audio)
         if (_ytController != null) {
           debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
           _isUsingYoutubeIframe = true;
           _isPlaying = true;
+          _userRequestedPause = false;
           await _player.stop();
           _ytController!.loadVideoById(videoId: videoId);
           _ytController!.playVideo();
+          _injectBackgroundPlaybackScripts();
           _syncMediaHandler();
           notifyListeners();
           _prefetchNextTrackStream();
@@ -437,11 +464,14 @@ class AudioPlayerManager extends ChangeNotifier {
 
     if (_isUsingYoutubeIframe && _ytController != null) {
       if (_isPlaying) {
+        _userRequestedPause = true;
         _ytController!.pauseVideo();
         _isPlaying = false;
       } else {
+        _userRequestedPause = false;
         _ytController!.playVideo();
         _isPlaying = true;
+        _injectBackgroundPlaybackScripts();
       }
       _syncMediaHandler();
       notifyListeners();
@@ -449,9 +479,11 @@ class AudioPlayerManager extends ChangeNotifier {
     }
 
     if (_isPlaying) {
+      _userRequestedPause = true;
       await _player.pause();
       _isPlaying = false;
     } else {
+      _userRequestedPause = false;
       if (_player.state == PlayerState.paused) {
         await _player.resume();
       } else if (_currentTrack != null) {
@@ -473,12 +505,15 @@ class AudioPlayerManager extends ChangeNotifier {
       if (_isUsingYoutubeIframe && _ytController != null) {
         _ytController!.seekTo(seconds: pos.inSeconds.toDouble(), allowSeekAhead: true);
         if (wasPlaying) {
+          _userRequestedPause = false;
           _ytController!.playVideo();
           _isPlaying = true;
+          _injectBackgroundPlaybackScripts();
         }
       } else {
         await _player.seek(pos);
         if (wasPlaying && _player.state != PlayerState.playing) {
+          _userRequestedPause = false;
           await _player.resume();
           _isPlaying = true;
         }
@@ -701,6 +736,7 @@ class AudioPlayerManager extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sleepTimer?.cancel();
     _ytController?.close();
     _player.dispose();

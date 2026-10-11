@@ -130,16 +130,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             children: pages,
           ),
 
-          // Official YouTube Audio/Video Engine for Flutter (Offscreen, active, full dimensions to prevent Android WebView throttling)
+          // Official YouTube Audio/Video Engine for Flutter (Active, Composited, Never hidden, with keepAlive)
           if (_player.ytController != null)
             Positioned(
-              bottom: -400,
+              bottom: 0,
               right: 0,
-              width: 320,
-              height: 240,
+              width: 1,
+              height: 1,
               child: IgnorePointer(
                 child: ytp.YoutubePlayer(
                   controller: _player.ytController!,
+                  keepAlive: true,
                 ),
               ),
             ),
