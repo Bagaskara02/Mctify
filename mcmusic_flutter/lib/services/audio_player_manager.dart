@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
+import 'local_audio_stream_server.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
@@ -364,7 +365,7 @@ class AudioPlayerManager extends ChangeNotifier {
 
     // 2. Playback resolution (100% Full Song playback, no 30s preview limits, no 403 errors):
     try {
-      // Step A: Direct Audio URL if explicitly provided (e.g., self-hosted / direct link, not preview and not raw googlevideo)
+      // Step A: Direct Audio URL if explicitly provided (e.g. self-hosted / direct link, not preview and not raw googlevideo)
       if (track.audioUrl.isNotEmpty &&
           !MusicApiService.isPreviewUrl(track.audioUrl) &&
           !track.audioUrl.contains('googlevideo.com')) {
@@ -374,26 +375,49 @@ class AudioPlayerManager extends ChangeNotifier {
         _isUsingYoutubeIframe = false;
         _syncMediaHandler();
         notifyListeners();
+        _prefetchNextTrackStream();
         return;
       }
 
-      // Step B: Official YouTube Player Engine (Powers 100% full songs without 403 Forbidden errors)
+      // Step B: Resolve YouTube videoId
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
 
-      if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
-        _isUsingYoutubeIframe = true;
-        _isPlaying = true;
-        await _player.stop();
-        _ytController!.loadVideoById(videoId: videoId);
-        _ytController!.playVideo();
-        _syncMediaHandler();
-        notifyListeners();
-        _prefetchNextTrackStream();
-        return;
+      if (videoId != null && videoId.isNotEmpty) {
+        // TIER 1: Native ExoPlayer via Local Audio Proxy Server
+        // Powers genuine Android background playback, lockscreen scrubber & controls,
+        // and keeps playing continuously even when the screen is locked/turned off!
+        try {
+          final proxyUrl = await LocalAudioStreamServer.getProxyUrl(videoId);
+          if (proxyUrl != null && proxyUrl.isNotEmpty) {
+            debugPrint('[AudioPlayerManager] Playing native background stream via LocalAudioStreamServer: $proxyUrl');
+            _isUsingYoutubeIframe = false;
+            await _player.play(UrlSource(proxyUrl));
+            _isPlaying = true;
+            _syncMediaHandler();
+            notifyListeners();
+            _prefetchNextTrackStream();
+            return;
+          }
+        } catch (e) {
+          debugPrint('[AudioPlayerManager] Local proxy playback note: $e, using YouTube Engine fallback');
+        }
+
+        // TIER 2: YouTube Player Engine (Fallback)
+        if (_ytController != null) {
+          debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
+          _isUsingYoutubeIframe = true;
+          _isPlaying = true;
+          await _player.stop();
+          _ytController!.loadVideoById(videoId: videoId);
+          _ytController!.playVideo();
+          _syncMediaHandler();
+          notifyListeners();
+          _prefetchNextTrackStream();
+          return;
+        }
       }
     } catch (e) {
       debugPrint('Playback error: $e');

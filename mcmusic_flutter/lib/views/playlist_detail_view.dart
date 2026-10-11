@@ -9,6 +9,7 @@ import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/track_action_sheet.dart';
 
 class PlaylistDetailView extends StatefulWidget {
   final Playlist playlist;
@@ -308,6 +309,21 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                   HapticFeedback.lightImpact();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Lagu masuk ke antrean!'), duration: Duration(milliseconds: 900), behavior: SnackBarBehavior.floating),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline, color: Colors.white),
+                title: const Text('Tambahkan ke Playlist Lain', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  showTrackActionSheet(
+                    context: context,
+                    track: track,
+                    player: widget.player,
+                    onPlaylistModified: () {
+                      widget.onPlaylistChanged?.call();
+                    },
                   );
                 },
               ),
