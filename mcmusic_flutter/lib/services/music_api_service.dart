@@ -10,50 +10,18 @@ class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
 
-  /// Resolves guaranteed 100% playable AAC audio stream for any track (plays instantly on all Android devices)
+  static bool isPreviewUrl(String url) {
+    if (url.isEmpty) return false;
+    final lower = url.toLowerCase();
+    return lower.contains('preview') ||
+        lower.contains('p.scdn.co') ||
+        lower.contains('mzstatic.com') ||
+        lower.contains('deezer');
+  }
+
+  /// Deprecated: 30-second preview resolution completely disabled for 100% full song playback
   Future<String?> resolveAudioUrl(String title, String artist) async {
-    final cleanKey = 'audio_${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
-    if (_streamCache.containsKey(cleanKey)) {
-      return _streamCache[cleanKey];
-    }
-
-    try {
-      final query = '$title $artist'.trim();
-      final url = Uri.parse(
-        'https://itunes.apple.com/search?term=${Uri.encodeComponent(query)}&country=ID&entity=song&limit=5',
-      );
-      final res = await http.get(url).timeout(const Duration(seconds: 4));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final list = (data['results'] as List? ?? []);
-        for (final item in list) {
-          final preview = item['previewUrl'] as String?;
-          if (preview != null && preview.isNotEmpty) {
-            _streamCache[cleanKey] = preview;
-            return preview;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('resolveAudioUrl iTunes error: $e');
-    }
-
-    try {
-      final deezerUrl = Uri.parse('https://api.deezer.com/search?q=${Uri.encodeComponent('$title $artist')}&limit=3');
-      final dRes = await http.get(deezerUrl).timeout(const Duration(seconds: 3));
-      if (dRes.statusCode == 200) {
-        final dData = jsonDecode(dRes.body);
-        final dList = (dData['data'] as List? ?? []);
-        for (final item in dList) {
-          final preview = item['preview'] as String?;
-          if (preview != null && preview.isNotEmpty) {
-            _streamCache[cleanKey] = preview;
-            return preview;
-          }
-        }
-      }
-    } catch (_) {}
-
+    // Disabled: FULL SONGS ONLY! Never return 30-second preview clips.
     return null;
   }
 
@@ -79,9 +47,11 @@ class MusicApiService {
     return null;
   }
 
-  /// Returns cached stream URL if already resolved
+  /// Returns cached stream URL if already resolved (guaranteeing it's never a 30s preview)
   String? getCachedStream(Track track, [AudioQuality quality = AudioQuality.high]) {
-    if (track.audioUrl.isNotEmpty) return track.audioUrl;
+    if (track.audioUrl.isNotEmpty && !isPreviewUrl(track.audioUrl)) {
+      return track.audioUrl;
+    }
     if (track.videoId != null && track.videoId!.isNotEmpty) {
       final key = 'stream_${track.videoId}';
       if (_streamCache.containsKey(key)) return _streamCache[key];
@@ -100,7 +70,7 @@ class MusicApiService {
     } catch (_) {}
   }
 
-  /// Resolves direct audio stream for native ExoPlayer background playback
+  /// Resolves direct audio stream for native ExoPlayer background playback (100% full song only!)
   Future<String?> resolveDirectAudioStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
     final cached = getCachedStream(track, quality);
     if (cached != null) return cached;
@@ -115,18 +85,14 @@ class MusicApiService {
       }
     }
 
-    // 2. Resolve direct MP4 audio stream from YouTube Explode
+    // 2. Resolve direct MP4 audio stream from YouTube Explode (full 3-5+ minute song!)
     final stream = await resolveFullAudioStream(track.title, track.artist, quality, track.duration);
     if (stream != null && stream.isNotEmpty) {
       return stream;
     }
 
-    // 3. Ultra-fast AAC audio preview fallback (iTunes / Deezer)
-    final aac = await resolveAudioUrl(track.title, track.artist);
-    if (aac != null && aac.isNotEmpty) {
-      return aac;
-    }
-
+    // CRITICAL: NEVER fall back to 30-second previews!
+    // Return null so AudioPlayerManager falls back to Tier 2 (YouTube Player Engine) for full-length playback.
     return null;
   }
 
@@ -555,7 +521,7 @@ class MusicApiService {
               artist: artist,
               album: item['collectionName'] ?? 'Single',
               artwork: art,
-              audioUrl: item['previewUrl'] ?? '',
+              audioUrl: '', // CRITICAL: NEVER 30-second previews! Full song resolved dynamically.
               duration: item['trackTimeMillis'] != null ? (item['trackTimeMillis'] / 1000).round() : 180,
               streamCount: '${(100 + results.length * 15)}.000.000',
               isExplicit: item['trackExplicitness'] == 'explicit',
@@ -586,7 +552,7 @@ class MusicApiService {
               artist: artist,
               album: (item['album']?['title'] ?? 'Single').toString(),
               artwork: (item['album']?['cover_big'] ?? item['album']?['cover_medium'] ?? defaultArtwork).toString(),
-              audioUrl: (item['preview'] ?? '').toString(),
+              audioUrl: '', // CRITICAL: NEVER 30-second previews! Full song resolved dynamically.
               duration: (item['duration'] as num?)?.toInt() ?? 180,
               streamCount: '${(80 + results.length * 12)}.000.000',
               isExplicit: item['explicit_lyrics'] == true,

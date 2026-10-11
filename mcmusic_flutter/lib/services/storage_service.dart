@@ -22,7 +22,25 @@ class StorageService {
         final key = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
         if (!seen.contains(key)) {
           seen.add(key);
-          unique.add(t);
+          final hasPreview = t.audioUrl.contains('preview') ||
+              t.audioUrl.contains('p.scdn.co') ||
+              t.audioUrl.contains('mzstatic.com');
+          if (hasPreview) {
+            unique.add(Track(
+              id: t.id,
+              title: t.title,
+              artist: t.artist,
+              album: t.album,
+              artwork: t.artwork,
+              audioUrl: '', // Stripped 30s preview
+              videoId: t.videoId,
+              duration: t.duration,
+              streamCount: t.streamCount,
+              isExplicit: t.isExplicit,
+            ));
+          } else {
+            unique.add(t);
+          }
         }
       }
       return unique;
@@ -76,7 +94,26 @@ class StorageService {
           final trackKey = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
           if (!seenTracks.contains(trackKey)) {
             seenTracks.add(trackKey);
-            cleanedTracks.add(t);
+            final hasPreview = t.audioUrl.contains('preview') ||
+                t.audioUrl.contains('p.scdn.co') ||
+                t.audioUrl.contains('mzstatic.com');
+            if (hasPreview) {
+              needsRewrite = true;
+              cleanedTracks.add(Track(
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                album: t.album,
+                artwork: t.artwork,
+                audioUrl: '', // Stripped 30-second preview so full song plays!
+                videoId: t.videoId,
+                duration: t.duration,
+                streamCount: t.streamCount,
+                isExplicit: t.isExplicit,
+              ));
+            } else {
+              cleanedTracks.add(t);
+            }
           } else {
             needsRewrite = true;
           }
