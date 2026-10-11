@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
 import '../models/playlist.dart';
@@ -8,6 +9,9 @@ class StorageService {
   static const String _keyPlaylists = 'mcmusic_playlists';
   static const String _keyHistory = 'mcmusic_history';
   static const String _keyPlayCounts = 'mcmusic_play_counts';
+
+  /// Live notifier whenever playlists or liked tracks change
+  static final ValueNotifier<int> playlistRevision = ValueNotifier<int>(0);
 
   Future<List<Track>> getLikedTracks() async {
     final prefs = await SharedPreferences.getInstance();
@@ -59,6 +63,7 @@ class StorageService {
       liked.insert(0, track);
     }
     await prefs.setString(_keyLiked, jsonEncode(liked.map((t) => t.toJson()).toList()));
+    playlistRevision.value++;
   }
 
   Future<bool> isTrackLiked(String trackId) async {
@@ -152,6 +157,7 @@ class StorageService {
   Future<void> savePlaylists(List<Playlist> playlists) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyPlaylists, jsonEncode(playlists.map((p) => p.toJson()).toList()));
+    playlistRevision.value++;
   }
 
   Future<List<Track>> getHistory() async {

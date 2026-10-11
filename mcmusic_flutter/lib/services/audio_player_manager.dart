@@ -81,7 +81,11 @@ class AudioPlayerManager extends ChangeNotifier {
 
       _ytController!.listen((value) {
         if (!_isUsingYoutubeIframe) return;
-        _isPlaying = value.playerState == ytp.PlayerState.playing;
+        if (value.playerState == ytp.PlayerState.playing) {
+          _isPlaying = true;
+        } else if (value.playerState == ytp.PlayerState.paused) {
+          _isPlaying = false;
+        }
         if (value.metaData.duration > Duration.zero) {
           _duration = value.metaData.duration;
         }
@@ -358,37 +362,37 @@ class AudioPlayerManager extends ChangeNotifier {
     // Record play in storage
     _storageService.recordPlay(track);
 
-    // 2. Multi-tier stream resolution with native ExoPlayer first for background playback:
+    // 2. Playback resolution (100% Full Song playback, no 30s preview limits, no 403 errors):
     try {
-      // Tier 1: Direct High-Quality Audio Stream via native ExoPlayer (audioplayers)
-      // Runs natively as Android Foreground Service, continues playing when screen
-      // is turned off or app is closed, and seeks in milliseconds!
-      final directStream = await _apiService.resolveDirectAudioStream(track, _audioQuality);
-      if (directStream != null && directStream.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing native audio stream via ExoPlayer');
-        await _player.play(UrlSource(directStream));
+      // Step A: Direct Audio URL if explicitly provided (e.g., self-hosted / direct link, not preview and not raw googlevideo)
+      if (track.audioUrl.isNotEmpty &&
+          !MusicApiService.isPreviewUrl(track.audioUrl) &&
+          !track.audioUrl.contains('googlevideo.com')) {
+        debugPrint('[AudioPlayerManager] Playing direct audio stream via ExoPlayer');
+        await _player.play(UrlSource(track.audioUrl));
         _isPlaying = true;
         _isUsingYoutubeIframe = false;
         _syncMediaHandler();
         notifyListeners();
-        // Prefetch next track's audio stream in background for zero-delay transitions!
-        _prefetchNextTrackStream();
         return;
       }
 
-      // Tier 2: YouTube Player Engine (Fallback if stream extraction fails)
+      // Step B: Official YouTube Player Engine (Powers 100% full songs without 403 Forbidden errors)
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration);
       }
+
       if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Fallback: Loading videoId=$videoId into YouTube Player');
+        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
         _isUsingYoutubeIframe = true;
+        _isPlaying = true;
+        await _player.stop();
         _ytController!.loadVideoById(videoId: videoId);
         _ytController!.playVideo();
-        _isPlaying = true;
         _syncMediaHandler();
         notifyListeners();
+        _prefetchNextTrackStream();
         return;
       }
     } catch (e) {

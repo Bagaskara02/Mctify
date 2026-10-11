@@ -36,6 +36,13 @@ class _LibraryViewState extends State<LibraryView> {
   void initState() {
     super.initState();
     _loadLibrary();
+    StorageService.playlistRevision.addListener(_loadLibrary);
+  }
+
+  @override
+  void dispose() {
+    StorageService.playlistRevision.removeListener(_loadLibrary);
+    super.dispose();
   }
 
   Future<void> _loadLibrary() async {

@@ -111,7 +111,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       HomeView(player: _player),
       SearchView(player: _player),
       LibraryView(player: _player),
-      ImportPlaylistView(player: _player),
+      ImportPlaylistView(
+        player: _player,
+        onPlaylistImported: () {
+          setState(() {
+            _currentIndex = 2; // Auto-switch to Library (Koleksi) so imported playlist is visible immediately!
+          });
+        },
+      ),
     ];
 
     return Scaffold(
@@ -123,15 +130,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             children: pages,
           ),
 
-          // Official YouTube Audio/Video Engine for Flutter
+          // Official YouTube Audio/Video Engine for Flutter (Offscreen, active, full dimensions to prevent Android WebView throttling)
           if (_player.ytController != null)
             Positioned(
-              left: 0,
-              top: 0,
-              width: 1,
-              height: 1,
-              child: Opacity(
-                opacity: 0.001,
+              bottom: -400,
+              right: 0,
+              width: 320,
+              height: 240,
+              child: IgnorePointer(
                 child: ytp.YoutubePlayer(
                   controller: _player.ytController!,
                 ),
