@@ -171,6 +171,22 @@ class MusicApiService {
       debugPrint('resolveVideoId WEB_REMIX fallback error: $e');
     }
 
+    // 3. Fallback: McMusic Vercel Backend API (powered by youtubei.js)
+    try {
+      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?q=${Uri.encodeComponent('$title $artist')}&duration=${expectedDuration ?? 0}');
+      final res = await http.get(url).timeout(const Duration(seconds: 6));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final vid = data['videoId'] as String?;
+        if (vid != null && vid.isNotEmpty) {
+          _streamCache[cleanKey] = vid;
+          return vid;
+        }
+      }
+    } catch (e) {
+      debugPrint('resolveVideoId Vercel backend error: $e');
+    }
+
     return null;
   }
 

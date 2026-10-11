@@ -93,6 +93,7 @@ class _HomeViewState extends State<HomeView> {
     super.initState();
     _loadHomeData();
     widget.player.addListener(_onPlayerStateChanged);
+    StorageService.playlistRevision.addListener(_loadHomeData);
   }
 
   void _onPlayerStateChanged() {
@@ -108,6 +109,7 @@ class _HomeViewState extends State<HomeView> {
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerStateChanged);
+    StorageService.playlistRevision.removeListener(_loadHomeData);
     super.dispose();
   }
 
