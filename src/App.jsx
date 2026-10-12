@@ -7,6 +7,7 @@ import PlaylistView from './components/PlaylistView';
 import BeautifulLyrics from './components/BeautifulLyrics';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
 import DownloadAppModal from './components/DownloadAppModal';
+import EqualizerModal from './components/EqualizerModal';
 import YouTubePlayer from './components/YouTubePlayer';
 import MobileBottomNav from './components/MobileBottomNav';
 import MobileMiniPlayer from './components/MobileMiniPlayer';
@@ -54,6 +55,7 @@ export default function App() {
   const [isMobileFullscreenOpen, setIsMobileFullscreenOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [contextMenuData, setContextMenuData] = useState(null); // { type, track, playlist, x, y }
   const [lyricsData, setLyricsData] = useState(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
@@ -954,6 +956,7 @@ export default function App() {
           isLyricsOpen={isLyricsOpen}
           isQueueOpen={isQueueOpen}
           isRightSidebarOpen={isRightSidebarOpen}
+          isEqualizerOpen={isEqualizerOpen}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={() => handleNext(false)}
@@ -966,6 +969,7 @@ export default function App() {
           onToggleLyrics={() => setIsLyricsOpen(!isLyricsOpen)}
           onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
           onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+          onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
           onTrackContextMenu={handleTrackContextMenu}
         />
       </div>
@@ -1015,6 +1019,7 @@ export default function App() {
         onToggleLike={handleToggleLike}
         onOpenLyrics={() => setIsLyricsOpen(true)}
         onOpenQueue={() => setIsQueueOpen(true)}
+        onOpenEqualizer={() => setIsEqualizerOpen(true)}
       />
 
       {/* --- QUEUE DRAWER PANEL --- */}
@@ -1053,6 +1058,12 @@ export default function App() {
       <DownloadAppModal
         isOpen={isDownloadModalOpen}
         onClose={() => setIsDownloadModalOpen(false)}
+      />
+
+      {/* --- EQUALIZER & AUDIO MASTER MODAL --- */}
+      <EqualizerModal
+        isOpen={isEqualizerOpen}
+        onClose={() => setIsEqualizerOpen(false)}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}

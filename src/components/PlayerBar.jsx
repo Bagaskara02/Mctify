@@ -14,7 +14,8 @@ import {
   Heart,
   ListMusic,
   PanelRight,
-  MoreHorizontal
+  MoreHorizontal,
+  Sliders
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
@@ -32,6 +33,7 @@ export default function PlayerBar({
   isLyricsOpen,
   isQueueOpen,
   isRightSidebarOpen,
+  isEqualizerOpen,
   onPlayPause,
   onPrev,
   onNext,
@@ -44,6 +46,7 @@ export default function PlayerBar({
   onToggleLyrics,
   onToggleQueue,
   onToggleRightSidebar,
+  onToggleEqualizer,
   onTrackContextMenu,
 }) {
   const progressBarRef = useRef(null);
@@ -350,6 +353,19 @@ export default function PlayerBar({
           title="Lirik Karaoke Bersinkron"
         >
           <Mic2 className="w-4 h-4" />
+        </button>
+
+        {/* Equalizer Trigger */}
+        <button
+          onClick={onToggleEqualizer}
+          className={`p-2 rounded-full transition-all active:scale-95 ${
+            isEqualizerOpen
+              ? 'text-[#00a3ff]'
+              : 'text-[#b3b3b3] hover:text-white'
+          }`}
+          title="Equalizer & Efek Suara"
+        >
+          <Sliders className="w-4 h-4" />
         </button>
 
         {/* Queue Drawer Trigger */}
