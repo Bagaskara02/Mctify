@@ -20,7 +20,7 @@ class MainActivity : AudioServiceActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            mainHandler.postDelayed(this, 1000)
+            mainHandler.postDelayed(this, 350)
         }
     }
 
@@ -51,7 +51,6 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onPause() {
-        super.onPause()
         try {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
@@ -62,10 +61,15 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        super.onPause()
+        try {
+            window.decorView?.let { keepWebViewsAlive(it) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onStop() {
-        super.onStop()
         try {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
@@ -73,6 +77,12 @@ class MainActivity : AudioServiceActivity() {
             window.decorView?.let { keepWebViewsAlive(it) }
             mainHandler.removeCallbacks(keepAliveRunnable)
             mainHandler.post(keepAliveRunnable)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        super.onStop()
+        try {
+            window.decorView?.let { keepWebViewsAlive(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }

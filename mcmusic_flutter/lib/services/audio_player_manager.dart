@@ -80,7 +80,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (!_userRequestedPause && _currentTrack != null && _ytController != null) {
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
-        _ytController?.playVideo();
+        if (!_isPlaying) {
+          _ytController?.playVideo();
+        }
       }
     }
   }
@@ -209,11 +211,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _setJsUserRequestedPause(false);
           _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
-          _isPlaying = false;
           if (!_userRequestedPause) {
-            // Auto-resume continuous background & screen-off playback
+            // Screen off / background transient pause: auto-resume immediately without audio focus drop
             _setJsUserRequestedPause(false);
             _ytController?.playVideo();
+          } else {
+            _isPlaying = false;
           }
         }
         if (value.metaData.duration > Duration.zero) {

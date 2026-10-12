@@ -49,6 +49,18 @@ class AppTheme {
         type: BottomNavigationBarType.fixed,
         elevation: 10,
       ),
+      splashFactory: InkSparkle.splashFactory,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
+      cardTheme: CardThemeData(
+        color: darkCard,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
       sliderTheme: SliderThemeData(
         activeTrackColor: primaryAzure,
         inactiveTrackColor: Colors.white24,
