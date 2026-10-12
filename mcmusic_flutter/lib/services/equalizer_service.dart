@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/equalizer_preset.dart';
 
 class EqualizerService extends ChangeNotifier {
   static final EqualizerService instance = EqualizerService();
+  static const MethodChannel _channel = MethodChannel('com.mcmusic.app/equalizer');
 
   static const String _keyEnabled = 'eq_enabled';
   static const String _keyPreset = 'eq_preset';
@@ -27,6 +29,17 @@ class EqualizerService extends ChangeNotifier {
     _loadSettings();
   }
 
+  Future<void> _applyNativeSettings() async {
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await _channel.invokeMethod('setEnabled', {'enabled': _isEnabled});
+        await _channel.invokeMethod('setBands', {'bands': _currentBands, 'enabled': _isEnabled});
+        await _channel.invokeMethod('setBassBoost', {'strength': _isEnabled ? _bassBoost : 0.0});
+        await _channel.invokeMethod('setVirtualizer', {'strength': _isEnabled ? _virtualizer : 0.0});
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -39,12 +52,14 @@ class EqualizerService extends ChangeNotifier {
       _bassBoost = prefs.getDouble(_keyBassBoost) ?? 0.65;
       _virtualizer = prefs.getDouble(_keyVirtualizer) ?? 0.30;
       notifyListeners();
+      _applyNativeSettings();
     } catch (_) {}
   }
 
   Future<void> toggleEnabled() async {
     _isEnabled = !_isEnabled;
     notifyListeners();
+    _applyNativeSettings();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnabled, _isEnabled);
   }
@@ -53,6 +68,7 @@ class EqualizerService extends ChangeNotifier {
     _selectedPresetName = preset.name;
     _currentBands = List.from(preset.bands);
     notifyListeners();
+    _applyNativeSettings();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyPreset, preset.name);
     await prefs.setStringList(_keyBands, _currentBands.map((b) => b.toString()).toList());
@@ -63,6 +79,11 @@ class EqualizerService extends ChangeNotifier {
       _currentBands[index] = value.clamp(-10.0, 10.0);
       _selectedPresetName = 'Kustom';
       notifyListeners();
+      try {
+        if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+          _channel.invokeMethod('setBandLevel', {'band': index, 'level': _currentBands[index]});
+        }
+      } catch (_) {}
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyPreset, _selectedPresetName);
       await prefs.setStringList(_keyBands, _currentBands.map((b) => b.toString()).toList());
@@ -72,6 +93,11 @@ class EqualizerService extends ChangeNotifier {
   Future<void> setBassBoost(double value) async {
     _bassBoost = value.clamp(0.0, 1.0);
     notifyListeners();
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+        _channel.invokeMethod('setBassBoost', {'strength': _bassBoost});
+      }
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyBassBoost, _bassBoost);
   }
@@ -79,6 +105,11 @@ class EqualizerService extends ChangeNotifier {
   Future<void> setVirtualizer(double value) async {
     _virtualizer = value.clamp(0.0, 1.0);
     notifyListeners();
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+        _channel.invokeMethod('setVirtualizer', {'strength': _virtualizer});
+      }
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyVirtualizer, _virtualizer);
   }
@@ -91,6 +122,7 @@ class EqualizerService extends ChangeNotifier {
     _bassBoost = 0.0;
     _virtualizer = 0.0;
     notifyListeners();
+    _applyNativeSettings();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnabled, true);

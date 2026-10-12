@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/artist.dart';
@@ -27,6 +28,9 @@ class _SearchViewState extends State<SearchView> {
   final TextEditingController _searchController = TextEditingController();
   final MusicApiService _api = MusicApiService();
   final StorageService _storage = StorageService();
+
+  Timer? _debounceTimer;
+  int _searchToken = 0;
 
   String _selectedTab = 'Semua';
   List<Track> _searchResults = [];
@@ -107,6 +111,13 @@ class _SearchViewState extends State<SearchView> {
     _artistResults = MusicApiService.catalogArtists;
   }
 
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadLikes() async {
     final liked = await _storage.getLikedTracks();
     if (mounted) {
@@ -116,8 +127,11 @@ class _SearchViewState extends State<SearchView> {
     }
   }
 
-  void _onSearch(String query) async {
-    if (query.trim().isEmpty) {
+  void _onSearch(String query) {
+    _debounceTimer?.cancel();
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      _searchToken++;
       setState(() {
         _searchResults = [];
         _artistResults = MusicApiService.catalogArtists;
@@ -128,16 +142,27 @@ class _SearchViewState extends State<SearchView> {
 
     setState(() => _isLoading = true);
 
-    final tracks = await _api.searchTracks(query);
-    final artists = await _api.searchArtists(query);
+    final currentToken = ++_searchToken;
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final tracksFuture = _api.searchTracks(trimmed);
+        final artistsFuture = _api.searchArtists(trimmed);
+        final tracks = await tracksFuture;
+        final artists = await artistsFuture;
 
-    if (mounted) {
-      setState(() {
-        _searchResults = tracks;
-        _artistResults = artists;
-        _isLoading = false;
-      });
-    }
+        if (mounted && currentToken == _searchToken) {
+          setState(() {
+            _searchResults = tracks;
+            _artistResults = artists;
+            _isLoading = false;
+          });
+        }
+      } catch (_) {
+        if (mounted && currentToken == _searchToken) {
+          setState(() => _isLoading = false);
+        }
+      }
+    });
   }
 
   void _toggleLike(Track track) async {

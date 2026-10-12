@@ -40,6 +40,9 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   bool get isAutoSync => _manualOffset == null;
   double get effectiveSyncOffset => isAutoSync ? _autoOffset : _manualOffset!;
 
+  // Line keys for exact ensureVisible scrolling
+  final Map<int, GlobalKey> _lineKeys = {};
+
   // 60 FPS Sub-second Interpolation Ticker
   late final Ticker _ticker;
   double _lastKnownPlayerSec = 0.0;
@@ -79,6 +82,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         _lastKnownPlayerSec = 0.0;
         _currentEffectiveSec = 0.0;
         _lastKnownTimestampMs = DateTime.now().millisecondsSinceEpoch;
+        _lineKeys.clear();
       });
       _loadStoredSyncOffset();
       _loadLyrics();
@@ -166,19 +170,34 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         _lyrics = result.lines;
         _autoOffset = result.autoOffset;
         _isLoading = false;
+        _lineKeys.clear();
       });
     }
   }
 
   void _scrollToActive(int index) {
     if (!_scrollController.hasClients || index < 0 || _userScrolled) return;
-    const itemHeight = 78.0;
-    final target = (index * itemHeight) - 170.0;
-    _scrollController.animateTo(
-      target.clamp(0.0, _scrollController.position.maxScrollExtent),
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOutCubic,
-    );
+    final key = _lineKeys[index];
+    final lineCtx = key?.currentContext;
+    if (lineCtx != null) {
+      // Anchors active line smoothly at 35% from the top of the viewport (Spotify standard)
+      Scrollable.ensureVisible(
+        lineCtx,
+        alignment: 0.35,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      // Robust mathematical fallback if line is not mounted in view yet
+      final viewport = _scrollController.position.viewportDimension;
+      const avgItemHeight = 56.0;
+      final target = (48.0 + (index * avgItemHeight)) - (viewport * 0.35);
+      _scrollController.animateTo(
+        target.clamp(0.0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   @override
@@ -367,10 +386,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                 final line = _lyrics[index];
                                 final isActive = index == _activeLineIndex;
                                 final isPassed = index < _activeLineIndex;
+                                final itemKey = _lineKeys.putIfAbsent(index, () => GlobalKey());
 
                                 // Instrumental break
                                 if (line.isInstrumental) {
                                   return Padding(
+                                    key: itemKey,
                                     padding: const EdgeInsets.symmetric(vertical: 20),
                                     child: Row(
                                       children: [
@@ -391,6 +412,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                 }
 
                                 return Padding(
+                                  key: itemKey,
                                   padding: const EdgeInsets.symmetric(vertical: 14),
                                   child: GestureDetector(
                                     onTap: () {
