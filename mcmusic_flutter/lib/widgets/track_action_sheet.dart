@@ -32,7 +32,7 @@ void showTrackActionSheet({
   );
 }
 
-class _TrackActionSheetContent extends StatelessWidget {
+class _TrackActionSheetContent extends StatefulWidget {
   final Track track;
   final AudioPlayerManager player;
   final VoidCallback? onPlaylistModified;
@@ -43,182 +43,35 @@ class _TrackActionSheetContent extends StatelessWidget {
     this.onPlaylistModified,
   });
 
-  void _showAddToPlaylist(BuildContext context) async {
+  @override
+  State<_TrackActionSheetContent> createState() => _TrackActionSheetContentState();
+}
+
+class _TrackActionSheetContentState extends State<_TrackActionSheetContent> {
+  int _currentStep = 0; // 0 = actions menu, 1 = add to playlist view
+  List<Playlist> _playlists = [];
+  bool _isLoadingPlaylists = false;
+
+  void _loadPlaylists() async {
+    setState(() => _isLoadingPlaylists = true);
     final storage = StorageService();
     final playlists = await storage.getPlaylists();
+    if (mounted) {
+      setState(() {
+        _playlists = playlists;
+        _isLoadingPlaylists = false;
+      });
+    }
+  }
 
-    if (!context.mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF141923),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (bCtx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const Text(
-                'Tambahkan ke Playlist',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Option: Create New Playlist
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF202636),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: const Icon(Icons.add, color: AppTheme.primaryAzure, size: 24),
-                ),
-                title: const Text(
-                  'Playlist Baru',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                subtitle: const Text(
-                  'Buat playlist baru dan masukkan lagu ini',
-                  style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
-                ),
-                onTap: () {
-                  Navigator.pop(bCtx);
-                  _showCreatePlaylistDialog(context);
-                },
-              ),
-              const Divider(color: Colors.white10),
-
-              // Existing playlists
-              if (playlists.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: Text(
-                      'Belum ada playlist. Buat playlist baru di atas!',
-                      style: TextStyle(color: AppTheme.textMuted),
-                    ),
-                  ),
-                )
-              else
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.45,
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: playlists.length,
-                    itemBuilder: (ctx, idx) {
-                      final pl = playlists[idx];
-                      final alreadyInPlaylist = pl.tracks.any((t) => t.id == track.id);
-
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: OptimizedImage(
-                            imageUrl: pl.cover,
-                            width: 48,
-                            height: 48,
-                            memCacheWidth: 100,
-                            memCacheHeight: 100,
-                          ),
-                        ),
-                        title: Text(
-                          pl.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          '${pl.tracks.length} lagu',
-                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
-                        ),
-                        trailing: alreadyInPlaylist
-                            ? const Icon(Icons.check_circle, color: AppTheme.primaryAzure, size: 22)
-                            : const Icon(Icons.add_circle_outline, color: Colors.white38, size: 22),
-                        onTap: () async {
-                          HapticFeedback.lightImpact();
-                          Navigator.pop(bCtx);
-
-                          if (alreadyInPlaylist) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Lagu sudah ada di playlist "${pl.name}"'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                            return;
-                          }
-
-                          final updatedTracks = [...pl.tracks, track];
-                          final updatedPlaylist = Playlist(
-                            id: pl.id,
-                            name: pl.name,
-                            description: pl.description,
-                            cover: pl.cover.contains('unsplash') && track.artwork.isNotEmpty
-                                ? track.artwork
-                                : pl.cover,
-                            tracks: updatedTracks,
-                          );
-
-                          final allPlaylists = await storage.getPlaylists();
-                          final newPlaylists = allPlaylists.map((p) => p.id == pl.id ? updatedPlaylist : p).toList();
-                          await storage.savePlaylists(newPlaylists);
-
-                          onPlaylistModified?.call();
-
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Row(
-                                  children: [
-                                    const Icon(Icons.check_circle, color: AppTheme.primaryAzure),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text('Ditambahkan ke "${pl.name}"')),
-                                  ],
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _onAddToPlaylistTap() {
+    HapticFeedback.lightImpact();
+    setState(() => _currentStep = 1);
+    _loadPlaylists();
   }
 
   void _showCreatePlaylistDialog(BuildContext context) {
-    final nameCtrl = TextEditingController(text: '${track.artist} Favorites');
+    final nameCtrl = TextEditingController(text: '${widget.track.artist} Favorites');
     showDialog(
       context: context,
       builder: (dCtx) => AlertDialog(
@@ -258,12 +111,22 @@ class _TrackActionSheetContent extends StatelessWidget {
               final newPlaylist = Playlist(
                 id: 'pl-${DateTime.now().millisecondsSinceEpoch}',
                 name: name,
-                cover: track.artwork.isNotEmpty ? track.artwork : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=400',
-                tracks: [track],
+                cover: widget.track.artwork.isNotEmpty
+                    ? widget.track.artwork
+                    : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=400',
+                tracks: [widget.track],
               );
 
-              await storage.savePlaylists([newPlaylist, ...currentPlaylists]);
-              onPlaylistModified?.call();
+              final updatedPlaylists = [newPlaylist, ...currentPlaylists];
+              await storage.savePlaylists(updatedPlaylists);
+
+              if (mounted) {
+                setState(() {
+                  _playlists = updatedPlaylists;
+                });
+              }
+
+              widget.onPlaylistModified?.call();
 
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -287,192 +150,408 @@ class _TrackActionSheetContent extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final albumSubtitle = track.album.isNotEmpty && track.album != 'Single'
-        ? '${track.artist} • ${track.album}'
-        : track.artist;
-
-    return SafeArea(
+  Widget _buildAddToPlaylistView(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag handle
-          Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(top: 12, bottom: 8),
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(2),
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  setState(() => _currentStep = 0);
+                },
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Tambahkan ke Playlist',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
 
-          // Header: Album cover, Title, Artist • Album (Matching screenshot)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: OptimizedImage(
-                    imageUrl: track.artwork,
-                    width: 52,
-                    height: 52,
-                    memCacheWidth: 110,
-                    memCacheHeight: 110,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        albumSubtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          // Option: Create New Playlist
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF202636),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Icon(Icons.add, color: AppTheme.primaryAzure, size: 24),
             ),
+            title: const Text(
+              'Playlist Baru',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              'Buat playlist baru dan masukkan lagu ini',
+              style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            ),
+            onTap: () => _showCreatePlaylistDialog(context),
           ),
+          const Divider(color: Colors.white10),
 
-          const Divider(color: Colors.white10, height: 16),
-
-          // 1. Share
-          _buildActionTile(
-            icon: Icons.ios_share,
-            title: 'Share',
-            onTap: () {
-              Navigator.pop(context);
-              Clipboard.setData(ClipboardData(text: '${track.title} - ${track.artist} https://mctify.vercel.app'));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Tautan lagu disalin ke papan klip!'),
-                  behavior: SnackBarBehavior.floating,
+          if (_isLoadingPlaylists)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryAzure),
+                  ),
                 ),
-              );
-            },
-          ),
-
-          // 2. Add to playlist (CRITICAL USER REQUEST)
-          _buildActionTile(
-            icon: Icons.add_circle_outline,
-            title: 'Add to playlist',
-            onTap: () {
-              Navigator.pop(context);
-              _showAddToPlaylist(context);
-            },
-          ),
-
-          // 3. Add to Queue
-          _buildActionTile(
-            icon: Icons.playlist_add,
-            title: 'Add to Queue',
-            onTap: () {
-              Navigator.pop(context);
-              player.addToQueue(track);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('"${track.title}" ditambahkan ke antrean'),
-                  behavior: SnackBarBehavior.floating,
+              ),
+            )
+          else if (_playlists.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  'Belum ada playlist. Buat playlist baru di atas!',
+                  style: TextStyle(color: AppTheme.textMuted),
                 ),
-              );
-            },
-          ),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.45,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _playlists.length,
+                itemBuilder: (ctx, idx) {
+                  final pl = _playlists[idx];
+                  final alreadyInPlaylist = pl.tracks.any((t) => t.id == widget.track.id);
 
-          // 4. Go to album
-          _buildActionTile(
-            icon: Icons.album_outlined,
-            title: 'Go to album',
-            onTap: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Album: ${track.album} (${track.artist})'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
-
-          // 5. Go to artists (with trailing chevron)
-          _buildActionTile(
-            icon: Icons.person_outline,
-            title: 'Go to artists',
-            showChevron: true,
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ArtistView(
-                    artist: Artist(
-                      id: 'art-${track.artist.toLowerCase().replaceAll(RegExp(r'\s+'), '_')}',
-                      name: track.artist.split(',')[0].trim(),
-                      headerBanner: track.artwork,
-                      avatar: track.artwork,
-                      monthlyListeners: '4,9 jt pendengar bulanan',
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: OptimizedImage(
+                        imageUrl: pl.cover,
+                        width: 48,
+                        height: 48,
+                        memCacheWidth: 100,
+                        memCacheHeight: 100,
+                      ),
                     ),
-                    player: player,
-                  ),
-                ),
-              );
-            },
-          ),
+                    title: Text(
+                      pl.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      '${pl.tracks.length} lagu',
+                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                    ),
+                    trailing: alreadyInPlaylist
+                        ? const Icon(Icons.check_circle, color: AppTheme.primaryAzure, size: 22)
+                        : const Icon(Icons.add_circle_outline, color: Colors.white38, size: 22),
+                    onTap: () async {
+                      HapticFeedback.lightImpact();
+                      if (alreadyInPlaylist) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Lagu sudah ada di playlist "${pl.name}"'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        return;
+                      }
 
-          // 6. Go to artists concerts (with trailing chevron)
-          _buildActionTile(
-            icon: Icons.confirmation_number_outlined,
-            title: 'Go to artists concerts',
-            showChevron: true,
-            onTap: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Jadwal tur konser ${track.artist} belum tersedia di kota Anda.'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
+                      final updatedTracks = [...pl.tracks, widget.track];
+                      final updatedPlaylist = Playlist(
+                        id: pl.id,
+                        name: pl.name,
+                        description: pl.description,
+                        cover: pl.cover.contains('unsplash') && widget.track.artwork.isNotEmpty
+                            ? widget.track.artwork
+                            : pl.cover,
+                        tracks: updatedTracks,
+                      );
 
-          // 7. Go to radio
-          _buildActionTile(
-            icon: Icons.podcasts,
-            title: 'Go to radio',
-            onTap: () {
-              Navigator.pop(context);
-              player.playTrackFromSearch(track);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Memutar Radio berdasarkan "${track.title}"'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-          ),
+                      final storage = StorageService();
+                      final allPlaylists = await storage.getPlaylists();
+                      final newPlaylists = allPlaylists.map((p) => p.id == pl.id ? updatedPlaylist : p).toList();
+                      await storage.savePlaylists(newPlaylists);
 
-          const SizedBox(height: 16),
+                      if (mounted) {
+                        setState(() {
+                          _playlists = newPlaylists;
+                        });
+                      }
+
+                      widget.onPlaylistModified?.call();
+
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.check_circle, color: AppTheme.primaryAzure),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text('Ditambahkan ke "${pl.name}"')),
+                              ],
+                            ),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActionsList(BuildContext context) {
+    final albumSubtitle = widget.track.album.isNotEmpty && widget.track.album != 'Single'
+        ? '${widget.track.artist} • ${widget.track.album}'
+        : widget.track.artist;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Drag handle
+        Container(
+          width: 36,
+          height: 4,
+          margin: const EdgeInsets.only(top: 12, bottom: 8),
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+
+        // Header: Album cover, Title, Artist • Album (Matching screenshot)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: OptimizedImage(
+                  imageUrl: widget.track.artwork,
+                  width: 52,
+                  height: 52,
+                  memCacheWidth: 110,
+                  memCacheHeight: 110,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      albumSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppTheme.textMuted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const Divider(color: Colors.white10, height: 16),
+
+        // 1. Share
+        _buildActionTile(
+          icon: Icons.ios_share,
+          title: 'Share',
+          onTap: () {
+            Navigator.pop(context);
+            Clipboard.setData(ClipboardData(text: '${widget.track.title} - ${widget.track.artist} https://mctify.vercel.app'));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Tautan lagu disalin ke papan klip!'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+        ),
+
+        // 2. Add to playlist (Smooth in-place transition without gray screen glitch!)
+        _buildActionTile(
+          icon: Icons.add_circle_outline,
+          title: 'Add to playlist',
+          onTap: _onAddToPlaylistTap,
+        ),
+
+        // 3. Add to Queue
+        _buildActionTile(
+          icon: Icons.playlist_add,
+          title: 'Add to Queue',
+          onTap: () {
+            Navigator.pop(context);
+            widget.player.addToQueue(widget.track);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('"${widget.track.title}" ditambahkan ke antrean'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+        ),
+
+        // 4. Go to album
+        _buildActionTile(
+          icon: Icons.album_outlined,
+          title: 'Go to album',
+          onTap: () {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Album: ${widget.track.album} (${widget.track.artist})'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+        ),
+
+        // 5. Go to artists (with trailing chevron)
+        _buildActionTile(
+          icon: Icons.person_outline,
+          title: 'Go to artists',
+          showChevron: true,
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ArtistView(
+                  artist: Artist(
+                    id: 'art-${widget.track.artist.toLowerCase().replaceAll(RegExp(r'\s+'), '_')}',
+                    name: widget.track.artist.split(',')[0].trim(),
+                    headerBanner: widget.track.artwork,
+                    avatar: widget.track.artwork,
+                    monthlyListeners: '4,9 jt pendengar bulanan',
+                  ),
+                  player: widget.player,
+                ),
+              ),
+            );
+          },
+        ),
+
+        // 6. Go to artists concerts (with trailing chevron)
+        _buildActionTile(
+          icon: Icons.confirmation_number_outlined,
+          title: 'Go to artists concerts',
+          showChevron: true,
+          onTap: () {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Jadwal tur konser ${widget.track.artist} belum tersedia di kota Anda.'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+        ),
+
+        // 7. Go to radio
+        _buildActionTile(
+          icon: Icons.podcasts,
+          title: 'Go to radio',
+          onTap: () {
+            Navigator.pop(context);
+            widget.player.playTrackFromSearch(widget.track);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Memutar Radio berdasarkan "${widget.track.title}"'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        child: _currentStep == 0
+            ? KeyedSubtree(
+                key: const ValueKey('actions_list'),
+                child: _buildActionsList(context),
+              )
+            : KeyedSubtree(
+                key: const ValueKey('add_to_playlist'),
+                child: _buildAddToPlaylistView(context),
+              ),
       ),
     );
   }
