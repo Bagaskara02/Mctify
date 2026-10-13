@@ -103,6 +103,20 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
 
+          // Intercept automatic background pause calls from Chromium/Android WebView
+          try {
+            if (!HTMLMediaElement.prototype.__mcmusicHooked) {
+              HTMLMediaElement.prototype.__mcmusicHooked = true;
+              var realPause = HTMLMediaElement.prototype.pause;
+              HTMLMediaElement.prototype.pause = function() {
+                if (!window.__userRequestedPause) {
+                  return Promise.resolve();
+                }
+                return realPause.apply(this, arguments);
+              };
+            }
+          } catch(e) {}
+
           try {
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
             Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
@@ -112,6 +126,22 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
           window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
           document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+
+          // Force full audio volume output (unmuted, 100%)
+          function maximizeVolume() {
+            try {
+              var v = document.querySelector('video');
+              if (v) {
+                v.muted = false;
+                v.volume = 1.0;
+              }
+              if (typeof player !== 'undefined' && player) {
+                if (typeof player.unMute === 'function') player.unMute();
+                if (typeof player.setVolume === 'function') player.setVolume(100);
+              }
+            } catch(e) {}
+          }
+          maximizeVolume();
 
           if (!window.__mcmusicAudioContext) {
             try {
@@ -133,19 +163,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
           function attachWatchers() {
             try {
+              maximizeVolume();
               var v = document.querySelector('video');
-              if (v && !v.__mcmusicHooked) {
-                v.__mcmusicHooked = true;
+              if (v && !v.__mcmusicWatchHooked) {
+                v.__mcmusicWatchHooked = true;
                 v.addEventListener('pause', function(e) {
                   if (!window.__userRequestedPause) {
-                    setTimeout(function() {
-                      if (!window.__userRequestedPause) {
-                        try { v.play(); } catch(err) {}
-                        try { if (typeof player !== 'undefined' && player) player.playVideo(); } catch(err) {}
-                      }
-                    }, 50);
+                    try { v.play(); } catch(err) {}
+                    try { if (typeof player !== 'undefined' && player) player.playVideo(); } catch(err) {}
                   }
-                });
+                }, true);
               }
 
               if (typeof player !== 'undefined' && player && typeof player.addEventListener === 'function' && !window.__playerHooked) {
@@ -153,11 +180,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                 player.addEventListener('onStateChange', function(event) {
                   var state = typeof event === 'object' && event !== null ? event.data : event;
                   if (state === 2 && !window.__userRequestedPause) {
-                    setTimeout(function() {
-                      if (!window.__userRequestedPause && typeof player !== 'undefined' && player) {
-                        player.playVideo();
-                      }
-                    }, 50);
+                    try { player.playVideo(); } catch(err) {}
                   }
                 });
               }
@@ -182,7 +205,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                   }
                 }
               } catch(e) {}
-            }, 500);
+            }, 300);
           }
         })();
       ''');

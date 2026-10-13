@@ -8,6 +8,7 @@ import '../services/music_api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/artist_card.dart';
+import '../widgets/import_youtube_dialog.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/track_action_sheet.dart';
 import 'artist_view.dart';
@@ -145,10 +146,30 @@ class _SearchViewState extends State<SearchView> {
     final currentToken = ++_searchToken;
     _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
       try {
+        if (_selectedTab == 'Cari Lirik 🎙️') {
+          final lyricTracks = await _api.searchTracksByLyrics(trimmed);
+          if (mounted && currentToken == _searchToken) {
+            setState(() {
+              _searchResults = lyricTracks;
+              _artistResults = [];
+              _isLoading = false;
+            });
+          }
+          return;
+        }
+
         final tracksFuture = _api.searchTracks(trimmed);
         final artistsFuture = _api.searchArtists(trimmed);
-        final tracks = await tracksFuture;
+        var tracks = await tracksFuture;
         final artists = await artistsFuture;
+
+        // Auto fallback to lyrics search if no tracks found and query has 3 or more words
+        if (tracks.isEmpty && trimmed.split(RegExp(r'\s+')).length >= 3) {
+          final lyricTracks = await _api.searchTracksByLyrics(trimmed);
+          if (lyricTracks.isNotEmpty) {
+            tracks = lyricTracks;
+          }
+        }
 
         if (mounted && currentToken == _searchToken) {
           setState(() {
@@ -215,19 +236,32 @@ class _SearchViewState extends State<SearchView> {
                       letterSpacing: -0.5,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 26),
-                    tooltip: 'Pindai Musik',
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Pencarian audio aktif. Mulai dengarkan di sekitarmu!'),
-                          duration: Duration(milliseconds: 1200),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    },
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.file_download_outlined, color: AppTheme.primaryAzure, size: 26),
+                        tooltip: 'Import Lagu dari YouTube',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          showImportYouTubeDialog(context: context, player: widget.player);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 26),
+                        tooltip: 'Pindai Musik',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Pencarian audio aktif. Mulai dengarkan di sekitarmu!'),
+                              duration: Duration(milliseconds: 1200),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -269,19 +303,24 @@ class _SearchViewState extends State<SearchView> {
 
             const SizedBox(height: 12),
 
-            // Tabs row when searching (Semua, Lagu, Artis, Playlist)
+            // Tabs row when searching (Semua, Lagu, Cari Lirik 🎙️, Artis, Playlist)
             if (isSearching)
               Container(
                 height: 40,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: ['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) {
+                  children: ['Semua', 'Lagu', 'Cari Lirik 🎙️', 'Artis', 'Playlist'].map((tab) {
                     final isSelected = _selectedTab == tab;
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
-                        onTap: () => setState(() => _selectedTab = tab),
+                        onTap: () {
+                          setState(() => _selectedTab = tab);
+                          if (_searchController.text.trim().isNotEmpty) {
+                            _onSearch(_searchController.text);
+                          }
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
@@ -470,9 +509,43 @@ class _SearchViewState extends State<SearchView> {
   Widget _buildSearchResults() {
     if (_searchResults.isEmpty && _artistResults.isEmpty) {
       return Center(
-        child: Text(
-          'Tidak menemukan hasil untuk "${_searchController.text}"',
-          style: const TextStyle(color: AppTheme.textMuted),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off, size: 48, color: AppTheme.textMuted),
+              const SizedBox(height: 12),
+              Text(
+                'Tidak menemukan hasil untuk "${_searchController.text}"',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppTheme.textMuted, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              if (_selectedTab != 'Cari Lirik 🎙️')
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() => _selectedTab = 'Cari Lirik 🎙️');
+                    _onSearch(_searchController.text);
+                  },
+                  icon: const Icon(Icons.mic, size: 18),
+                  label: const Text('Cari Berdasarkan Lirik 🎙️'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryAzure,
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => showImportYouTubeDialog(context: context, player: widget.player),
+                icon: const Icon(Icons.link, size: 18, color: AppTheme.primaryAzure),
+                label: const Text('Import Lagu dari YouTube', style: TextStyle(color: Colors.white)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.white24),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }

@@ -655,6 +655,157 @@ class MusicApiService {
     return results;
   }
 
+  static String? extractYouTubeId(String input) {
+    final clean = input.trim();
+    final reg = RegExp(r'(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})', caseSensitive: false);
+    final match = reg.firstMatch(clean);
+    if (match != null && match.groupCount >= 1) return match.group(1);
+    if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(clean)) return clean;
+    return null;
+  }
+
+  Future<Track?> resolveYouTubeImport(String input) async {
+    final clean = input.trim();
+    if (clean.isEmpty) return null;
+
+    final videoId = extractYouTubeId(clean);
+    final yt = YoutubeExplode();
+
+    try {
+      if (videoId != null) {
+        final video = await yt.videos.get(videoId).timeout(const Duration(seconds: 5));
+        String title = video.title;
+        String artist = video.author;
+
+        if (title.contains(' - ')) {
+          final parts = title.split(' - ');
+          artist = parts[0].trim();
+          title = parts.sublist(1).join(' - ').trim();
+        }
+
+        title = title
+            .replaceAll(RegExp(r'\((Official (Music )?Video|Official Audio|Lyric(s)? Video)\)', caseSensitive: false), '')
+            .replaceAll(RegExp(r'\[(Official (Music )?Video|Official Audio|Lyric(s)? Video)\]', caseSensitive: false), '')
+            .trim();
+
+        return Track(
+          id: 'yt_${video.id.value}',
+          title: title,
+          artist: artist,
+          album: 'YouTube Import',
+          artwork: video.thumbnails.highResUrl.isNotEmpty ? video.thumbnails.highResUrl : defaultArtwork,
+          audioUrl: '',
+          videoId: video.id.value,
+          duration: video.duration?.inSeconds ?? 210,
+          streamCount: 'YouTube',
+          isExplicit: false,
+        );
+      }
+
+      final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 4));
+      if (searchResults.isNotEmpty) {
+        final v = searchResults.first;
+        String title = v.title;
+        String artist = v.author;
+        if (title.contains(' - ')) {
+          final parts = title.split(' - ');
+          artist = parts[0].trim();
+          title = parts.sublist(1).join(' - ').trim();
+        }
+
+        return Track(
+          id: 'yt_${v.id.value}',
+          title: title,
+          artist: artist,
+          album: 'YouTube Search',
+          artwork: v.thumbnails.highResUrl.isNotEmpty ? v.thumbnails.highResUrl : defaultArtwork,
+          audioUrl: '',
+          videoId: v.id.value,
+          duration: v.duration?.inSeconds ?? 210,
+          streamCount: 'YouTube',
+          isExplicit: false,
+        );
+      }
+    } catch (e) {
+      debugPrint('resolveYouTubeImport error: $e');
+    } finally {
+      yt.close();
+    }
+    return null;
+  }
+
+  Future<List<Track>> searchTracksByLyrics(String query) async {
+    final clean = query.trim();
+    if (clean.isEmpty) return [];
+
+    final List<Track> list = [];
+    final Set<String> seen = {};
+
+    final yt = YoutubeExplode();
+    try {
+      final ytResults = await yt.search.search('$clean lyric').timeout(const Duration(seconds: 4));
+      for (final v in ytResults.take(12)) {
+        String title = v.title;
+        String artist = v.author;
+        if (title.contains(' - ')) {
+          final parts = title.split(' - ');
+          artist = parts[0].trim();
+          title = parts.sublist(1).join(' - ').trim();
+        }
+        final key = '${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
+        if (!seen.contains(key)) {
+          seen.add(key);
+          list.add(Track(
+            id: 'yt_${v.id.value}',
+            title: title,
+            artist: artist,
+            album: 'Lirik: "$clean"',
+            artwork: v.thumbnails.highResUrl.isNotEmpty ? v.thumbnails.highResUrl : defaultArtwork,
+            audioUrl: '',
+            videoId: v.id.value,
+            duration: v.duration?.inSeconds ?? 210,
+            streamCount: 'Cocok Lirik',
+            isExplicit: false,
+          ));
+        }
+      }
+    } catch (_) {
+    } finally {
+      yt.close();
+    }
+
+    try {
+      final url = Uri.parse('https://lrclib.net/api/search?q=${Uri.encodeComponent(clean)}');
+      final res = await http.get(url).timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is List) {
+          for (final item in data.take(6)) {
+            final tName = item['trackName'] ?? '';
+            final aName = item['artistName'] ?? '';
+            final key = '${tName.toString().toLowerCase().trim()}_${aName.toString().toLowerCase().trim()}';
+            if (tName.toString().isNotEmpty && !seen.contains(key)) {
+              seen.add(key);
+              list.add(Track(
+                id: 'lrc_${item['id']}',
+                title: tName.toString(),
+                artist: aName.toString(),
+                album: (item['albumName'] ?? 'Lirik').toString(),
+                artwork: defaultArtwork,
+                audioUrl: '',
+                duration: item['duration'] != null ? (item['duration'] as num).round() : 180,
+                streamCount: 'Cocok Lirik',
+                isExplicit: false,
+              ));
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return list;
+  }
+
   // Search Artists matching query
   Future<List<Artist>> searchArtists(String query) async {
     final cleanQ = query.trim().toLowerCase();

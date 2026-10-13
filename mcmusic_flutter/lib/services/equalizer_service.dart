@@ -12,18 +12,21 @@ class EqualizerService extends ChangeNotifier {
   static const String _keyBands = 'eq_bands';
   static const String _keyBassBoost = 'eq_bass_boost';
   static const String _keyVirtualizer = 'eq_virtualizer';
+  static const String _keyLoudnessGain = 'eq_loudness_gain';
 
   bool _isEnabled = true;
   String _selectedPresetName = 'Bass Boost';
   List<double> _currentBands = [7.5, 4.5, 0.0, -1.0, -2.0];
   double _bassBoost = 0.65; // 0.0 to 1.0 (65%)
   double _virtualizer = 0.30; // 0.0 to 1.0 (30%)
+  double _loudnessGain = 0.60; // 0.0 to 1.0 (60% = +6.0 dB acoustic boost)
 
   bool get isEnabled => _isEnabled;
   String get selectedPresetName => _selectedPresetName;
   List<double> get currentBands => List.unmodifiable(_currentBands);
   double get bassBoost => _bassBoost;
   double get virtualizer => _virtualizer;
+  double get loudnessGain => _loudnessGain;
 
   EqualizerService() {
     _loadSettings();
@@ -36,6 +39,10 @@ class EqualizerService extends ChangeNotifier {
         await _channel.invokeMethod('setBands', {'bands': _currentBands, 'enabled': _isEnabled});
         await _channel.invokeMethod('setBassBoost', {'strength': _isEnabled ? _bassBoost : 0.0});
         await _channel.invokeMethod('setVirtualizer', {'strength': _isEnabled ? _virtualizer : 0.0});
+        await _channel.invokeMethod('setLoudnessGain', {
+          'gain': (_loudnessGain * 1000).round(),
+          'enabled': _isEnabled,
+        });
       }
     } catch (_) {}
   }
@@ -51,6 +58,7 @@ class EqualizerService extends ChangeNotifier {
       }
       _bassBoost = prefs.getDouble(_keyBassBoost) ?? 0.65;
       _virtualizer = prefs.getDouble(_keyVirtualizer) ?? 0.30;
+      _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.60;
       notifyListeners();
       _applyNativeSettings();
     } catch (_) {}
@@ -114,6 +122,21 @@ class EqualizerService extends ChangeNotifier {
     await prefs.setDouble(_keyVirtualizer, _virtualizer);
   }
 
+  Future<void> setLoudnessGain(double value) async {
+    _loudnessGain = value.clamp(0.0, 1.0);
+    notifyListeners();
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+        _channel.invokeMethod('setLoudnessGain', {
+          'gain': (_loudnessGain * 1000).round(),
+          'enabled': _isEnabled,
+        });
+      }
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyLoudnessGain, _loudnessGain);
+  }
+
   Future<void> reset() async {
     final defaultPreset = EqualizerPreset.defaultPresets[0]; // Flat
     _isEnabled = true;
@@ -121,6 +144,7 @@ class EqualizerService extends ChangeNotifier {
     _currentBands = List.from(defaultPreset.bands);
     _bassBoost = 0.0;
     _virtualizer = 0.0;
+    _loudnessGain = 0.60;
     notifyListeners();
     _applyNativeSettings();
 
@@ -130,5 +154,6 @@ class EqualizerService extends ChangeNotifier {
     await prefs.setStringList(_keyBands, _currentBands.map((b) => b.toString()).toList());
     await prefs.setDouble(_keyBassBoost, 0.0);
     await prefs.setDouble(_keyVirtualizer, 0.0);
+    await prefs.setDouble(_keyLoudnessGain, 0.60);
   }
 }

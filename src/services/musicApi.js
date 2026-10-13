@@ -278,6 +278,176 @@ export const musicApi = {
   },
 
   /**
+   * Extract YouTube Video ID from any URL or raw ID
+   */
+  extractYouTubeId(input) {
+    if (!input || typeof input !== 'string') return null;
+    const clean = input.trim();
+    const match = clean.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/i);
+    if (match) return match[1];
+    if (/^[a-zA-Z0-9_-]{11}$/.test(clean)) return clean;
+    return null;
+  },
+
+  /**
+   * Resolve YouTube URL or Query into a playable Track
+   */
+  async resolveYouTubeImport(urlOrQuery) {
+    if (!urlOrQuery || typeof urlOrQuery !== 'string') return null;
+    const clean = urlOrQuery.trim();
+    const videoId = this.extractYouTubeId(clean);
+
+    if (videoId) {
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+        const res = await fetch(oembedUrl);
+        if (res.ok) {
+          const data = await res.json();
+          let rawTitle = data.title || 'YouTube Music';
+          let artist = data.author_name || 'YouTube';
+          let title = rawTitle;
+
+          // If title is "Artist - Title" format
+          if (rawTitle.includes(' - ')) {
+            const parts = rawTitle.split(' - ');
+            artist = parts[0].trim();
+            title = parts.slice(1).join(' - ').trim();
+          }
+
+          // Clean common video tag strings
+          title = title.replace(/\(Official (Music )?Video\)/gi, '')
+                       .replace(/\[Official (Music )?Video\]/gi, '')
+                       .replace(/\(Official Audio\)/gi, '')
+                       .replace(/\[Official Audio\]/gi, '')
+                       .replace(/\(Lyric(s)? Video\)/gi, '')
+                       .replace(/\[Lyric(s)? Video\]/gi, '')
+                       .trim();
+
+          return {
+            id: `yt_${videoId}`,
+            title,
+            artist,
+            album: 'YouTube Import',
+            artwork: getHighResArtworkUrl(`https://i.ytimg.com/vi/${videoId}/hq720.jpg`),
+            originalArtwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            audioUrl: '',
+            videoId: videoId,
+            duration: 210,
+            genre: 'YouTube Import',
+            releaseYear: new Date().getFullYear().toString(),
+            isYouTubeImport: true,
+          };
+        }
+      } catch (e) {
+        console.warn('YouTube oEmbed resolve error:', e);
+      }
+
+      // Direct fallback
+      return {
+        id: `yt_${videoId}`,
+        title: `YouTube Video (${videoId})`,
+        artist: 'YouTube',
+        album: 'YouTube Import',
+        artwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        audioUrl: '',
+        videoId: videoId,
+        duration: 210,
+        genre: 'YouTube Import',
+        releaseYear: new Date().getFullYear().toString(),
+        isYouTubeImport: true,
+      };
+    }
+
+    // If query string instead of direct link, resolve via backend search
+    try {
+      const match = await this.resolveYouTubeMatch(clean, '');
+      if (match && match.videoId) {
+        return {
+          id: `yt_${match.videoId}`,
+          title: match.title || clean,
+          artist: match.artist || 'YouTube',
+          album: 'YouTube Search',
+          artwork: match.thumbnail || `https://i.ytimg.com/vi/${match.videoId}/hqdefault.jpg`,
+          audioUrl: '',
+          videoId: match.videoId,
+          duration: match.duration || 210,
+          genre: 'YouTube Import',
+          releaseYear: new Date().getFullYear().toString(),
+          isYouTubeImport: true,
+        };
+      }
+    } catch (_) {}
+
+    return null;
+  },
+
+  /**
+   * Search Tracks by Lyrics snippet (using YouTube Music full lyrics indexing + LRCLIB)
+   */
+  async searchTracksByLyrics(lyricsQuery) {
+    if (!lyricsQuery || !lyricsQuery.trim()) return [];
+    const q = lyricsQuery.trim();
+
+    try {
+      const ytPromise = fetch(`/api/yt/search-multi?q=${encodeURIComponent(q)}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
+
+      const lrclibPromise = fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []);
+
+      const [ytData, lrcData] = await Promise.all([ytPromise, lrclibPromise]);
+
+      const results = [];
+      const seen = new Set();
+
+      if (ytData?.songs && Array.isArray(ytData.songs)) {
+        for (const s of ytData.songs) {
+          if (!s || !s.title) continue;
+          const key = `${s.title.toLowerCase().trim()}_${(s.artist || '').toLowerCase().trim()}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            results.push({
+              ...s,
+              isLyricMatch: true,
+              lyricSnippet: q,
+            });
+          }
+        }
+      }
+
+      if (Array.isArray(lrcData)) {
+        for (const item of lrcData) {
+          if (!item.trackName || !item.artistName) continue;
+          const key = `${item.trackName.toLowerCase().trim()}_${item.artistName.toLowerCase().trim()}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            results.push({
+              id: `lrc_${item.id}`,
+              title: item.trackName,
+              artist: item.artistName,
+              album: item.albumName || 'Single',
+              artwork: DEFAULT_ARTWORK,
+              audioUrl: '',
+              videoId: null,
+              duration: item.duration ? Math.round(item.duration) : 180,
+              isLyricMatch: true,
+              lyricSnippet: q,
+            });
+          }
+        }
+      }
+
+      if (results.length > 0) return results.slice(0, 20);
+      return await this.searchTracks(`${q} lagu`, 10);
+    } catch (e) {
+      console.warn('searchTracksByLyrics error:', e);
+      return [];
+    }
+  },
+
+  /**
    * Format raw iTunes API track into clean app format
    */
   formatTrack(item) {

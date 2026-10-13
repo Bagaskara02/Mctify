@@ -160,6 +160,28 @@ class StorageService {
     playlistRevision.value++;
   }
 
+  Future<void> addTrackToPlaylist(String playlistId, Track track) async {
+    final all = await getPlaylists();
+    final idx = all.indexWhere((p) => p.id == playlistId);
+    if (idx != -1) {
+      final pl = all[idx];
+      if (!pl.tracks.any((t) => t.id == track.id)) {
+        final updatedTracks = [...pl.tracks, track];
+        final updatedPlaylist = Playlist(
+          id: pl.id,
+          name: pl.name,
+          description: pl.description,
+          cover: pl.cover.contains('unsplash') && track.artwork.isNotEmpty
+              ? track.artwork
+              : pl.cover,
+          tracks: updatedTracks,
+        );
+        all[idx] = updatedPlaylist;
+        await savePlaylists(all);
+      }
+    }
+  }
+
   Future<List<Track>> getHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_keyHistory);

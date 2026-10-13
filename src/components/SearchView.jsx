@@ -27,8 +27,9 @@ export default function SearchView({
   onOpenArtist,
   onAddTrackToPlaylist,
   onTrackContextMenu,
+  onOpenImportYouTube,
 }) {
-  const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Lagu' | 'Artis' | 'Playlist'
+  const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Lagu' | 'Artis' | 'Cari Lirik 🎙️' | 'Playlist'
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +57,7 @@ export default function SearchView({
     { name: 'Dance & EDM', color: 'from-[#00a3ff] to-[#004780]' },
   ];
 
-  // Perform multi-search with debounce
+  // Perform multi-search with debounce and lyrics detection
   useEffect(() => {
     if (!searchQuery || !searchQuery.trim()) {
       setSongs([]);
@@ -68,9 +69,22 @@ export default function SearchView({
     setIsLoading(true);
     const timeout = setTimeout(async () => {
       try {
-        const data = await musicApi.searchAll(searchQuery);
-        setSongs(data.songs || []);
-        setArtists(data.artists || []);
+        if (activeTab === 'Cari Lirik 🎙️') {
+          const lyricSongs = await musicApi.searchTracksByLyrics(searchQuery);
+          setSongs(lyricSongs || []);
+          setArtists([]);
+        } else {
+          const data = await musicApi.searchAll(searchQuery);
+          const rawSongs = data.songs || [];
+          if (rawSongs.length === 0 && searchQuery.trim().split(' ').length >= 3) {
+            // Auto lyrics search fallback when regular search returns 0 results
+            const lyricSongs = await musicApi.searchTracksByLyrics(searchQuery);
+            setSongs(lyricSongs || []);
+          } else {
+            setSongs(rawSongs);
+          }
+          setArtists(data.artists || []);
+        }
       } catch (err) {
         console.warn('Search failed:', err);
       } finally {
@@ -79,7 +93,7 @@ export default function SearchView({
     }, 280);
 
     return () => clearTimeout(timeout);
-  }, [searchQuery]);
+  }, [searchQuery, activeTab]);
 
   const topSong = songs[0];
   const topArtist = artists[0];
@@ -93,20 +107,31 @@ export default function SearchView({
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:px-8 py-5 space-y-6 select-none bg-[#121212] text-white pb-32 md:pb-16">
       {/* Filter Tabs matching Spotify Screenshot media_1791353069505.png */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-        {['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) => (
+      <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-2">
+          {['Semua', 'Lagu', 'Artis', 'Cari Lirik 🎙️', 'Playlist'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex-shrink-0 ${
+                activeTab === tab
+                  ? 'bg-white text-black'
+                  : 'bg-[#242424] hover:bg-[#2e2e2e] text-white'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {onOpenImportYouTube && (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex-shrink-0 ${
-              activeTab === tab
-                ? 'bg-white text-black'
-                : 'bg-[#242424] hover:bg-[#2e2e2e] text-white'
-            }`}
+            onClick={onOpenImportYouTube}
+            className="px-3.5 py-1.5 rounded-full bg-[#ff0000]/15 hover:bg-[#ff0000]/25 text-[#ff4e4e] text-xs font-bold transition-all flex-shrink-0 border border-[#ff0000]/30 flex items-center gap-1.5"
           >
-            {tab}
+            <span>Import YouTube</span>
           </button>
-        ))}
+        )}
       </div>
 
       {/* Quick Search Suggestion Pills */}
