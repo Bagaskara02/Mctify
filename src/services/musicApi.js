@@ -1,7 +1,4 @@
-/**
- * Music API Service
- * Handles search, metadata, and full-length YouTube Music resolution.
- */
+import { storageService } from './storageService';
 
 export const DEFAULT_ARTWORK = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
 
@@ -360,11 +357,11 @@ export const musicApi = {
     const targetArtist = (track.artist || '').toLowerCase().trim();
 
     try {
-      // 1. Fetch artist's verified top songs
-      const artistDetailsPromise = this.getArtistDetails('', track.artist).catch(() => null);
-      const artistSearchPromise = this.searchTracks(track.artist, 12).catch(() => []);
+      const seen = new Set();
+      if (targetId) seen.add(targetId);
+      seen.add(targetTitle);
 
-      // 2. Identify peer hitmaker cluster
+      // 1. Identify peer hitmaker cluster
       let peerArtists = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
       for (const cluster of POPULAR_ARTIST_CLUSTERS) {
         if (cluster.keywords.some(k => targetArtist.includes(k) || k.includes(targetArtist))) {
@@ -373,26 +370,51 @@ export const musicApi = {
         }
       }
 
-      // Pick 2-3 random famous peer hitmakers from the cluster
-      const shuffledPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 3);
-      const peerPromises = shuffledPeers.map(peer => this.searchTracks(peer, 6).catch(() => []));
+      // 2. Fetch user's frequently played & liked songs (User Taste Priority)
+      const userFavoriteHits = [];
+      try {
+        const liked = storageService.getLikedTracks() || [];
+        const taste = storageService.getTasteProfile();
+        const mostPlayed = taste?.mostPlayedTracks || [];
+        const userPool = [...liked, ...mostPlayed];
 
-      // 3. Await all verified popular sources in parallel
+        for (const t of userPool) {
+          if (!t || !t.id || !t.title) continue;
+          const artLower = (t.artist || '').toLowerCase();
+          const cleanT = (t.title || '').toLowerCase().trim();
+          if (seen.has(t.id) || seen.has(cleanT)) continue;
+
+          // If track belongs to the target artist or matching genre peers
+          const isArtistMatch = artLower.includes(targetArtist) || targetArtist.includes(artLower);
+          const isPeerMatch = peerArtists.some(p => artLower.includes(p.toLowerCase()));
+
+          if ((isArtistMatch || isPeerMatch) && isCleanPopularTrack(t)) {
+            seen.add(t.id);
+            seen.add(cleanT);
+            userFavoriteHits.push(t);
+          }
+        }
+      } catch (err) {
+        console.warn('Taste profile lookup in radio:', err);
+      }
+
+      // 3. Fetch artist's verified top hits & peer hitmakers in parallel
+      const artistDetailsPromise = this.getArtistDetails('', track.artist).catch(() => null);
+      const artistSearchPromise = this.searchTracks(track.artist, 12).catch(() => []);
+      const topPeers = peerArtists.slice(0, 3);
+      const peerPromises = topPeers.map(peer => this.searchTracks(peer, 6).catch(() => []));
+
       const [artistDetails, artistSearch, ...peerResults] = await Promise.all([
         artistDetailsPromise,
         artistSearchPromise,
         ...peerPromises,
       ]);
 
-      const seen = new Set();
-      if (targetId) seen.add(targetId);
-      seen.add(targetTitle);
-
-      // Collect artist's popular tracks (from topSongs or search)
+      // Collect artist's popular tracks (preserving popularity rank: #1 hit, #2 hit, etc.)
       const rawArtistPool = [
         ...(artistDetails?.topSongs || []),
-        ...(artistDetails?.allSongs || []),
         ...artistSearch,
+        ...(artistDetails?.allSongs || []),
       ];
 
       const cleanArtistHits = [];
@@ -405,7 +427,7 @@ export const musicApi = {
         }
       }
 
-      // Collect peer hitmakers' popular tracks
+      // Collect peer hitmakers' popular tracks (preserving top hit order)
       const rawPeerTracks = peerResults.flat();
       const cleanPeerHits = [];
       for (const t of rawPeerTracks) {
@@ -417,7 +439,7 @@ export const musicApi = {
         }
       }
 
-      // Fallback: If not enough hits found, fetch from trending
+      // Fallback: If not enough hits found, supplement with trending chart-toppers
       if (cleanArtistHits.length + cleanPeerHits.length < 8) {
         const trending = await this.fetchTrendingTracks();
         for (const t of trending) {
@@ -430,20 +452,43 @@ export const musicApi = {
         }
       }
 
-      // Shuffle both pools for genuine randomness among POPULAR HITS
-      const shuffledArtist = cleanArtistHits.sort(() => Math.random() - 0.5);
-      const shuffledPeersHits = cleanPeerHits.sort(() => Math.random() - 0.5);
-
-      // Interleave: artist's popular songs + famous peer songs
+      // Build structured popular queue:
+      // High-priority popular songs:
+      // 1. If user has a favorite hit by this artist, queue it first
+      // 2. Artist's top #1 hit
+      // 3. Peer #1 hit
+      // 4. Artist's #2 hit
+      // 5. User's favorite hit by peer (if any) or Peer #2 hit
+      // 6. Artist's #3 hit
+      // 7. Peer #3 hit
       const finalRadioQueue = [];
-      const maxLen = Math.max(shuffledArtist.length, shuffledPeersHits.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i < shuffledArtist.length) finalRadioQueue.push(shuffledArtist[i]);
-        if (i < shuffledPeersHits.length) finalRadioQueue.push(shuffledPeersHits[i]);
+      let userIdx = 0;
+      let artistIdx = 0;
+      let peerIdx = 0;
+
+      while (
+        finalRadioQueue.length < limit &&
+        (userIdx < userFavoriteHits.length || artistIdx < cleanArtistHits.length || peerIdx < cleanPeerHits.length)
+      ) {
+        // Interleave user's frequently played / liked song if available
+        if (userIdx < userFavoriteHits.length && (finalRadioQueue.length === 0 || finalRadioQueue.length % 3 === 0)) {
+          finalRadioQueue.push(userFavoriteHits[userIdx++]);
+        }
+        // Interleave artist's top hit
+        if (artistIdx < cleanArtistHits.length && finalRadioQueue.length < limit) {
+          finalRadioQueue.push(cleanArtistHits[artistIdx++]);
+        }
+        // Interleave peer's top hit
+        if (peerIdx < cleanPeerHits.length && finalRadioQueue.length < limit) {
+          finalRadioQueue.push(cleanPeerHits[peerIdx++]);
+        }
+        // If artist and peer pools are exhausted, add remaining user favorites
+        if (artistIdx >= cleanArtistHits.length && peerIdx >= cleanPeerHits.length && userIdx < userFavoriteHits.length && finalRadioQueue.length < limit) {
+          finalRadioQueue.push(userFavoriteHits[userIdx++]);
+        }
       }
 
-      // Return shuffled final queue of famous songs
-      return finalRadioQueue.sort(() => Math.random() - 0.5).slice(0, limit);
+      return finalRadioQueue.slice(0, limit);
     } catch (e) {
       console.warn('getArtistGenreRadio error:', e);
       return [];

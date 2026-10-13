@@ -413,47 +413,121 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // 1. Play clicked track immediately with single-track queue (instant playback)
     await playTrack(track, [track]);
 
-    // 2. Fetch verified tracks by the same artist & related genre in background
+    // 2. Fetch verified top popular tracks by the same artist & related genre in background
     try {
-      final artistTracks = await _apiService.searchTracks(track.artist);
       final seen = <String>{track.id, track.title.toLowerCase().trim()};
-      final pool = <Track>[];
-      final banned = ['karaoke', 'instrumental', 'cover by', 'tribute to', 'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb', 'remake', 'tutorial'];
+      const banned = [
+        'karaoke', 'instrumental', 'cover by', 'tribute to', 'parodi', 'parody',
+        'ringtone', 'sped up', 'slowed', 'reverb', 'remake', 'tutorial', 'acapella'
+      ];
 
-      for (final t in artistTracks) {
-        final clean = t.title.toLowerCase().trim();
-        final isJunk = banned.any((b) => clean.contains(b));
-        if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
-          seen.add(t.id);
-          seen.add(clean);
-          pool.add(t);
-        }
+      // Identify peer hitmakers based on artist genre cluster
+      final artLower = track.artist.toLowerCase();
+      List<String> peerArtists = ['Bernadya', 'Sal Priadi', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Hindia'];
+      if (artLower.contains('hindia') || artLower.contains('feast') || artLower.contains('nadin') ||
+          artLower.contains('sal priadi') || artLower.contains('pamungkas') || artLower.contains('fourtwnty')) {
+        peerArtists = ['Bernadya', 'Sal Priadi', 'Hindia', 'Nadin Amizah', 'Juicy Luicy', 'Kunto Aji'];
+      } else if (artLower.contains('mahalini') || artLower.contains('tulus') || artLower.contains('juicy luicy') ||
+                 artLower.contains('tiara') || artLower.contains('lyodra') || artLower.contains('yura')) {
+        peerArtists = ['Bernadya', 'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra'];
+      } else if (artLower.contains('sheila') || artLower.contains('dewa') || artLower.contains('noah') ||
+                 artLower.contains('peterpan') || artLower.contains('padi') || artLower.contains('ungu')) {
+        peerArtists = ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu'];
+      } else if (artLower.contains('weeknd') || artLower.contains('bruno') || artLower.contains('taylor') ||
+                 artLower.contains('billie') || artLower.contains('olivia') || artLower.contains('coldplay')) {
+        peerArtists = ['The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish', 'Olivia Rodrigo', 'Coldplay'];
+      } else if (artLower.contains('newjeans') || artLower.contains('bts') || artLower.contains('blackpink') ||
+                 artLower.contains('aespa') || artLower.contains('twice')) {
+        peerArtists = ['NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM', 'TWICE'];
       }
 
-      // If artist has fewer than 5 tracks, supplement with popular hitmaker peers
-      if (pool.length < 5) {
-        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
-        peers.shuffle(Random());
-        for (final peer in peers.take(2)) {
-          final peerTracks = await _apiService.searchTracks(peer);
-          for (final t in peerTracks) {
-            final clean = t.title.toLowerCase().trim();
-            final isJunk = banned.any((b) => clean.contains(b));
-            if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
-              seen.add(t.id);
-              seen.add(clean);
-              pool.add(t);
-            }
+      // Filter out current artist from peers
+      final activePeers = peerArtists.where((p) => !artLower.contains(p.toLowerCase())).take(3).toList();
+
+      // Query user's liked and frequently played tracks first
+      final userLikedTracks = <Track>[];
+      try {
+        final liked = await _storageService.getLikedTracks();
+        for (final t in liked) {
+          final clean = t.title.toLowerCase().trim();
+          final tArt = t.artist.toLowerCase();
+          final isMatch = tArt.contains(artLower) || artLower.contains(tArt) ||
+              activePeers.any((p) => tArt.contains(p.toLowerCase()));
+          final isJunk = banned.any((b) => clean.contains(b));
+          if (isMatch && !isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
+            seen.add(t.id);
+            seen.add(clean);
+            userLikedTracks.add(t);
+          }
+        }
+      } catch (_) {}
+
+      // Parallel search for artist top hits and peer top hits
+      final searchFutures = <Future<List<Track>>>[
+        _apiService.searchTracks(track.artist),
+        ...activePeers.map((p) => _apiService.searchTracks(p)),
+      ];
+      final searchResults = await Future.wait(searchFutures);
+
+      final artistHits = <Track>[];
+      if (searchResults.isNotEmpty) {
+        for (final t in searchResults[0]) {
+          final clean = t.title.toLowerCase().trim();
+          final isJunk = banned.any((b) => clean.contains(b));
+          if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
+            seen.add(t.id);
+            seen.add(clean);
+            artistHits.add(t);
           }
         }
       }
 
-      // Shuffle for randomized hit radio
-      pool.shuffle(Random());
-      if (pool.isNotEmpty) {
+      final peerHits = <Track>[];
+      for (int i = 1; i < searchResults.length; i++) {
+        for (final t in searchResults[i]) {
+          final clean = t.title.toLowerCase().trim();
+          final isJunk = banned.any((b) => clean.contains(b));
+          if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
+            seen.add(t.id);
+            seen.add(clean);
+            peerHits.add(t);
+          }
+        }
+      }
+
+      // Structured Hit Queue Interleaving:
+      // High-priority popular songs without random shuffle:
+      // 1. User's liked / favorite track (if any)
+      // 2. Artist's top #1 hit
+      // 3. Peer #1 hit
+      // 4. Artist's #2 hit
+      // 5. Peer #2 hit
+      // 6. Artist's #3 hit ...
+      final structuredQueue = <Track>[];
+      int userIdx = 0;
+      int artIdx = 0;
+      int peerIdx = 0;
+
+      while (structuredQueue.length < 18 &&
+          (userIdx < userLikedTracks.length || artIdx < artistHits.length || peerIdx < peerHits.length)) {
+        if (userIdx < userLikedTracks.length && (structuredQueue.isEmpty || structuredQueue.length % 3 == 0)) {
+          structuredQueue.add(userLikedTracks[userIdx++]);
+        }
+        if (artIdx < artistHits.length && structuredQueue.length < 18) {
+          structuredQueue.add(artistHits[artIdx++]);
+        }
+        if (peerIdx < peerHits.length && structuredQueue.length < 18) {
+          structuredQueue.add(peerHits[peerIdx++]);
+        }
+        if (artIdx >= artistHits.length && peerIdx >= peerHits.length && userIdx < userLikedTracks.length && structuredQueue.length < 18) {
+          structuredQueue.add(userLikedTracks[userIdx++]);
+        }
+      }
+
+      if (structuredQueue.isNotEmpty) {
         _queue = [
           if (_currentTrack != null) _currentTrack! else track,
-          ...pool,
+          ...structuredQueue,
         ];
         notifyListeners();
       }
@@ -674,14 +748,30 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         if (curArtist.isNotEmpty) playlistArtists.add(curArtist);
       }
 
-      final artistList = playlistArtists.toList()..shuffle(Random());
-      final sampleArtists = artistList.take(3).toList();
-
+      final sampleArtists = playlistArtists.take(3).toList();
       final existingIds = _queue.map((t) => t.id).toSet();
       final existingTitles = _queue.map((t) => t.title.toLowerCase().trim()).toSet();
       final newRecommendations = <Track>[];
 
-      // 2. Search related hit tracks from these artists
+      // 2. Prioritize user's liked tracks matching these artists
+      try {
+        final liked = await _storageService.getLikedTracks();
+        for (final t in liked) {
+          final cleanTitle = t.title.toLowerCase().trim();
+          final tArt = t.artist.toLowerCase();
+          final isMatch = sampleArtists.any((a) => tArt.contains(a.toLowerCase()));
+          if (isMatch &&
+              !existingIds.contains(t.id) &&
+              !existingTitles.contains(cleanTitle) &&
+              !_isExcludedTrack(cleanTitle)) {
+            existingIds.add(t.id);
+            existingTitles.add(cleanTitle);
+            newRecommendations.add(t);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Search related top hits from these artists (ordered by popularity)
       for (final artist in sampleArtists) {
         try {
           final results = await _apiService.searchTracks(artist);
@@ -698,10 +788,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         } catch (_) {}
       }
 
-      // 3. Supplement with popular hitmaker peers if few
+      // 4. Supplement with popular hitmaker peers if few
       if (newRecommendations.length < 5) {
-        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Nadin Amizah', 'Fabio Asher'];
-        peers.shuffle(Random());
+        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
         for (final peer in peers.take(2)) {
           final results = await _apiService.searchTracks(peer);
           for (final t in results) {
@@ -716,9 +805,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           }
         }
       }
-
-      // 4. Randomize the new recommendations to fit the playlist vibe
-      newRecommendations.shuffle(Random());
 
       if (newRecommendations.isNotEmpty) {
         _queue.addAll(newRecommendations);
@@ -741,7 +827,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     const banned = [
       'karaoke', 'instrumental', 'cover by', 'tribute to',
       'parodi', 'parody', 'ringtone', 'sped up', 'slowed',
-      'reverb', 'remake', 'tutorial'
+      'reverb', 'remake', 'tutorial', 'acapella'
     ];
     return banned.any((b) => title.contains(b));
   }
@@ -793,8 +879,15 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
-    if (currentIndex != -1) {
-      _queue.insert(currentIndex + 1, track);
+    // Remove if already present later in queue (do not remove if currently playing)
+    for (int i = _queue.length - 1; i >= 0; i--) {
+      if (i != currentIndex && _queue[i].id == track.id) {
+        _queue.removeAt(i);
+      }
+    }
+    final newCurrentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    if (newCurrentIndex != -1) {
+      _queue.insert(newCurrentIndex + 1, track);
     } else {
       _queue.insert(0, track);
     }

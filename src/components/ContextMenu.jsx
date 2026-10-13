@@ -3,6 +3,7 @@ import {
   Plus, 
   Heart, 
   ListPlus, 
+  ListMusic,
   Ban, 
   Radio, 
   User, 
@@ -24,6 +25,7 @@ export default function ContextMenu({
   isLiked = false,
   onClose,
   onPlayTrack,
+  onAddToNext,
   onAddToQueue,
   onToggleLike,
   onAddTrackToPlaylist,
@@ -69,7 +71,7 @@ export default function ContextMenu({
 
   // Calculate position & transform origin synchronously so there's zero jumping/flicker on first frame
   const menuWidth = 260;
-  const menuHeight = contextData.type === 'track' ? 380 : 180;
+  const menuHeight = contextData.type === 'track' ? 415 : 180;
   const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
@@ -185,7 +187,19 @@ export default function ContextMenu({
             <span>{isLiked ? 'Hapus dari Lagu yang Disukai' : 'Simpan ke Lagu yang Disukai'}</span>
           </button>
 
-          {/* 3. Tambahkan ke antrean */}
+          {/* 3. Putar setelah ini */}
+          <button
+            onClick={() => {
+              if (onAddToNext) onAddToNext(track);
+              onClose();
+            }}
+            className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-[4px] hover:bg-white/10 transition-colors group"
+          >
+            <ListMusic className="w-4 h-4 text-[#b3b3b3] group-hover:text-white" />
+            <span>Putar setelah ini</span>
+          </button>
+
+          {/* 4. Tambahkan ke antrean */}
           <button
             onClick={() => {
               onAddToQueue(track);
