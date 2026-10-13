@@ -10,6 +10,12 @@ import {
   Music
 } from 'lucide-react';
 
+const YoutubeIcon = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+  </svg>
+);
+
 export default function TopNavBar({
   currentView,
   setCurrentView,
@@ -17,6 +23,7 @@ export default function TopNavBar({
   setSearchQuery,
   onOpenDownloadApp,
   onCreatePlaylist,
+  onOpenImportYouTube,
 }) {
   return (
     <header className="h-16 bg-black px-4 sm:px-6 flex items-center justify-between gap-4 border-b border-white/[0.04] select-none z-30">
@@ -103,6 +110,15 @@ export default function TopNavBar({
         >
           <Plus className="w-4 h-4 text-[#00a3ff]" />
           <span>Buat</span>
+        </button>
+
+        <button
+          onClick={onOpenImportYouTube}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#ff0000]/15 hover:bg-[#ff0000]/25 text-[#ff4e4e] text-xs font-bold transition-all active:scale-95 border border-[#ff0000]/30"
+          title="Import Lagu dari YouTube"
+        >
+          <YoutubeIcon className="w-3.5 h-3.5 fill-current" />
+          <span>Import YouTube</span>
         </button>
 
         <button

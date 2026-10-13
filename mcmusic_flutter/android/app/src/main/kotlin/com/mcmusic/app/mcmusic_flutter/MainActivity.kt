@@ -3,6 +3,7 @@ package com.mcmusic.app.mcmusic_flutter
 import android.content.Context
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.os.Bundle
 import android.os.Handler
@@ -29,10 +30,11 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    // Android Native Audio Effects (Hardware-accelerated Equalizer, Bass Boost & 3D Virtualizer)
+    // Android Native Audio Effects (Hardware-accelerated Equalizer, Loudness Enhancer, Bass Boost & 3D Virtualizer)
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
     private val CHANNEL = "com.mcmusic.app/equalizer"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -76,6 +78,12 @@ class MainActivity : AudioServiceActivity() {
                     applyVirtualizer(strength)
                     result.success(true)
                 }
+                "setLoudnessGain" -> {
+                    val gainMb = call.argument<Int>("gain") ?: 600
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    applyLoudnessGain(gainMb, enabled)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -85,6 +93,18 @@ class MainActivity : AudioServiceActivity() {
         try {
             if (equalizer == null) {
                 equalizer = Equalizer(1000, 0).apply {
+                    enabled = true
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            if (loudnessEnhancer == null) {
+                // Audio session 0 applies globally to all audio tracks on device.
+                // 600 mB = +6.0 dB boost to match Spotify/Apple Music master loudness.
+                loudnessEnhancer = LoudnessEnhancer(0).apply {
+                    setTargetGain(600)
                     enabled = true
                 }
             }
@@ -115,8 +135,21 @@ class MainActivity : AudioServiceActivity() {
         try {
             initAudioEffects()
             equalizer?.enabled = enabled
+            loudnessEnhancer?.enabled = enabled
             bassBoost?.enabled = enabled
             virtualizer?.enabled = enabled
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun applyLoudnessGain(gainMb: Int, enabled: Boolean) {
+        try {
+            initAudioEffects()
+            loudnessEnhancer?.let { le ->
+                le.setTargetGain(gainMb.coerceIn(0, 1500))
+                le.enabled = enabled
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -270,6 +303,8 @@ class MainActivity : AudioServiceActivity() {
         try {
             equalizer?.release()
             equalizer = null
+            loudnessEnhancer?.release()
+            loudnessEnhancer = null
             bassBoost?.release()
             bassBoost = null
             virtualizer?.release()

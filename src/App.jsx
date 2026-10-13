@@ -6,6 +6,7 @@ import SearchView from './components/SearchView';
 import PlaylistView from './components/PlaylistView';
 import BeautifulLyrics from './components/BeautifulLyrics';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
+import ImportYouTubeModal from './components/ImportYouTubeModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
@@ -55,6 +56,7 @@ export default function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isMobileFullscreenOpen, setIsMobileFullscreenOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isYouTubeModalOpen, setIsYouTubeModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [contextMenuData, setContextMenuData] = useState(null); // { type, track, playlist, x, y }
@@ -714,6 +716,7 @@ export default function App() {
         setSearchQuery={setSearchQuery}
         onOpenDownloadApp={() => setIsDownloadModalOpen(true)}
         onCreatePlaylist={handleCreatePlaylist}
+        onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
       />
 
       {/* YouTube Full-Length Audio/Video Player Engine */}
@@ -826,6 +829,7 @@ export default function App() {
               onOpenArtist={handleOpenArtist}
               onAddTrackToPlaylist={handleAddTrackToPlaylist}
               onTrackContextMenu={handleTrackContextMenu}
+              onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
             />
           )}
 
@@ -1081,6 +1085,18 @@ export default function App() {
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onPlaylistImported={handlePlaylistImported}
+      />
+
+      {/* --- IMPORT YOUTUBE TRACK MODAL --- */}
+      <ImportYouTubeModal
+        isOpen={isYouTubeModalOpen}
+        onClose={() => setIsYouTubeModalOpen(false)}
+        onPlayTrack={handlePlayTrack}
+        onAddToNext={handleAddToNext}
+        onAddToQueue={handleAddToQueue}
+        onAddTrackToPlaylist={handleAddTrackToPlaylist}
+        playlists={playlists}
+        onToggleLike={handleToggleLike}
       />
 
       {/* --- DOWNLOAD FLUTTER APP MODAL --- */}

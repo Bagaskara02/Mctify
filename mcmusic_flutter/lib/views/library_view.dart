@@ -6,6 +6,7 @@ import '../services/audio_player_manager.dart';
 import '../services/playlist_importer_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/import_youtube_dialog.dart';
 import '../widgets/optimized_image.dart';
 import 'playlist_detail_view.dart';
 
@@ -288,11 +289,19 @@ class _LibraryViewState extends State<LibraryView> {
                       letterSpacing: -0.5,
                     ),
                   ),
-                  Row(
+                    Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.search, color: Colors.white, size: 24),
-                        onPressed: () {},
+                        icon: const Icon(Icons.file_download_outlined, color: AppTheme.primaryAzure, size: 24),
+                        tooltip: 'Import Lagu dari YouTube',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          showImportYouTubeDialog(
+                            context: context,
+                            player: widget.player,
+                            onPlaylistModified: _loadLibrary,
+                          );
+                        },
                       ),
                       IconButton(
                         icon: const Icon(Icons.add, color: Colors.white, size: 28),

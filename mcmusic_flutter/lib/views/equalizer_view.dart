@@ -242,6 +242,53 @@ class _EqualizerViewState extends State<EqualizerView> {
               ),
               const SizedBox(height: 14),
 
+              // Master Loudness Boost (Volume Kencang Mobil & Speaker)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppTheme.primaryAzure.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.volume_up, color: AppTheme.primaryAzure, size: 20),
+                            SizedBox(width: 10),
+                            Text(
+                              'Master Volume Boost (Mobil/Speaker)',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '+${(eq.loudnessGain * 10).toStringAsFixed(1)} dB',
+                          style: const TextStyle(color: AppTheme.primaryAzure, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Meningkatkan kekuatan audio hingga setara Spotify di speaker mobil & Bluetooth',
+                      style: TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                    ),
+                    const SizedBox(height: 8),
+                    Slider(
+                      value: eq.loudnessGain,
+                      activeColor: AppTheme.primaryAzure,
+                      inactiveColor: Colors.white12,
+                      onChanged: eq.isEnabled ? (v) => eq.setLoudnessGain(v) : null,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
               // Bass Boost
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
