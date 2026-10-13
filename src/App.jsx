@@ -247,9 +247,9 @@ export default function App() {
     await handlePlayTrack(track, [track]);
 
     // 2. Display notification
-    setSmartToast(`Radio Artis: Menyiapkan musik acak untuk ${track.artist || track.title}...`);
+    setSmartToast(`Radio Hits: Menyiapkan lagu populer untuk ${track.artist || track.title}...`);
 
-    // 3. Asynchronously fetch randomized artist & genre tracks
+    // 3. Asynchronously fetch popular artist & genre tracks
     try {
       const radioTracks = await musicApi.getArtistGenreRadio(track);
       if (radioTracks && radioTracks.length > 0) {
@@ -260,7 +260,7 @@ export default function App() {
           );
           return [current, ...remaining];
         });
-        setSmartToast(`Radio Aktif: ${track.artist} & lagu serupa diputar acak`);
+        setSmartToast(`Radio Hits: Lagu terpopuler dari ${track.artist} & lagu favorit siap diputar`);
         setTimeout(() => setSmartToast(null), 3500);
       }
     } catch (err) {
@@ -624,6 +624,28 @@ export default function App() {
   const handleAddToQueue = (track) => {
     setQueue(prev => [...prev, track]);
     setSmartToast(`Ditambahkan ke antrean: ${track.title}`);
+    setTimeout(() => setSmartToast(null), 3000);
+  };
+
+  const handleAddToNext = (track) => {
+    if (!track) return;
+    if (!currentTrack) {
+      handlePlayTrack(track);
+      return;
+    }
+    setQueue((prevQueue) => {
+      const currentIndex = prevQueue.findIndex(t => t.id === currentTrack.id);
+      // Remove any existing duplicate of this track from elsewhere in the queue
+      const filtered = prevQueue.filter((t, idx) => t.id !== track.id || idx === currentIndex);
+      const newCurrentIndex = filtered.findIndex(t => t.id === currentTrack.id);
+      if (newCurrentIndex !== -1) {
+        const nextQueue = [...filtered];
+        nextQueue.splice(newCurrentIndex + 1, 0, track);
+        return nextQueue;
+      }
+      return [track, ...filtered];
+    });
+    setSmartToast(`Akan diputar setelah lagu ini: ${track.title}`);
     setTimeout(() => setSmartToast(null), 3000);
   };
 
@@ -1081,6 +1103,7 @@ export default function App() {
           isLiked={contextMenuData?.track ? likedTrackIds.has(contextMenuData.track.id) : false}
           onClose={() => setContextMenuData(null)}
           onPlayTrack={handlePlayTrack}
+          onAddToNext={handleAddToNext}
           onAddToQueue={handleAddToQueue}
           onToggleLike={handleToggleLike}
           onAddTrackToPlaylist={handleAddTrackToPlaylist}

@@ -437,7 +437,30 @@ class _TrackActionSheetContentState extends State<_TrackActionSheetContent> {
           onTap: _onAddToPlaylistTap,
         ),
 
-        // 3. Add to Queue
+        // 3. Putar setelah ini (Play Next)
+        _buildActionTile(
+          icon: Icons.playlist_play,
+          title: 'Putar setelah ini',
+          onTap: () {
+            Navigator.pop(context);
+            widget.player.addToNext(widget.track);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.playlist_play, color: AppTheme.primaryAzure),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('"${widget.track.title}" akan diputar setelah lagu ini')),
+                  ],
+                ),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+        ),
+
+        // 4. Add to Queue
         _buildActionTile(
           icon: Icons.playlist_add,
           title: 'Add to Queue',
@@ -446,8 +469,15 @@ class _TrackActionSheetContentState extends State<_TrackActionSheetContent> {
             widget.player.addToQueue(widget.track);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('"${widget.track.title}" ditambahkan ke antrean'),
+                content: Row(
+                  children: [
+                    const Icon(Icons.playlist_add, color: AppTheme.primaryAzure),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('"${widget.track.title}" ditambahkan ke antrean')),
+                  ],
+                ),
                 behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 2),
               ),
             );
           },
