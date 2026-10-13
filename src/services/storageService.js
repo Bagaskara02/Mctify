@@ -175,66 +175,74 @@ export const storageService = {
    * Analyzes most played artists, genres, and recent tracks.
    */
   getTasteProfile() {
-    const history = this.getHistory();
-    const liked = this.getLikedTracks();
-    const playCounts = this.getPlayCounts();
-    const combined = [...liked, ...history];
+    try {
+      const history = this.getHistory() || [];
+      const liked = this.getLikedTracks() || [];
+      const playCounts = this.getPlayCounts() || {};
+      const combined = [...liked, ...history];
 
-    if (combined.length === 0 && Object.keys(playCounts).length === 0) return null;
+      if (combined.length === 0 && Object.keys(playCounts).length === 0) return null;
 
-    const artistCounts = {};
-    const genreCounts = {};
+      const artistCounts = {};
+      const genreCounts = {};
 
-    // Calculate artist counts from playCounts with weighted counts
-    for (const item of Object.values(playCounts)) {
-      if (item.track?.artist) {
-        artistCounts[item.track.artist] = (artistCounts[item.track.artist] || 0) + item.count;
+      // Calculate artist counts from playCounts with weighted counts
+      for (const item of Object.values(playCounts)) {
+        if (!item || typeof item !== 'object') continue;
+        const count = Number(item.count) || 1;
+        if (item.track?.artist) {
+          artistCounts[item.track.artist] = (artistCounts[item.track.artist] || 0) + count;
+        }
+        if (item.track?.genre) {
+          genreCounts[item.track.genre] = (genreCounts[item.track.genre] || 0) + count;
+        }
       }
-      if (item.track?.genre) {
-        genreCounts[item.track.genre] = (genreCounts[item.track.genre] || 0) + item.count;
+
+      // Factor in liked tracks (bonus 3 points for favorite artists)
+      for (const t of liked) {
+        if (t?.artist) {
+          artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 3;
+        }
+        if (t?.genre) {
+          genreCounts[t.genre] = (genreCounts[t.genre] || 0) + 3;
+        }
       }
+
+      // Factor in recent history
+      for (const t of history) {
+        if (t?.artist && !artistCounts[t.artist]) {
+          artistCounts[t.artist] = 1;
+        }
+      }
+
+      const topArtists = Object.entries(artistCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(entry => entry[0]);
+
+      const topGenres = Object.entries(genreCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(entry => entry[0]);
+
+      // Top played tracks sorted by play count
+      const topPlayedTracks = Object.values(playCounts)
+        .filter(item => item && typeof item === 'object' && item.track)
+        .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
+        .map(item => item.track)
+        .filter(Boolean);
+
+      return {
+        topArtists,
+        topGenres,
+        mostPlayedTracks: topPlayedTracks.slice(0, 10),
+        lastPlayedTrack: history[0] || null,
+        recentTracks: history.slice(0, 8),
+        likedTracks: liked.slice(0, 8),
+        hasHistory: history.length > 0 || liked.length > 0 || topPlayedTracks.length > 0,
+      };
+    } catch (e) {
+      console.warn('getTasteProfile fallback:', e);
+      return null;
     }
-
-    // Factor in liked tracks (bonus 3 points for favorite artists)
-    for (const t of liked) {
-      if (t.artist) {
-        artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 3;
-      }
-      if (t.genre) {
-        genreCounts[t.genre] = (genreCounts[t.genre] || 0) + 3;
-      }
-    }
-
-    // Factor in recent history
-    for (const t of history) {
-      if (t.artist && !artistCounts[t.artist]) {
-        artistCounts[t.artist] = 1;
-      }
-    }
-
-    const topArtists = Object.entries(artistCounts)
-      .sort((a, b) => b[1] - a[1])
-      .map(entry => entry[0]);
-
-    const topGenres = Object.entries(genreCounts)
-      .sort((a, b) => b[1] - a[1])
-      .map(entry => entry[0]);
-
-    // Top played tracks sorted by play count
-    const topPlayedTracks = Object.values(playCounts)
-      .sort((a, b) => b.count - a.count)
-      .map(item => item.track)
-      .filter(Boolean);
-
-    return {
-      topArtists,
-      topGenres,
-      mostPlayedTracks: topPlayedTracks.slice(0, 10),
-      lastPlayedTrack: history[0] || null,
-      recentTracks: history.slice(0, 8),
-      likedTracks: liked.slice(0, 8),
-      hasHistory: history.length > 0 || liked.length > 0 || topPlayedTracks.length > 0,
-    };
   },
 
   getSettings() {

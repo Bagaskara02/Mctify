@@ -8,6 +8,10 @@
     {
       "source": "/downloads",
       "destination": "/downloads/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
