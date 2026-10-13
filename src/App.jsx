@@ -8,6 +8,7 @@ import BeautifulLyrics from './components/BeautifulLyrics';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
+import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
 import MobileBottomNav from './components/MobileBottomNav';
 import MobileMiniPlayer from './components/MobileMiniPlayer';
@@ -101,6 +102,11 @@ export default function App() {
 
     // Initial state: currentTrack starts null, right sidebar starts closed
     refreshPersonalizedFeed();
+
+    // Connect native audio preview to studio Equalizer DSP
+    if (audioRef.current) {
+      webAudioEqualizer.connectMediaElement(audioRef.current);
+    }
   }, []);
 
   // Fetch Synchronized Lyrics whenever currentTrack changes
@@ -718,6 +724,7 @@ export default function App() {
       {/* Fallback Native Audio Element for Preview */}
       <audio
         ref={audioRef}
+        crossOrigin="anonymous"
         preload="metadata"
         onTimeUpdate={() => {
           if (!currentTrack?.videoId && audioRef.current) {
