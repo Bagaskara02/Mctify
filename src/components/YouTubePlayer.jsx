@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Tv, TvMinimal, X } from 'lucide-react';
+import { webAudioEqualizer } from '../services/webAudioEqualizer';
 
 /**
  * YouTube Audio/Video Player Engine
@@ -19,6 +20,14 @@ export default function YouTubePlayer({
   const endedTriggeredRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  const [eqSettings, setEqSettings] = useState(() => webAudioEqualizer.settings);
+
+  // Subscribe to realtime Equalizer changes
+  useEffect(() => {
+    return webAudioEqualizer.subscribe((updated) => {
+      setEqSettings(updated);
+    });
+  }, []);
 
   // Load YouTube IFrame API script once
   useEffect(() => {
@@ -83,7 +92,9 @@ export default function YouTubePlayer({
             if (isMuted) {
               event.target.mute();
             } else {
-              event.target.setVolume(volume * 100);
+              const multiplier = webAudioEqualizer.getLoudnessMultiplier(eqSettings);
+              const effectiveVol = Math.max(0, Math.min(100, Math.round(volume * 100 * multiplier)));
+              event.target.setVolume(effectiveVol);
             }
           },
           onStateChange: (event) => {
@@ -142,7 +153,7 @@ export default function YouTubePlayer({
     }
   }, [isPlaying, isReady, videoId]);
 
-  // Sync volume & mute
+  // Sync volume, mute & dynamic equalizer acoustic loudness
   useEffect(() => {
     if (!isReady || !playerRef.current) return;
     try {
@@ -150,12 +161,14 @@ export default function YouTubePlayer({
         playerRef.current.mute();
       } else {
         playerRef.current.unMute();
-        playerRef.current.setVolume(volume * 100);
+        const multiplier = webAudioEqualizer.getLoudnessMultiplier(eqSettings);
+        const effectiveVol = Math.max(0, Math.min(100, Math.round(volume * 100 * multiplier)));
+        playerRef.current.setVolume(effectiveVol);
       }
     } catch (e) {
       console.warn(e);
     }
-  }, [volume, isMuted, isReady]);
+  }, [volume, isMuted, isReady, eqSettings]);
 
   // Sync seekTime
   useEffect(() => {
