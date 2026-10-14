@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,15 +29,36 @@ class EqualizerService extends ChangeNotifier {
   double get virtualizer => _virtualizer;
   double get loudnessGain => _loudnessGain;
 
+  final Completer<void> _initCompleter = Completer<void>();
+  Future<void> get initialized => _initCompleter.future;
+
   EqualizerService() {
     _loadSettings();
+  }
+
+  /// Headroom / Anti-Clipping Preamp Compensation (dB)
+  /// Automatically attenuates input to prevent digital audio clipping (>0 dBFS)
+  /// when boosting frequency bands or turning up bass boost.
+  double get preampCompensation {
+    double maxBoost = 0.0;
+    for (final b in _currentBands) {
+      if (b > maxBoost) maxBoost = b;
+    }
+    if (_bassBoost > 0) {
+      maxBoost += (_bassBoost * 4.0);
+    }
+    return maxBoost > 0 ? -maxBoost : 0.0;
   }
 
   Future<void> _applyNativeSettings() async {
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         await _channel.invokeMethod('setEnabled', {'enabled': _isEnabled});
-        await _channel.invokeMethod('setBands', {'bands': _currentBands, 'enabled': _isEnabled});
+        await _channel.invokeMethod('setBands', {
+          'bands': _currentBands,
+          'preamp': preampCompensation,
+          'enabled': _isEnabled,
+        });
         await _channel.invokeMethod('setBassBoost', {'strength': _isEnabled ? _bassBoost : 0.0});
         await _channel.invokeMethod('setVirtualizer', {'strength': _isEnabled ? _virtualizer : 0.0});
         await _channel.invokeMethod('setLoudnessGain', {
@@ -61,7 +83,11 @@ class EqualizerService extends ChangeNotifier {
       _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.60;
       notifyListeners();
       _applyNativeSettings();
-    } catch (_) {}
+    } catch (_) {} finally {
+      if (!_initCompleter.isCompleted) {
+        _initCompleter.complete();
+      }
+    }
   }
 
   Future<void> toggleEnabled() async {
@@ -88,8 +114,12 @@ class EqualizerService extends ChangeNotifier {
       _selectedPresetName = 'Kustom';
       notifyListeners();
       try {
-        if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
-          _channel.invokeMethod('setBandLevel', {'band': index, 'level': _currentBands[index]});
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+          _channel.invokeMethod('setBandLevel', {
+            'band': index,
+            'level': _currentBands[index],
+            'preamp': preampCompensation,
+          });
         }
       } catch (_) {}
       final prefs = await SharedPreferences.getInstance();
@@ -102,7 +132,7 @@ class EqualizerService extends ChangeNotifier {
     _bassBoost = value.clamp(0.0, 1.0);
     notifyListeners();
     try {
-      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
         _channel.invokeMethod('setBassBoost', {'strength': _bassBoost});
       }
     } catch (_) {}
@@ -114,7 +144,7 @@ class EqualizerService extends ChangeNotifier {
     _virtualizer = value.clamp(0.0, 1.0);
     notifyListeners();
     try {
-      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
         _channel.invokeMethod('setVirtualizer', {'strength': _virtualizer});
       }
     } catch (_) {}
@@ -126,7 +156,7 @@ class EqualizerService extends ChangeNotifier {
     _loudnessGain = value.clamp(0.0, 1.0);
     notifyListeners();
     try {
-      if (defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
         _channel.invokeMethod('setLoudnessGain', {
           'gain': (_loudnessGain * 1000).round(),
           'enabled': _isEnabled,

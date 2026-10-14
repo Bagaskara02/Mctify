@@ -50,6 +50,7 @@ class MainActivity : AudioServiceActivity() {
                 }
                 "setBands" -> {
                     val rawBands = call.argument<List<*>>("bands")
+                    val preampDb = (call.argument<Number>("preamp"))?.toDouble() ?: 0.0
                     val enabled = call.argument<Boolean>("enabled") ?: true
                     if (rawBands != null) {
                         val bands = rawBands.mapNotNull { item ->
@@ -58,14 +59,15 @@ class MainActivity : AudioServiceActivity() {
                                 else -> null
                             }
                         }
-                        applyBands(bands, enabled)
+                        applyBands(bands, preampDb, enabled)
                     }
                     result.success(true)
                 }
                 "setBandLevel" -> {
                     val band = call.argument<Int>("band") ?: 0
                     val levelDb = (call.argument<Number>("level"))?.toDouble() ?: 0.0
-                    applyBandLevel(band, levelDb)
+                    val preampDb = (call.argument<Number>("preamp"))?.toDouble() ?: 0.0
+                    applyBandLevel(band, levelDb, preampDb)
                     result.success(true)
                 }
                 "setBassBoost" -> {
@@ -147,7 +149,9 @@ class MainActivity : AudioServiceActivity() {
         try {
             initAudioEffects()
             loudnessEnhancer?.let { le ->
-                le.setTargetGain(gainMb.coerceIn(0, 1500))
+                // Clamp within safe limits (0 to 800 mB = 0 to +8.0 dB) to prevent speaker distortion / clipping
+                val safeGain = gainMb.coerceIn(0, 800)
+                le.setTargetGain(safeGain)
                 le.enabled = enabled
             }
         } catch (e: Exception) {
@@ -155,7 +159,7 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun applyBandLevel(bandIndex: Int, levelDb: Double) {
+    private fun applyBandLevel(bandIndex: Int, levelDb: Double, preampDb: Double = 0.0) {
         try {
             initAudioEffects()
             equalizer?.let { eq ->
@@ -164,7 +168,9 @@ class MainActivity : AudioServiceActivity() {
                     val range = eq.bandLevelRange
                     val min = range[0].toInt()
                     val max = range[1].toInt()
-                    val targetMb = (levelDb * 100).toInt().coerceIn(min, max).toShort()
+                    // Apply negative headroom compensation to protect against digital audio clipping (>0 dBFS)
+                    val effectiveDb = levelDb + (preampDb * 0.6)
+                    val targetMb = (effectiveDb * 100).toInt().coerceIn(min, max).toShort()
                     eq.setBandLevel(bandIndex.toShort(), targetMb)
                 }
             }
@@ -173,7 +179,7 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun applyBands(bands: List<Double>, enabled: Boolean) {
+    private fun applyBands(bands: List<Double>, preampDb: Double = 0.0, enabled: Boolean) {
         try {
             initAudioEffects()
             setEffectsEnabled(enabled)
@@ -184,7 +190,9 @@ class MainActivity : AudioServiceActivity() {
                         val range = eq.bandLevelRange
                         val min = range[0].toInt()
                         val max = range[1].toInt()
-                        val targetMb = (bands[i] * 100).toInt().coerceIn(min, max).toShort()
+                        // Apply negative headroom compensation to protect against digital audio clipping (>0 dBFS)
+                        val effectiveDb = bands[i] + (preampDb * 0.6)
+                        val targetMb = (effectiveDb * 100).toInt().coerceIn(min, max).toShort()
                         eq.setBandLevel(i.toShort(), targetMb)
                     }
                 }
