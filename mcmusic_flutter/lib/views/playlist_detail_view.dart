@@ -11,6 +11,17 @@ import '../widgets/optimized_image.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/track_action_sheet.dart';
 
+enum PlaylistSortOption {
+  custom('Urutan Kustom'),
+  title('Judul (A - Z)'),
+  artist('Nama Artis (A - Z)'),
+  durationDesc('Durasi Terlama'),
+  durationAsc('Durasi Terpendek');
+
+  final String label;
+  const PlaylistSortOption(this.label);
+}
+
 class PlaylistDetailView extends StatefulWidget {
   final Playlist playlist;
   final AudioPlayerManager player;
@@ -34,6 +45,7 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
 
   late Playlist _currentPlaylist;
   String _filterQuery = '';
+  PlaylistSortOption _sortOption = PlaylistSortOption.custom;
   final TextEditingController _searchCtrl = TextEditingController();
   bool _isLiked = false;
   String? _lastCheckedTrackId;
@@ -123,14 +135,14 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     return '$mins menit';
   }
 
-  void _playAll({bool shuffle = false}) {
-    if (_currentPlaylist.tracks.isEmpty) return;
+  void _playAll(List<Track> targetTracks, {bool shuffle = false}) {
+    if (targetTracks.isEmpty) return;
     HapticFeedback.mediumImpact();
     if (shuffle) {
-      final shuffled = List<Track>.from(_currentPlaylist.tracks)..shuffle();
+      final shuffled = List<Track>.from(targetTracks)..shuffle();
       widget.player.playTrack(shuffled.first, shuffled);
     } else {
-      widget.player.playTrack(_currentPlaylist.tracks.first, _currentPlaylist.tracks);
+      widget.player.playTrack(targetTracks.first, targetTracks);
     }
   }
 
@@ -345,12 +357,22 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredTracks = _filterQuery.isEmpty
-        ? _currentPlaylist.tracks
+    final filteredTracks = (_filterQuery.isEmpty
+        ? List<Track>.from(_currentPlaylist.tracks)
         : _currentPlaylist.tracks.where((t) {
             final q = _filterQuery.toLowerCase();
             return t.title.toLowerCase().contains(q) || t.artist.toLowerCase().contains(q);
-          }).toList();
+          }).toList());
+
+    if (_sortOption == PlaylistSortOption.title) {
+      filteredTracks.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    } else if (_sortOption == PlaylistSortOption.artist) {
+      filteredTracks.sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase()));
+    } else if (_sortOption == PlaylistSortOption.durationDesc) {
+      filteredTracks.sort((a, b) => b.duration.compareTo(a.duration));
+    } else if (_sortOption == PlaylistSortOption.durationAsc) {
+      filteredTracks.sort((a, b) => a.duration.compareTo(b.duration));
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFF080C14),
@@ -485,7 +507,7 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                     children: [
                       // Big Circular Play Button (Electric Azure)
                       GestureDetector(
-                        onTap: () => _playAll(shuffle: false),
+                        onTap: () => _playAll(filteredTracks, shuffle: false),
                         child: Container(
                           width: 52,
                           height: 52,
@@ -507,7 +529,7 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                       // Shuffle Button
                       IconButton(
                         icon: const Icon(Icons.shuffle, color: Colors.white70, size: 26),
-                        onPressed: () => _playAll(shuffle: true),
+                        onPressed: () => _playAll(filteredTracks, shuffle: true),
                         tooltip: 'Putar Acak',
                       ),
                       // Add Songs Button
@@ -517,6 +539,81 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                         tooltip: 'Tambah Lagu',
                       ),
                       const Spacer(),
+
+                      // Spotify-style Sort Menu Button
+                      PopupMenuButton<PlaylistSortOption>(
+                        tooltip: 'Urutkan Playlist',
+                        color: const Color(0xFF141923),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        initialValue: _sortOption,
+                        onSelected: (opt) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _sortOption = opt);
+                        },
+                        itemBuilder: (context) => PlaylistSortOption.values.map((opt) {
+                          final isSelected = opt == _sortOption;
+                          return PopupMenuItem(
+                            value: opt,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                                  size: 16,
+                                  color: isSelected ? AppTheme.primaryAzure : Colors.white38,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  opt.label,
+                                  style: TextStyle(
+                                    color: isSelected ? AppTheme.primaryAzure : Colors.white,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF141D2D),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _sortOption != PlaylistSortOption.custom
+                                  ? AppTheme.primaryAzure
+                                  : Colors.white12,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.swap_vert,
+                                size: 14,
+                                color: _sortOption != PlaylistSortOption.custom
+                                    ? AppTheme.primaryAzure
+                                    : Colors.white70,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _sortOption == PlaylistSortOption.custom
+                                    ? 'Urutkan'
+                                    : _sortOption.label,
+                                style: TextStyle(
+                                  color: _sortOption != PlaylistSortOption.custom
+                                      ? AppTheme.primaryAzure
+                                      : Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
                       // Song counter badge
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -653,7 +750,7 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                       ),
                       onTap: () {
                         HapticFeedback.lightImpact();
-                        widget.player.playTrack(track, _currentPlaylist.tracks);
+                        widget.player.playTrack(track, filteredTracks);
                       },
                     ),
                   );

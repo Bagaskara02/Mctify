@@ -117,7 +117,7 @@ class EqualizerService extends ChangeNotifier {
       notifyListeners();
       try {
         if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
-          _channel.invokeMethod('setBandLevel', {
+          await _channel.invokeMethod('setBandLevel', {
             'band': index,
             'level': _currentBands[index],
             'preamp': preampCompensation,
@@ -135,7 +135,7 @@ class EqualizerService extends ChangeNotifier {
     notifyListeners();
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
-        _channel.invokeMethod('setBassBoost', {'strength': _bassBoost});
+        await _channel.invokeMethod('setBassBoost', {'strength': _bassBoost});
       }
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -147,7 +147,7 @@ class EqualizerService extends ChangeNotifier {
     notifyListeners();
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
-        _channel.invokeMethod('setVirtualizer', {'strength': _virtualizer});
+        await _channel.invokeMethod('setVirtualizer', {'strength': _virtualizer});
       }
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -159,7 +159,7 @@ class EqualizerService extends ChangeNotifier {
     notifyListeners();
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
-        _channel.invokeMethod('setLoudnessGain', {
+        await _channel.invokeMethod('setLoudnessGain', {
           'gain': (_loudnessGain * 1000).round(),
           'enabled': _isEnabled,
         });

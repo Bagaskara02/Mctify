@@ -215,7 +215,85 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                     AudioQualityModal.show(context, widget.player);
                   },
                 ),
+
+                // 5. Kecepatan Pemutaran (Playback Speed)
+                ListTile(
+                  leading: const Icon(Icons.speed, color: AppTheme.primaryAzure),
+                  title: const Text('Kecepatan Pemutaran', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    '${widget.player.playbackSpeed}x ${widget.player.playbackSpeed == 1.0 ? '(Normal)' : ''}',
+                    style: TextStyle(
+                      color: widget.player.playbackSpeed != 1.0 ? AppTheme.primaryAzure : AppTheme.textMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showPlaybackSpeedModal(context);
+                  },
+                ),
                 const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPlaybackSpeedModal(BuildContext context) {
+    const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Kecepatan Pemutaran',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 12),
+                ...speeds.map((s) {
+                  final isSelected = widget.player.playbackSpeed == s;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '${s}x ${s == 1.0 ? '(Normal)' : ''}',
+                      style: TextStyle(
+                        color: isSelected ? AppTheme.primaryAzure : Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check, color: AppTheme.primaryAzure)
+                        : null,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.player.setPlaybackSpeed(s);
+                      Navigator.pop(context);
+                    },
+                  );
+                }),
               ],
             ),
           ),
@@ -341,13 +419,16 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                           ),
                         ],
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: OptimizedImage(
-                          imageUrl: track.artwork,
+                      child: Hero(
+                        tag: 'current_artwork_${track.id}',
+                        child: ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          memCacheWidth: 700,
-                          memCacheHeight: 700,
+                          child: OptimizedImage(
+                            imageUrl: track.artwork,
+                            borderRadius: BorderRadius.circular(10),
+                            memCacheWidth: 700,
+                            memCacheHeight: 700,
+                          ),
                         ),
                       ),
                     ),
@@ -623,11 +704,35 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Connected Device icon (AirPods / Device switcher)
-                      IconButton(
-                        icon: const Icon(Icons.devices_rounded, size: 22, color: Colors.white70),
-                        tooltip: 'Pilih Output Perangkat',
-                        onPressed: () => AudioQualityModal.show(context, widget.player),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.devices_rounded, size: 22, color: Colors.white70),
+                            tooltip: 'Pilih Output Perangkat',
+                            onPressed: () => AudioQualityModal.show(context, widget.player),
+                          ),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _showPlaybackSpeedModal(context),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: widget.player.playbackSpeed != 1.0 ? AppTheme.primaryAzure.withOpacity(0.2) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: widget.player.playbackSpeed != 1.0 ? Border.all(color: AppTheme.primaryAzure, width: 1) : null,
+                              ),
+                              child: Text(
+                                '${widget.player.playbackSpeed}x',
+                                style: TextStyle(
+                                  color: widget.player.playbackSpeed != 1.0 ? AppTheme.primaryAzure : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       Row(
                         children: [
