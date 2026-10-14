@@ -274,7 +274,7 @@ class LyricsService {
 
   List<LyricLine> parseLrc(String lrcContent) {
     final List<Map<String, dynamic>> rawParsed = [];
-    final timeRegex = RegExp(r'\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]');
+    final timeRegex = RegExp(r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]');
 
     for (final rawLine in lrcContent.split('\n')) {
       final line = rawLine.trim();
@@ -289,7 +289,7 @@ class LyricsService {
       final ms = int.tryParse(msStr.padRight(3, '0').substring(0, 3)) ?? 0;
       final time = min * 60 + sec + (ms / 1000.0);
 
-      final cleanText = line.replaceAll(RegExp(r'\[\d{2}:\d{2}(?:\.\d{2,3})?\]'), '').trim();
+      final cleanText = line.replaceAll(RegExp(r'\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]'), '').trim();
 
       // Empty text timestamp marks the explicit vocal end-time of the previous line!
       if (cleanText.isEmpty) {

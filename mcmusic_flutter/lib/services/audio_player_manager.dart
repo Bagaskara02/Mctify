@@ -424,6 +424,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _triggerSleepTimerStop() {
     cancelSleepTimer();
+    _userRequestedPause = true;
+    _setJsUserRequestedPause(true);
+    if (_isUsingYoutubeIframe && _ytController != null) {
+      _ytController!.pauseVideo();
+    }
     _player.pause();
     _isPlaying = false;
     _syncMediaHandler();

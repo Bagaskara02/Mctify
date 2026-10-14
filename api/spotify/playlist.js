@@ -30,10 +30,10 @@ export default async function handler(req, res) {
       'Accept-Language': 'en-US,en;q=0.9',
     };
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
         const spotifyRes = await fetch(targetUrl, {
           headers: fetchHeaders,
           signal: controller.signal,
@@ -45,14 +45,14 @@ export default async function handler(req, res) {
         }
       } catch (err) {
         console.warn(`Attempt ${attempt + 1} to fetch Spotify embed failed:`, err.message);
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 300));
       }
     }
 
     if (!html) {
       res.statusCode = 502;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Failed to fetch Spotify playlist from embed after multiple attempts' }));
+      return res.end(JSON.stringify({ error: 'Gagal mengambil data playlist Spotify (timeout atau diblokir pihak Spotify).' }));
     }
 
     const match = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
@@ -76,6 +76,7 @@ export default async function handler(req, res) {
     })).filter(t => t.title && t.artist);
 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=43200');
     return res.end(JSON.stringify({
       id: playlistId,
       name: playlistName,

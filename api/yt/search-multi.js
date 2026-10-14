@@ -95,6 +95,7 @@ export default async function handler(req, res) {
     });
 
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
     return res.end(JSON.stringify({ songs, artists }));
   } catch (e) {
     console.error('API /api/yt/search-multi error:', e);

@@ -1,6 +1,7 @@
 # Vercel Deployment Ignore
 # Do not upload the Flutter source tree or test scripts to Vercel
 mcmusic_flutter/
+*.apk
 *.zip
 lyra-direct*
 test_*.js
