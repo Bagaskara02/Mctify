@@ -6,8 +6,6 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
 import android.view.View
 import android.view.ViewGroup
@@ -18,17 +16,6 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val keepAliveRunnable = object : Runnable {
-        override fun run() {
-            try {
-                window.decorView?.let { keepWebViewsAlive(it) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            mainHandler.postDelayed(this, 350)
-        }
-    }
 
     // Android Native Audio Effects (Hardware-accelerated Equalizer, Loudness Enhancer, Bass Boost & 3D Virtualizer)
     private var equalizer: Equalizer? = null
@@ -243,18 +230,17 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun keepWebViewsAlive(view: View) {
+    private fun resumeWebViews(view: View) {
         if (view is WebView) {
             try {
                 view.onResume()
                 view.resumeTimers()
-                view.dispatchWindowVisibilityChanged(View.VISIBLE)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                keepWebViewsAlive(view.getChildAt(i))
+                resumeWebViews(view.getChildAt(i))
             }
         }
     }
@@ -264,15 +250,12 @@ class MainActivity : AudioServiceActivity() {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            mainHandler.post(keepAliveRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
         super.onPause()
         try {
-            window.decorView?.let { keepWebViewsAlive(it) }
+            window.decorView?.let { resumeWebViews(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -283,15 +266,12 @@ class MainActivity : AudioServiceActivity() {
             if (wakeLock?.isHeld == false) {
                 wakeLock?.acquire(24 * 60 * 60 * 1000L)
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            mainHandler.post(keepAliveRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
         super.onStop()
         try {
-            window.decorView?.let { keepWebViewsAlive(it) }
+            window.decorView?.let { resumeWebViews(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -300,11 +280,10 @@ class MainActivity : AudioServiceActivity() {
     override fun onResume() {
         super.onResume()
         try {
-            mainHandler.removeCallbacks(keepAliveRunnable)
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
+            window.decorView?.let { resumeWebViews(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -324,7 +303,6 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
         try {
-            mainHandler.removeCallbacks(keepAliveRunnable)
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
