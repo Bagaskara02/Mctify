@@ -75,20 +75,24 @@ export default function ContextMenu({
   const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
 
+  // Account for player bar at bottom (~96px)
+  const bottomBoundary = windowHeight - 96;
+
   let posX = contextData.x;
   let posY = contextData.y;
   let originX = 'left';
   let originY = 'top';
 
-  if (posX + menuWidth > windowWidth - 10) {
-    posX = Math.max(10, windowWidth - menuWidth - 15);
+  if (posX + menuWidth > windowWidth - 16) {
+    posX = Math.max(16, windowWidth - menuWidth - 16);
     originX = 'right';
   }
-  if (posY + menuHeight > windowHeight - 10) {
-    posY = Math.max(10, windowHeight - menuHeight - 15);
+  if (posY + menuHeight > bottomBoundary) {
+    posY = Math.max(16, bottomBoundary - menuHeight - 10);
     originY = 'bottom';
   }
 
+  const isSubmenuLeft = posX + menuWidth + 235 > windowWidth;
   const transformOrigin = `${originY} ${originX}`;
   const { type, track, playlist } = contextData;
 
@@ -136,8 +140,10 @@ export default function ContextMenu({
             {/* Submenu with Pop-Up Animation */}
             {activeSubmenu === 'playlist' && (
               <div 
-                className="absolute left-full top-0 ml-1 w-56 bg-[#282828] border border-white/10 rounded-md shadow-2xl p-1 text-white space-y-0.5 max-h-60 overflow-y-auto animate-spotify-popup"
-                style={{ transformOrigin: 'top left' }}
+                className={`absolute top-0 w-56 bg-[#282828] border border-white/10 rounded-md shadow-2xl p-1 text-white space-y-0.5 max-h-60 overflow-y-auto animate-spotify-popup ${
+                  isSubmenuLeft ? 'right-full mr-1' : 'left-full ml-1'
+                }`}
+                style={{ transformOrigin: isSubmenuLeft ? 'top right' : 'top left' }}
               >
                 <button
                   onClick={() => {

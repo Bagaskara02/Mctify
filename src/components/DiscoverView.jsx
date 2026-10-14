@@ -133,15 +133,21 @@ export default function DiscoverView({
                   }}
                   className="group relative flex items-center bg-white/[0.07] hover:bg-white/[0.12] rounded-md overflow-hidden cursor-pointer transition-colors duration-200 shadow-sm"
                 >
-                  <img
-                    src={t.artwork || DEFAULT_ARTWORK}
-                    alt={t.title}
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = DEFAULT_ARTWORK;
-                    }}
-                    className="w-14 h-14 sm:w-16 sm:h-16 object-cover flex-shrink-0 shadow-md"
-                  />
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 overflow-hidden bg-[#242424] shadow-md">
+                    <img
+                      src={t.artwork || DEFAULT_ARTWORK}
+                      alt={t.title}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = DEFAULT_ARTWORK;
+                      }}
+                      className={`w-full h-full object-cover transition-transform duration-300 ${
+                        (t.artwork || '').includes('ytimg.com') || (t.artwork || '').includes('youtube.com')
+                          ? 'scale-[1.35]'
+                          : ''
+                      }`}
+                    />
+                  </div>
                   <div className="flex-1 min-w-0 px-3 sm:px-4">
                     <h4 className="font-bold text-xs sm:text-sm truncate text-white tracking-tight">{t.title}</h4>
                     <p className="text-[11px] sm:text-xs text-[#b3b3b3] truncate mt-0.5">{t.artist}</p>
@@ -299,7 +305,11 @@ export default function DiscoverView({
                           e.currentTarget.onerror = null;
                           e.currentTarget.src = DEFAULT_ARTWORK;
                         }}
-                        className="w-full h-full object-cover"
+                        className={`w-full h-full object-cover transition-transform duration-300 ${
+                          (t.artwork || '').includes('ytimg.com') || (t.artwork || '').includes('youtube.com')
+                            ? 'scale-[1.35] group-hover:scale-[1.40]'
+                            : 'group-hover:scale-105'
+                        }`}
                       />
 
                       {/* Floating Azure Play Button */}

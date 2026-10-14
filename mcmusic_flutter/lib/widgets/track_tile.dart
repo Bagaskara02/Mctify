@@ -49,7 +49,7 @@ class TrackTile extends StatelessWidget {
               SizedBox(
                 width: 24,
                 child: isCurrent && isPlaying
-                    ? const Icon(Icons.equalizer, color: AppTheme.primaryAzure, size: 18)
+                    ? const AnimatedEqualizerBars(color: AppTheme.primaryAzure)
                     : Text(
                         '${index + 1}',
                         style: TextStyle(
@@ -155,6 +155,79 @@ class TrackTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Spotify-style 3-bar animated equalizer indicator for playing songs
+class AnimatedEqualizerBars extends StatefulWidget {
+  final Color color;
+
+  const AnimatedEqualizerBars({
+    super.key,
+    this.color = AppTheme.primaryAzure,
+  });
+
+  @override
+  State<AnimatedEqualizerBars> createState() => _AnimatedEqualizerBarsState();
+}
+
+class _AnimatedEqualizerBarsState extends State<AnimatedEqualizerBars>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final val = _controller.value;
+        final h1 = 4.0 + 10.0 * val;
+        final h2 = 14.0 - 10.0 * val;
+        final h3 = 6.0 + 8.0 * ((val + 0.5) % 1.0);
+
+        return SizedBox(
+          width: 14,
+          height: 16,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildBar(h1),
+              const SizedBox(width: 2),
+              _buildBar(h2),
+              const SizedBox(width: 2),
+              _buildBar(h3),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBar(double height) {
+    return Container(
+      width: 2.5,
+      height: height,
+      decoration: BoxDecoration(
+        color: widget.color,
+        borderRadius: BorderRadius.circular(1.5),
       ),
     );
   }

@@ -241,6 +241,28 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
+        // Enable High Refresh Rate (90Hz / 120Hz / 144Hz) for ultra-fluid 60fps+ rendering
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                display?.supportedModes?.maxByOrNull { it.refreshRate }?.let { maxMode ->
+                    val params = window.attributes
+                    params.preferredDisplayModeId = maxMode.modeId
+                    window.attributes = params
+                }
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                @Suppress("DEPRECATION")
+                val modes = windowManager.defaultDisplay.supportedModes
+                val maxMode = modes?.maxByOrNull { it.refreshRate }
+                if (maxMode != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = maxMode.modeId
+                    window.attributes = params
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun keepWebViewsAlive(view: View) {

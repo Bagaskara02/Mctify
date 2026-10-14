@@ -16,9 +16,18 @@ import {
   PanelRight,
   MoreHorizontal,
   Sliders,
-  Gauge
+  Gauge,
+  Moon
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+
+function cleanTrackTitle(title) {
+  if (!title) return '';
+  return title
+    .replace(/\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]/gi, '')
+    .replace(/\s*-\s*Official Video.*$/i, '')
+    .trim() || title;
+}
 
 export default function PlayerBar({
   currentTrack,
@@ -31,6 +40,10 @@ export default function PlayerBar({
   isRepeat,
   repeatMode = 'off',
   isLiked,
+  playbackRate = 1.0,
+  onPlaybackRateChange,
+  isSleepTimerActive = false,
+  onOpenSleepTimer,
   isLyricsOpen,
   isQueueOpen,
   isRightSidebarOpen,
@@ -145,14 +158,16 @@ export default function PlayerBar({
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (activeDisplayTime / duration) * 100)) : 0;
   const currentVolumePercent = isMuted ? 0 : Math.round(volume * 100);
 
+  const isYtThumbnail = (currentTrack?.artwork || '').includes('ytimg.com') || (currentTrack?.artwork || '').includes('youtube.com');
+
   return (
-    <footer className="h-20 bg-black border-t border-[#242424] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white select-none">
+    <footer className="h-20 bg-black/90 glass-panel border-t border-white/[0.06] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white">
       {/* Left Column: Track Info */}
       <div className="flex items-center gap-3.5 w-1/4 min-w-[180px] max-w-[320px]">
         {currentTrack ? (
           <>
             <div 
-              className="relative group cursor-pointer flex-shrink-0" 
+              className="relative group cursor-pointer flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-[#242424] shadow-md" 
               onClick={onToggleLyrics}
               title="Buka Lirik Karaoke"
             >
@@ -163,9 +178,11 @@ export default function PlayerBar({
                   e.currentTarget.onerror = null;
                   e.currentTarget.src = DEFAULT_ARTWORK;
                 }}
-                className="w-14 h-14 rounded-md object-cover shadow-md bg-[#282828]"
+                className={`w-full h-full object-cover transition-transform duration-300 ${
+                  isYtThumbnail ? 'scale-[1.35]' : ''
+                }`}
               />
-              <div className="absolute inset-0 bg-black/50 rounded-md opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                 <Mic2 className="w-5 h-5 text-[#00a3ff]" />
               </div>
             </div>
@@ -176,7 +193,7 @@ export default function PlayerBar({
                 className="font-bold text-sm truncate hover:underline cursor-pointer text-white tracking-tight"
                 title={currentTrack.title}
               >
-                {currentTrack.title}
+                {cleanTrackTitle(currentTrack.title)}
               </h4>
               <p 
                 className="text-xs text-[#b3b3b3] truncate hover:underline hover:text-white cursor-pointer mt-0.5"
@@ -318,7 +335,10 @@ export default function PlayerBar({
                 className={`absolute left-0 top-0 bottom-0 rounded-full transition-colors ${
                   isScrubberHovered || isScrubbing ? 'bg-[#00a3ff]' : 'bg-white'
                 }`}
-                style={{ width: `${progressPercent}%` }}
+                style={{ 
+                  width: `${progressPercent}%`,
+                  transition: isScrubbing ? 'none' : 'width 0.2s cubic-bezier(0.2, 0, 0, 1)'
+                }}
               />
 
               {/* White Playhead Knob */}
@@ -326,7 +346,10 @@ export default function PlayerBar({
                 className={`w-3 h-3 rounded-full bg-white shadow-[0_2px_4px_rgba(0,0,0,0.5)] absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-opacity pointer-events-none ${
                   isScrubberHovered || isScrubbing ? 'opacity-100 scale-100' : 'opacity-0 scale-75'
                 }`}
-                style={{ left: `${progressPercent}%` }}
+                style={{ 
+                  left: `${progressPercent}%`,
+                  transition: isScrubbing ? 'none' : 'left 0.2s cubic-bezier(0.2, 0, 0, 1)'
+                }}
               />
             </div>
           </div>
@@ -344,7 +367,41 @@ export default function PlayerBar({
       </div>
 
       {/* Right Column: Tools & Volume */}
-      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[180px] max-w-[320px]">
+      <div className="flex items-center justify-end gap-2.5 sm:gap-3 w-1/4 min-w-[180px] max-w-[340px]">
+        {/* Playback Speed Cycle Button */}
+        <button
+          onClick={() => {
+            const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
+            const curIdx = speeds.indexOf(playbackRate);
+            const nextIdx = (curIdx === -1 ? 1 : curIdx + 1) % speeds.length;
+            onPlaybackRateChange?.(speeds[nextIdx]);
+          }}
+          className={`px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase border transition-all active:scale-95 ${
+            playbackRate !== 1.0
+              ? 'bg-[#00a3ff]/20 text-[#00a3ff] border-[#00a3ff]/40 shadow-sm'
+              : 'text-[#b3b3b3] hover:text-white border-white/10 hover:border-white/20'
+          }`}
+          title={`Kecepatan Putar: ${playbackRate}x (Klik untuk ganti)`}
+        >
+          {playbackRate}x
+        </button>
+
+        {/* Sleep Timer Trigger */}
+        <button
+          onClick={onOpenSleepTimer}
+          className={`relative p-2 rounded-full transition-all active:scale-95 ${
+            isSleepTimerActive
+              ? 'text-[#00a3ff]'
+              : 'text-[#b3b3b3] hover:text-white'
+          }`}
+          title="Pengatur Waktu Tidur (Sleep Timer)"
+        >
+          <Moon className="w-4 h-4" />
+          {isSleepTimerActive && (
+            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#00a3ff] animate-ping" />
+          )}
+        </button>
+
         {/* Beautiful Lyrics Trigger */}
         <button
           onClick={onToggleLyrics}

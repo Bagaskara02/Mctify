@@ -10,6 +10,7 @@ import ImportYouTubeModal from './components/ImportYouTubeModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
 import AudioQualityModal from './components/AudioQualityModal';
+import SleepTimerModal from './components/SleepTimerModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
 import MobileBottomNav from './components/MobileBottomNav';
@@ -61,6 +62,10 @@ export default function App() {
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
+  const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
+  const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
+  const sleepTimerIntervalRef = useRef(null);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
   const [contextMenuData, setContextMenuData] = useState(null); // { type, track, playlist, x, y }
   const [lyricsData, setLyricsData] = useState(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
@@ -366,8 +371,67 @@ export default function App() {
     });
   };
 
+  // Dedicated Pause function (used by Sleep Timer & UI)
+  const handlePause = () => {
+    setIsPlaying(false);
+    if (audioRef.current) audioRef.current.pause();
+  };
+
+  // Sleep Timer handlers
+  const handleSetSleepTimer = (target) => {
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+
+    if (target === 'endOfTrack') {
+      setSleepTimerSeconds('endOfTrack');
+      setSmartToast('Timer tidur aktif: Musik akan berhenti di akhir lagu ini.');
+      setTimeout(() => setSmartToast(null), 3000);
+      return;
+    }
+
+    const totalSeconds = target * 60;
+    setSleepTimerSeconds(totalSeconds);
+    setSmartToast(`Timer tidur aktif: Musik akan berhenti dalam ${target} menit.`);
+    setTimeout(() => setSmartToast(null), 3000);
+
+    sleepTimerIntervalRef.current = setInterval(() => {
+      setSleepTimerSeconds((prev) => {
+        if (typeof prev !== 'number') return prev;
+        if (prev <= 1) {
+          clearInterval(sleepTimerIntervalRef.current);
+          sleepTimerIntervalRef.current = null;
+          handlePause();
+          setSmartToast('Waktu tidur selesai. Musik dihentikan.');
+          setTimeout(() => setSmartToast(null), 4000);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleCancelSleepTimer = () => {
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+    setSleepTimerSeconds(null);
+    setSmartToast('Timer tidur dimatikan.');
+    setTimeout(() => setSmartToast(null), 2500);
+  };
+
   // Track ended event
   const handleEnded = () => {
+    if (sleepTimerSeconds === 'endOfTrack') {
+      handlePause();
+      handleCancelSleepTimer();
+      setSmartToast('Musik berhenti di akhir lagu sesuai pengatur waktu tidur.');
+      setTimeout(() => setSmartToast(null), 4000);
+      return;
+    }
+
     if (repeatMode === 'one') {
       handleSeek(0);
       setIsPlaying(true);
@@ -753,6 +817,7 @@ export default function App() {
         isPlaying={isPlaying}
         volume={volume}
         isMuted={isMuted}
+        playbackRate={playbackRate}
         seekTime={seekTime}
         onTimeUpdate={(current, dur) => {
           setCurrentTime(current);
@@ -814,8 +879,11 @@ export default function App() {
           onPlaylistContextMenu={handlePlaylistContextMenu}
         />
 
-        {/* Main View Area - Spotify Native Pane */}
-        <main className="flex-1 my-0 md:my-2 mr-0 md:mr-2 rounded-none md:rounded-lg bg-[#121212] flex flex-col min-w-0 overflow-hidden relative shadow-sm">
+        {/* Main View Area - Spotify Native Pane with smooth animated transition */}
+        <main 
+          key={`${currentView}-${selectedPlaylistId || 'root'}-${selectedArtist?.name || 'none'}`}
+          className="flex-1 my-0 md:my-2 mr-0 md:mr-2 rounded-none md:rounded-lg bg-[#121212] flex flex-col min-w-0 overflow-hidden relative shadow-sm animate-view-fade-in"
+        >
           {currentView === 'discover' && !selectedPlaylistId && (
             <DiscoverView
               trendingTracks={trendingTracks}
@@ -1014,6 +1082,10 @@ export default function App() {
           isRepeat={isRepeat}
           repeatMode={repeatMode}
           isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
+          playbackRate={playbackRate}
+          onPlaybackRateChange={setPlaybackRate}
+          isSleepTimerActive={sleepTimerSeconds !== null}
+          onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
           isLyricsOpen={isLyricsOpen}
           isQueueOpen={isQueueOpen}
           isRightSidebarOpen={isRightSidebarOpen}
@@ -1073,6 +1145,10 @@ export default function App() {
         isRepeat={isRepeat}
         repeatMode={repeatMode}
         isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
+        playbackRate={playbackRate}
+        onPlaybackRateChange={setPlaybackRate}
+        isSleepTimerActive={sleepTimerSeconds !== null}
+        onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
         onPlayPause={handlePlayPause}
         onPrev={handlePrev}
         onNext={() => handleNext(false)}
@@ -1146,6 +1222,15 @@ export default function App() {
       <AudioQualityModal
         isOpen={isAudioQualityOpen}
         onClose={() => setIsAudioQualityOpen(false)}
+      />
+
+      {/* --- SLEEP TIMER MODAL --- */}
+      <SleepTimerModal
+        isOpen={isSleepTimerModalOpen}
+        onClose={() => setIsSleepTimerModalOpen(false)}
+        sleepTimerSeconds={sleepTimerSeconds}
+        onSetTimer={handleSetSleepTimer}
+        onCancelTimer={handleCancelSleepTimer}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}

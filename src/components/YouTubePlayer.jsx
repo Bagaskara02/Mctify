@@ -11,6 +11,7 @@ export default function YouTubePlayer({
   isPlaying,
   volume,
   isMuted,
+  playbackRate = 1.0,
   seekTime,
   onTimeUpdate,
   onEnded,
@@ -180,6 +181,16 @@ export default function YouTubePlayer({
       console.warn(e);
     }
   }, [seekTime]);
+
+  // Sync playback speed (0.75x, 1.0x, 1.25x, 1.5x, 2.0x)
+  useEffect(() => {
+    if (!isReady || !playerRef.current) return;
+    try {
+      playerRef.current.setPlaybackRate?.(playbackRate);
+    } catch (e) {
+      console.warn('Failed to set playback rate:', e);
+    }
+  }, [playbackRate, isReady]);
 
   // Poll currentTime & duration smoothly (80ms for ultra-responsive 60fps karaoke)
   useEffect(() => {

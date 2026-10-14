@@ -127,15 +127,18 @@ class MiniPlayer extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Row(
                 children: [
-                  // Album Artwork (Spotify style rounded square)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: OptimizedImage(
-                      imageUrl: track.artwork,
-                      width: 40,
-                      height: 40,
-                      memCacheWidth: 80,
-                      memCacheHeight: 80,
+                  // Album Artwork (Spotify style rounded square with Hero flight animation)
+                  Hero(
+                    tag: 'current_artwork_${track.id}',
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: OptimizedImage(
+                        imageUrl: track.artwork,
+                        width: 40,
+                        height: 40,
+                        memCacheWidth: 80,
+                        memCacheHeight: 80,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),

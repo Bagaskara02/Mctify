@@ -61,6 +61,15 @@ class OptimizedImage extends StatelessWidget {
       errorBuilder: (_, _, _) => _buildPlaceholder(),
     );
 
+    // Crop 16:9 YouTube letterbox black bars if source is from YouTube
+    final isYouTube = imageUrl.contains('ytimg.com') || imageUrl.contains('youtube.com');
+    if (isYouTube) {
+      imageWidget = Transform.scale(
+        scale: 1.35,
+        child: imageWidget,
+      );
+    }
+
     if (shape == BoxShape.circle) {
       return ClipOval(
         clipBehavior: Clip.hardEdge,
@@ -75,6 +84,13 @@ class OptimizedImage extends StatelessWidget {
     if (borderRadius != null) {
       return ClipRRect(
         borderRadius: borderRadius!,
+        clipBehavior: Clip.hardEdge,
+        child: imageWidget,
+      );
+    }
+
+    if (isYouTube) {
+      return ClipRect(
         clipBehavior: Clip.hardEdge,
         child: imageWidget,
       );

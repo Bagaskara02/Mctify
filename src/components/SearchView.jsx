@@ -152,11 +152,44 @@ export default function SearchView({
         ))}
       </div>
 
-      {/* Loading Indicator */}
+      {/* Loading Skeleton Shimmer */}
       {isLoading && (
-        <div className="py-12 flex items-center justify-center gap-3 text-neutral-400">
-          <Loader2 className="w-6 h-6 animate-spin text-[#00a3ff]" />
-          <span className="text-sm">Mencari "{searchQuery}"...</span>
+        <div className="space-y-6 pt-2 animate-view-fade-in">
+          <div className="flex items-center gap-2.5 text-xs text-neutral-400">
+            <Loader2 className="w-4 h-4 animate-spin text-[#00a3ff]" />
+            <span>Mencari "{searchQuery}"...</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Top result skeleton */}
+            <div className="lg:col-span-5 space-y-3">
+              <div className="h-6 w-32 rounded bg-white/10 skeleton-shimmer" />
+              <div className="h-56 rounded-lg bg-white/[0.04] p-5 flex flex-col justify-between border border-white/5 skeleton-shimmer">
+                <div className="w-24 h-24 rounded-md bg-white/10" />
+                <div className="space-y-2">
+                  <div className="h-6 w-3/4 rounded bg-white/10" />
+                  <div className="h-4 w-1/3 rounded bg-white/5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Song rows skeleton */}
+            <div className="lg:col-span-7 space-y-3">
+              <div className="h-6 w-24 rounded bg-white/10 skeleton-shimmer" />
+              <div className="space-y-2">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-14 rounded-md bg-white/[0.04] p-2.5 flex items-center gap-3 border border-white/5 skeleton-shimmer">
+                    <div className="w-10 h-10 rounded bg-white/10 flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 w-1/2 rounded bg-white/10" />
+                      <div className="h-3 w-1/4 rounded bg-white/5" />
+                    </div>
+                    <div className="w-12 h-3 rounded bg-white/5" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

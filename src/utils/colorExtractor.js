@@ -56,9 +56,24 @@ export async function extractPaletteFromImage(imageUrl) {
         }
 
         const half = Math.max(1, Math.floor(count / 2));
-        const c1 = `rgb(${Math.round(r / half)}, ${Math.round(g / half)}, ${Math.round(b / half)})`;
-        const c2 = `rgb(${Math.round(r2 / half)}, ${Math.round(g2 / half)}, ${Math.round(b2 / half)})`;
-        const c3 = `rgb(${Math.min(255, Math.round((r + r2) / (count || 1) + 40))}, ${Math.round((g + g2) / (count || 1))}, ${Math.min(255, Math.round((b + b2) / (count || 1) + 40))})`;
+        const avgR1 = Math.round(r / half);
+        const avgG1 = Math.round(g / half);
+        const avgB1 = Math.round(b / half);
+
+        const avgR2 = Math.round(r2 / half);
+        const avgG2 = Math.round(g2 / half);
+        const avgB2 = Math.round(b2 / half);
+
+        // Clamp to Spotify dark-mode aesthetic (Lightness 18%-30%, rich saturation)
+        // This guarantees white text is always 100% legible without eye strain
+        const c1 = clampColorToDarkTheme(avgR1, avgG1, avgB1, 0.18, 0.30, 0.40);
+        const c2 = clampColorToDarkTheme(avgR2, avgG2, avgB2, 0.15, 0.26, 0.35);
+        const c3 = clampColorToDarkTheme(
+          Math.min(255, Math.round((r + r2) / (count || 1) + 20)),
+          Math.round((g + g2) / (count || 1)),
+          Math.min(255, Math.round((b + b2) / (count || 1) + 30)),
+          0.12, 0.24, 0.30
+        );
 
         resolve({ primary: c1, secondary: c2, tertiary: c3 });
       } catch {
@@ -86,4 +101,64 @@ function getRandomFallback(seedStr = '') {
   }
   const idx = Math.abs(hash) % fallbacks.length;
   return fallbacks[idx];
+}
+
+/**
+ * Convert RGB (0-255) to HSL (0-1).
+ */
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0, l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+      default: break;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+/**
+ * Convert HSL (0-1) to RGB (0-255).
+ */
+function hslToRgb(h, s, l) {
+  let r, g, b;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p, q, t) => {
+      let val = t;
+      if (val < 0) val += 1;
+      if (val > 1) val -= 1;
+      if (val < 1/6) return p + (q - p) * 6 * val;
+      if (val < 1/2) return q;
+      if (val < 2/3) return p + (q - p) * (2/3 - val) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1/3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1/3);
+  }
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+/**
+ * Clamps RGB color into dark mode safe range (Lightness 18%-30%)
+ * so text headers and UI controls always pop cleanly with AAA contrast.
+ */
+function clampColorToDarkTheme(r, g, b, minL = 0.16, maxL = 0.30, minSat = 0.35) {
+  const [h, s, l] = rgbToHsl(r, g, b);
+  const clampedSat = Math.max(minSat, s);
+  const clampedL = Math.max(minL, Math.min(maxL, l));
+  const [newR, newG, newB] = hslToRgb(h, clampedSat, clampedL);
+  return `rgb(${newR}, ${newG}, ${newB})`;
 }

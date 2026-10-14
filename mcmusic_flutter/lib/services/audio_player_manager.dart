@@ -37,6 +37,24 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   // Bitrate / Audio Quality state
   AudioQuality _audioQuality = AudioQuality.high;
 
+  // Playback Speed state
+  double _playbackSpeed = 1.0;
+  double get playbackSpeed => _playbackSpeed;
+
+  Future<void> setPlaybackSpeed(double speed) async {
+    _playbackSpeed = speed;
+    try {
+      if (_isUsingYoutubeIframe && _ytController != null) {
+        _ytController!.setPlaybackRate(speed);
+      } else {
+        await _player.setPlaybackRate(speed);
+      }
+    } catch (e) {
+      debugPrint('Error setting playback speed: $e');
+    }
+    notifyListeners();
+  }
+
   Track? get currentTrack => _currentTrack;
   bool get isPlaying => _isPlaying;
   Duration get position => _position;
@@ -574,6 +592,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           !track.audioUrl.contains('googlevideo.com')) {
         debugPrint('[AudioPlayerManager] Playing direct audio stream via ExoPlayer');
         await _player.play(UrlSource(track.audioUrl));
+        if (_playbackSpeed != 1.0) {
+          try {
+            await _player.setPlaybackRate(_playbackSpeed);
+          } catch (_) {}
+        }
         _isPlaying = true;
         _isUsingYoutubeIframe = false;
         _userRequestedPause = false;
@@ -601,6 +624,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         await _player.stop();
         _ytController!.loadVideoById(videoId: videoId);
         _ytController!.playVideo();
+        if (_playbackSpeed != 1.0) {
+          try {
+            _ytController!.setPlaybackRate(_playbackSpeed);
+          } catch (_) {}
+        }
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
         _syncMediaHandler();

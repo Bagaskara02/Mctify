@@ -12,9 +12,18 @@ import {
   Mic2, 
   ListMusic,
   Sliders,
-  Gauge
+  Gauge,
+  Moon
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+
+function cleanTrackTitle(title) {
+  if (!title) return '';
+  return title
+    .replace(/\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]/gi, '')
+    .replace(/\s*-\s*Official Video.*$/i, '')
+    .trim() || title;
+}
 
 export default function MobileFullscreenPlayer({
   isOpen,
@@ -27,6 +36,10 @@ export default function MobileFullscreenPlayer({
   isRepeat,
   repeatMode = 'off',
   isLiked,
+  playbackRate = 1.0,
+  onPlaybackRateChange,
+  isSleepTimerActive = false,
+  onOpenSleepTimer,
   onPlayPause,
   onPrev,
   onNext,
@@ -136,7 +149,7 @@ export default function MobileFullscreenPlayer({
       <div className="flex items-center justify-between mb-4">
         <div className="min-w-0 pr-4">
           <h2 className="text-xl sm:text-2xl font-black text-white truncate tracking-tight">
-            {currentTrack.title}
+            {cleanTrackTitle(currentTrack.title)}
           </h2>
           <p className="text-sm sm:text-base text-[#b3b3b3] truncate mt-0.5">
             {currentTrack.artist}
@@ -240,17 +253,17 @@ export default function MobileFullscreenPlayer({
         </button>
       </div>
 
-      {/* Bottom Bar: Karaoke Lyrics, Equalizer & Audio Quality Buttons */}
-      <div className="grid grid-cols-3 gap-2 pb-2">
+      {/* Bottom Bar: Karaoke Lyrics, Equalizer, Audio Quality, Sleep Timer & Playback Speed */}
+      <div className="grid grid-cols-5 gap-1.5 pb-2">
         <button
           onClick={() => {
             onClose();
             onOpenLyrics();
           }}
-          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
+          className="py-2 px-1 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
         >
           <Mic2 className="w-4 h-4 text-[#00a3ff]" />
-          <span className="text-[11px] font-bold text-white tracking-wide">
+          <span className="text-[10px] font-bold text-white tracking-tight">
             Lirik
           </span>
         </button>
@@ -260,10 +273,10 @@ export default function MobileFullscreenPlayer({
             onClose();
             onOpenEqualizer?.();
           }}
-          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
+          className="py-2 px-1 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
         >
           <Sliders className="w-4 h-4 text-[#00a3ff]" />
-          <span className="text-[11px] font-bold text-white tracking-wide">
+          <span className="text-[10px] font-bold text-white tracking-tight">
             Equalizer
           </span>
         </button>
@@ -273,11 +286,54 @@ export default function MobileFullscreenPlayer({
             onClose();
             onOpenAudioQuality?.();
           }}
-          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
+          className="py-2 px-1 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
         >
           <Gauge className="w-4 h-4 text-[#00a3ff]" />
-          <span className="text-[11px] font-bold text-white tracking-wide">
+          <span className="text-[10px] font-bold text-white tracking-tight">
             Kualitas
+          </span>
+        </button>
+
+        <button
+          onClick={() => {
+            onClose();
+            onOpenSleepTimer?.();
+          }}
+          className={`py-2 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all relative ${
+            isSleepTimerActive
+              ? 'bg-[#00a3ff]/20 text-[#00a3ff] border-[#00a3ff]/40'
+              : 'bg-white/10 hover:bg-white/15 border-white/10 text-white'
+          }`}
+          title="Pengatur Waktu Tidur"
+        >
+          <Moon className={`w-4 h-4 ${isSleepTimerActive ? 'text-[#00a3ff]' : 'text-neutral-300'}`} />
+          <span className="text-[10px] font-bold tracking-tight">
+            Tidur
+          </span>
+          {isSleepTimerActive && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#00a3ff] animate-ping" />
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            const speeds = [0.75, 1.0, 1.25, 1.5, 2.0];
+            const curIdx = speeds.indexOf(playbackRate);
+            const nextIdx = (curIdx === -1 ? 1 : curIdx + 1) % speeds.length;
+            onPlaybackRateChange?.(speeds[nextIdx]);
+          }}
+          className={`py-2 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all ${
+            playbackRate !== 1.0
+              ? 'bg-[#00a3ff]/20 text-[#00a3ff] border-[#00a3ff]/40'
+              : 'bg-white/10 hover:bg-white/15 border-white/10 text-white'
+          }`}
+          title="Ganti Kecepatan Putar"
+        >
+          <span className="text-xs font-black text-[#00a3ff]">
+            {playbackRate}x
+          </span>
+          <span className="text-[10px] font-bold text-neutral-300 tracking-tight">
+            Speed
           </span>
         </button>
       </div>

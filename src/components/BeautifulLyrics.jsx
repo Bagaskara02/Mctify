@@ -524,14 +524,14 @@ export default function BeautifulLyrics({
                       key={line.id || idx}
                       ref={isActive ? activeLineRef : null}
                       onClick={() => onSeek(line.time)}
-                      className={`cursor-pointer transition-all duration-300 transform origin-left group ${
+                      className={`cursor-pointer transition-all duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] transform origin-left group ${
                         getFontSizeClass()
                       } ${
                         isActive
-                          ? 'opacity-100 scale-100 font-black'
+                          ? 'opacity-100 scale-100 font-black blur-0'
                           : isPast
-                          ? 'opacity-40 hover:opacity-75 scale-95 font-bold'
-                          : 'opacity-25 hover:opacity-60 scale-90 font-bold'
+                          ? 'opacity-40 hover:opacity-85 scale-95 font-bold blur-[1px] hover:blur-0'
+                          : 'opacity-25 hover:opacity-75 scale-90 font-bold blur-[1.5px] hover:blur-0'
                       }`}
                     >
                       {/* Active Line indicator bullet */}
