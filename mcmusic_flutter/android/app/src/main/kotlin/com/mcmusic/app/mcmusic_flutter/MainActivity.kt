@@ -95,7 +95,7 @@ class MainActivity : AudioServiceActivity() {
         try {
             if (equalizer == null) {
                 equalizer = Equalizer(1000, 0).apply {
-                    enabled = true
+                    enabled = false
                 }
             }
         } catch (e: Exception) {
@@ -103,11 +103,9 @@ class MainActivity : AudioServiceActivity() {
         }
         try {
             if (loudnessEnhancer == null) {
-                // Audio session 0 applies globally to all audio tracks on device.
-                // 600 mB = +6.0 dB boost to match Spotify/Apple Music master loudness.
                 loudnessEnhancer = LoudnessEnhancer(0).apply {
-                    setTargetGain(600)
-                    enabled = true
+                    setTargetGain(0)
+                    enabled = false
                 }
             }
         } catch (e: Exception) {
@@ -116,7 +114,7 @@ class MainActivity : AudioServiceActivity() {
         try {
             if (bassBoost == null) {
                 bassBoost = BassBoost(1000, 0).apply {
-                    enabled = true
+                    enabled = false
                 }
             }
         } catch (e: Exception) {
@@ -125,7 +123,7 @@ class MainActivity : AudioServiceActivity() {
         try {
             if (virtualizer == null) {
                 virtualizer = Virtualizer(1000, 0).apply {
-                    enabled = true
+                    enabled = false
                 }
             }
         } catch (e: Exception) {
@@ -137,9 +135,14 @@ class MainActivity : AudioServiceActivity() {
         try {
             initAudioEffects()
             equalizer?.enabled = enabled
-            loudnessEnhancer?.enabled = enabled
-            bassBoost?.enabled = enabled
-            virtualizer?.enabled = enabled
+            if (!enabled) {
+                loudnessEnhancer?.enabled = false
+                bassBoost?.enabled = false
+                virtualizer?.enabled = false
+            } else {
+                bassBoost?.enabled = (bassBoost?.roundedStrength?.toInt() ?: 0) > 0
+                virtualizer?.enabled = (virtualizer?.roundedStrength?.toInt() ?: 0) > 0
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -149,10 +152,10 @@ class MainActivity : AudioServiceActivity() {
         try {
             initAudioEffects()
             loudnessEnhancer?.let { le ->
-                // Clamp within safe limits (0 to 800 mB = 0 to +8.0 dB) to prevent speaker distortion / clipping
-                val safeGain = gainMb.coerceIn(0, 800)
+                // Clamp within safe limits (0 to 400 mB = 0 to +4.0 dB max) to prevent speaker clipping
+                val safeGain = gainMb.coerceIn(0, 400)
                 le.setTargetGain(safeGain)
-                le.enabled = enabled
+                le.enabled = enabled && safeGain > 0
             }
         } catch (e: Exception) {
             e.printStackTrace()

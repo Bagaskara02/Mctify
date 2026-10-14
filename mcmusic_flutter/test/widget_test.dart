@@ -4,6 +4,8 @@ import 'package:mcmusic_flutter/models/track.dart';
 import 'package:mcmusic_flutter/widgets/track_tile.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   testWidgets('TrackTile renders track information and handles tap callbacks', (WidgetTester tester) async {
     final track = Track(
       id: 't1',

@@ -73,9 +73,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     EqualizerService.instance;
   }
 
-  static const String _desktopUserAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -84,8 +81,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (!_userRequestedPause && _currentTrack != null && _ytController != null) {
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
-        if (!_isPlaying) {
-          _ytController?.playVideo();
+        if (_isPlaying) {
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (!_userRequestedPause && _isPlaying) {
+              _ytController?.playVideo();
+            }
+          });
         }
       }
     }
@@ -107,20 +108,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
 
-          // Intercept automatic background pause calls from Chromium/Android WebView
-          try {
-            if (!HTMLMediaElement.prototype.__mcmusicHooked) {
-              HTMLMediaElement.prototype.__mcmusicHooked = true;
-              var realPause = HTMLMediaElement.prototype.pause;
-              HTMLMediaElement.prototype.pause = function() {
-                if (!window.__userRequestedPause) {
-                  return Promise.resolve();
-                }
-                return realPause.apply(this, arguments);
-              };
-            }
-          } catch(e) {}
-
           try {
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
             Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
@@ -131,86 +118,17 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
           document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
 
-          // Force full audio volume output (unmuted, 100%)
-          function maximizeVolume() {
-            try {
-              var v = document.querySelector('video');
-              if (v) {
-                v.muted = false;
-                v.volume = 1.0;
-              }
-              if (typeof player !== 'undefined' && player) {
-                if (typeof player.unMute === 'function') player.unMute();
-                if (typeof player.setVolume === 'function') player.setVolume(100);
-              }
-            } catch(e) {}
-          }
-          maximizeVolume();
-
-          if (!window.__mcmusicAudioContext) {
-            try {
-              var AudioCtx = window.AudioContext || window.webkitAudioContext;
-              if (AudioCtx) {
-                var ctx = new AudioCtx();
-                var osc = ctx.createOscillator();
-                var gain = ctx.createGain();
-                gain.gain.value = 0.0001;
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                window.__mcmusicAudioContext = ctx;
-              }
-            } catch(e) {}
-          } else if (window.__mcmusicAudioContext.state === 'suspended') {
-            try { window.__mcmusicAudioContext.resume(); } catch(e) {}
-          }
-
-          function attachWatchers() {
-            try {
-              maximizeVolume();
-              var v = document.querySelector('video');
-              if (v && !v.__mcmusicWatchHooked) {
-                v.__mcmusicWatchHooked = true;
-                v.addEventListener('pause', function(e) {
-                  if (!window.__userRequestedPause) {
-                    try { v.play(); } catch(err) {}
-                    try { if (typeof player !== 'undefined' && player) player.playVideo(); } catch(err) {}
-                  }
-                }, true);
-              }
-
-              if (typeof player !== 'undefined' && player && typeof player.addEventListener === 'function' && !window.__playerHooked) {
-                window.__playerHooked = true;
-                player.addEventListener('onStateChange', function(event) {
-                  var state = typeof event === 'object' && event !== null ? event.data : event;
-                  if (state === 2 && !window.__userRequestedPause) {
-                    try { player.playVideo(); } catch(err) {}
-                  }
-                });
-              }
-            } catch(e) {}
-          }
-
-          attachWatchers();
-
-          if (!window.__mcmusicWatchdog) {
-            window.__mcmusicWatchdog = setInterval(function() {
-              try {
-                attachWatchers();
-                if (!window.__userRequestedPause) {
-                  var v = document.querySelector('video');
-                  if (v && v.paused) {
-                    v.play();
-                  }
-                  if (typeof player !== 'undefined' && player && typeof player.getPlayerState === 'function') {
-                    if (player.getPlayerState() === 2) {
-                      player.playVideo();
-                    }
-                  }
-                }
-              } catch(e) {}
-            }, 300);
-          }
+          try {
+            var v = document.querySelector('video');
+            if (v) {
+              v.muted = false;
+              v.volume = 1.0;
+            }
+            if (typeof player !== 'undefined' && player) {
+              if (typeof player.unMute === 'function') player.unMute();
+              if (typeof player.setVolume === 'function') player.setVolume(100);
+            }
+          } catch(e) {}
         })();
       ''');
     } catch (_) {}
@@ -226,7 +144,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           enableCaption: false,
           showVideoAnnotations: false,
           playsInline: true,
-          userAgent: _desktopUserAgent,
         ),
       );
 
@@ -236,13 +153,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _isPlaying = true;
           _userRequestedPause = false;
           _setJsUserRequestedPause(false);
-          _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
-          if (!_userRequestedPause) {
-            // Screen off / background transient pause: auto-resume immediately without audio focus drop
-            _setJsUserRequestedPause(false);
-            _ytController?.playVideo();
-          } else {
+          if (_userRequestedPause) {
             _isPlaying = false;
           }
         }
