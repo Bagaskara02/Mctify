@@ -34,7 +34,7 @@ class EqualizerService extends ChangeNotifier {
 
   Future<void> _applyNativeSettings() async {
     try {
-      if (defaultTargetPlatform == TargetPlatform.android) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         await _channel.invokeMethod('setEnabled', {'enabled': _isEnabled});
         await _channel.invokeMethod('setBands', {'bands': _currentBands, 'enabled': _isEnabled});
         await _channel.invokeMethod('setBassBoost', {'strength': _isEnabled ? _bassBoost : 0.0});
