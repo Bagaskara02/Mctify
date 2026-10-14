@@ -29,7 +29,7 @@ void main() {
       final eq = EqualizerService();
       await eq.initialized;
 
-      expect(eq.isEnabled, isTrue);
+      expect(eq.isEnabled, isFalse);
       expect(eq.currentBands.length, 5);
       expect(eq.selectedPresetName, isNotEmpty);
       expect(eq.bassBoost, inInclusiveRange(0.0, 1.0));

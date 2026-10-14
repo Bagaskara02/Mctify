@@ -15,12 +15,12 @@ class EqualizerService extends ChangeNotifier {
   static const String _keyVirtualizer = 'eq_virtualizer';
   static const String _keyLoudnessGain = 'eq_loudness_gain';
 
-  bool _isEnabled = true;
-  String _selectedPresetName = 'Bass Boost';
-  List<double> _currentBands = [7.5, 4.5, 0.0, -1.0, -2.0];
-  double _bassBoost = 0.65; // 0.0 to 1.0 (65%)
-  double _virtualizer = 0.30; // 0.0 to 1.0 (30%)
-  double _loudnessGain = 0.60; // 0.0 to 1.0 (60% = +6.0 dB acoustic boost)
+  bool _isEnabled = false;
+  String _selectedPresetName = 'Datar (Flat)';
+  List<double> _currentBands = [0.0, 0.0, 0.0, 0.0, 0.0];
+  double _bassBoost = 0.0;
+  double _virtualizer = 0.0;
+  double _loudnessGain = 0.0;
 
   bool get isEnabled => _isEnabled;
   String get selectedPresetName => _selectedPresetName;
@@ -72,15 +72,17 @@ class EqualizerService extends ChangeNotifier {
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _isEnabled = prefs.getBool(_keyEnabled) ?? true;
-      _selectedPresetName = prefs.getString(_keyPreset) ?? 'Bass Boost';
+      _isEnabled = prefs.getBool(_keyEnabled) ?? false;
+      _selectedPresetName = prefs.getString(_keyPreset) ?? 'Datar (Flat)';
       final bandsStr = prefs.getStringList(_keyBands);
       if (bandsStr != null && bandsStr.length == 5) {
         _currentBands = bandsStr.map((s) => double.tryParse(s) ?? 0.0).toList();
+      } else {
+        _currentBands = [0.0, 0.0, 0.0, 0.0, 0.0];
       }
-      _bassBoost = prefs.getDouble(_keyBassBoost) ?? 0.65;
-      _virtualizer = prefs.getDouble(_keyVirtualizer) ?? 0.30;
-      _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.60;
+      _bassBoost = prefs.getDouble(_keyBassBoost) ?? 0.0;
+      _virtualizer = prefs.getDouble(_keyVirtualizer) ?? 0.0;
+      _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.0;
       notifyListeners();
       _applyNativeSettings();
     } catch (_) {} finally {
