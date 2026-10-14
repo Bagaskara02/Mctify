@@ -108,7 +108,20 @@ class WebAudioEqualizer {
         window.addEventListener('keydown', resumeCtx, { once: true });
       }
 
-      this.sourceNode = this.audioCtx.createMediaElementSource(audioElement);
+      // Ensure crossOrigin is configured for direct media stream CORS compliance
+      try {
+        if (!audioElement.crossOrigin) {
+          audioElement.crossOrigin = 'anonymous';
+        }
+      } catch (_) {}
+
+      // Create MediaElementSource with graceful fallback for tainted cross-origin or duplicate connections
+      try {
+        this.sourceNode = this.audioCtx.createMediaElementSource(audioElement);
+      } catch (sourceErr) {
+        console.warn('WebAudioEqualizer createMediaElementSource bypass (CORS/duplicate node):', sourceErr);
+        return;
+      }
 
       // Create 5-Band Biquad Filters
       const frequencies = [60, 230, 910, 3600, 14000];

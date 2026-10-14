@@ -400,6 +400,14 @@ export default function EqualizerModal({ isOpen, onClose }) {
             </div>
           </div>
         </div>
+
+        {/* Dual-Engine Acoustic Routing Info */}
+        <div className="p-3 bg-white/5 rounded-xl border border-white/5 flex items-start gap-2.5 text-xs text-[#888]">
+          <Info className="w-4 h-4 text-[#00a3ff] shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-relaxed">
+            <strong className="text-white">Dukungan Arsitektur Audio:</strong> Equalizer menerapkan <span className="text-[#00a3ff]">Acoustic Loudness Multiplier &amp; Headroom Shaping (+6 dB)</span> untuk YouTube Player (bebas batasan CORS iframe) serta 5-Band Biquad Hardware DSP Filter untuk direct HTML5 audio.
+          </p>
+        </div>
       </div>
     </div>
   );

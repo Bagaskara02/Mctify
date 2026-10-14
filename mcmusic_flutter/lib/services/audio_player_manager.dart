@@ -78,16 +78,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      if (!_userRequestedPause && _currentTrack != null && _ytController != null) {
-        _setJsUserRequestedPause(false);
-        _injectBackgroundPlaybackScripts();
-        if (_isPlaying) {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (!_userRequestedPause && _isPlaying) {
-              _ytController?.playVideo();
-            }
-          });
-        }
+      if (!_userRequestedPause && _currentTrack != null && _isPlaying && _ytController != null) {
+        // ZERO DELAY: Keep playing immediately without 300ms lag!
+        _ytController?.playVideo();
       }
     }
   }
@@ -114,9 +107,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
           } catch(e) {}
 
-          window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
-          window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-          document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+          var blockEvents = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide', 'freeze'];
+          blockEvents.forEach(function(evt) {
+            window.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+            document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+          });
 
           try {
             var v = document.querySelector('video');
@@ -153,9 +148,13 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _isPlaying = true;
           _userRequestedPause = false;
           _setJsUserRequestedPause(false);
+          _injectBackgroundPlaybackScripts();
         } else if (value.playerState == ytp.PlayerState.paused) {
           if (_userRequestedPause) {
             _isPlaying = false;
+          } else if (_currentTrack != null) {
+            // Unsolicited pause (e.g. OS screen off or blur event): immediately resume with 0 delay!
+            _ytController?.playVideo();
           }
         }
         if (value.metaData.duration > Duration.zero) {

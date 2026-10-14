@@ -11,7 +11,8 @@ import {
   Heart, 
   Mic2, 
   ListMusic,
-  Sliders
+  Sliders,
+  Gauge
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
@@ -36,6 +37,7 @@ export default function MobileFullscreenPlayer({
   onOpenLyrics,
   onOpenQueue,
   onOpenEqualizer,
+  onOpenAudioQuality,
 }) {
   if (!isOpen || !currentTrack) return null;
 
@@ -238,22 +240,19 @@ export default function MobileFullscreenPlayer({
         </button>
       </div>
 
-      {/* Bottom Bar: Karaoke Lyrics & Equalizer Buttons */}
-      <div className="grid grid-cols-2 gap-2.5 pb-2">
+      {/* Bottom Bar: Karaoke Lyrics, Equalizer & Audio Quality Buttons */}
+      <div className="grid grid-cols-3 gap-2 pb-2">
         <button
           onClick={() => {
             onClose();
             onOpenLyrics();
           }}
-          className="py-2.5 px-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-between active:scale-[0.98] transition-all"
+          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
         >
-          <div className="flex items-center gap-2">
-            <Mic2 className="w-4 h-4 text-[#00a3ff]" />
-            <span className="text-xs font-bold text-white tracking-wide">
-              Lirik
-            </span>
-          </div>
-          <span className="text-[11px] font-semibold text-[#00a3ff]">Buka</span>
+          <Mic2 className="w-4 h-4 text-[#00a3ff]" />
+          <span className="text-[11px] font-bold text-white tracking-wide">
+            Lirik
+          </span>
         </button>
 
         <button
@@ -261,15 +260,25 @@ export default function MobileFullscreenPlayer({
             onClose();
             onOpenEqualizer?.();
           }}
-          className="py-2.5 px-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex items-center justify-between active:scale-[0.98] transition-all"
+          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
         >
-          <div className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-[#00a3ff]" />
-            <span className="text-xs font-bold text-white tracking-wide">
-              Equalizer
-            </span>
-          </div>
-          <span className="text-[11px] font-semibold text-[#00a3ff]">Buka</span>
+          <Sliders className="w-4 h-4 text-[#00a3ff]" />
+          <span className="text-[11px] font-bold text-white tracking-wide">
+            Equalizer
+          </span>
+        </button>
+
+        <button
+          onClick={() => {
+            onClose();
+            onOpenAudioQuality?.();
+          }}
+          className="py-2.5 px-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
+        >
+          <Gauge className="w-4 h-4 text-[#00a3ff]" />
+          <span className="text-[11px] font-bold text-white tracking-wide">
+            Kualitas
+          </span>
         </button>
       </div>
     </div>

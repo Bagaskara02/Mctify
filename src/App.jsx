@@ -9,6 +9,7 @@ import ImportPlaylistModal from './components/ImportPlaylistModal';
 import ImportYouTubeModal from './components/ImportYouTubeModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
+import AudioQualityModal from './components/AudioQualityModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
 import MobileBottomNav from './components/MobileBottomNav';
@@ -59,6 +60,7 @@ export default function App() {
   const [isYouTubeModalOpen, setIsYouTubeModalOpen] = useState(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
+  const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
   const [contextMenuData, setContextMenuData] = useState(null); // { type, track, playlist, x, y }
   const [lyricsData, setLyricsData] = useState(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
@@ -449,6 +451,18 @@ export default function App() {
         handlePrev();
       });
 
+      // Bluetooth / Car skip -10s
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const skip = details.seekOffset || 10;
+        handleSeek(Math.max(0, currentTime - skip));
+      });
+
+      // Bluetooth / Car skip +10s
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const skip = details.seekOffset || 10;
+        handleSeek(Math.min(duration, currentTime + skip));
+      });
+
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (details.seekTime != null) {
           handleSeek(details.seekTime);
@@ -457,7 +471,21 @@ export default function App() {
     } catch (e) {
       console.warn('MediaSession note:', e);
     }
-  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, isPlaying]);
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, isPlaying, currentTime, duration]);
+
+  // Sync Lockscreen / Notification Bar Scrubber position state
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentTrack) return;
+    if ('setPositionState' in navigator.mediaSession && Number.isFinite(duration) && duration > 0 && Number.isFinite(currentTime)) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(0, duration),
+          playbackRate: 1,
+          position: Math.max(0, Math.min(currentTime, duration)),
+        });
+      } catch (_) {}
+    }
+  }, [currentTime, duration, currentTrack?.id]);
 
   // Global Desktop Spotify Keyboard Shortcuts
   useEffect(() => {
@@ -990,6 +1018,7 @@ export default function App() {
           isQueueOpen={isQueueOpen}
           isRightSidebarOpen={isRightSidebarOpen}
           isEqualizerOpen={isEqualizerOpen}
+          isAudioQualityOpen={isAudioQualityOpen}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={() => handleNext(false)}
@@ -1003,6 +1032,7 @@ export default function App() {
           onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
           onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
           onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
+          onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
           onTrackContextMenu={handleTrackContextMenu}
         />
       </div>
@@ -1053,6 +1083,7 @@ export default function App() {
         onOpenLyrics={() => setIsLyricsOpen(true)}
         onOpenQueue={() => setIsQueueOpen(true)}
         onOpenEqualizer={() => setIsEqualizerOpen(true)}
+        onOpenAudioQuality={() => setIsAudioQualityOpen(true)}
       />
 
       {/* --- QUEUE DRAWER PANEL --- */}
@@ -1109,6 +1140,12 @@ export default function App() {
       <EqualizerModal
         isOpen={isEqualizerOpen}
         onClose={() => setIsEqualizerOpen(false)}
+      />
+
+      {/* --- AUDIO QUALITY SETTINGS MODAL --- */}
+      <AudioQualityModal
+        isOpen={isAudioQualityOpen}
+        onClose={() => setIsAudioQualityOpen(false)}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}
