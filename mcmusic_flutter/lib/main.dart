@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:audio_service/audio_service.dart';
 import 'services/audio_player_manager.dart';
+import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
@@ -75,6 +76,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     super.initState();
     _player = AudioPlayerManager(mediaHandler: widget.mediaHandler);
     _player.addListener(_onPlayerStateChanged);
+    // Cold start pre-warm: ensure persisted equalizer settings are restored immediately
+    EqualizerService.instance;
   }
 
   void _onPlayerStateChanged() async {

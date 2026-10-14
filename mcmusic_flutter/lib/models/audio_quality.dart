@@ -7,12 +7,12 @@ enum AudioQuality {
   standard(
     label: 'Standar',
     bitrate: '128 kbps',
-    description: 'Keseimbangan ideal antara kualitas audio dan pemakaian data',
+    description: 'Keseimbangan ideal kualitas audio standar YouTube AAC',
   ),
   high(
-    label: 'Kualitas Tinggi (HD)',
-    bitrate: '256 - 320 kbps',
-    description: 'Audio studio jernih resolusi penuh YouTube Music',
+    label: 'Kualitas Tinggi (Maksimal)',
+    bitrate: '160 kbps',
+    description: 'Bitrate audio tertinggi yang disediakan YouTube (Opus/AAC)',
   );
 
   final String label;

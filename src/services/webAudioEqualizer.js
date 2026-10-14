@@ -132,7 +132,15 @@ class WebAudioEqualizer {
       // Master Gain Node
       this.gainNode = this.audioCtx.createGain();
 
-      // Chain: source -> filters[0..4] -> bassFilter -> gainNode -> destination
+      // Dynamics Compressor (Studio Limiter) to prevent digital clipping / distortion (>0 dBFS)
+      this.compressor = this.audioCtx.createDynamicsCompressor();
+      this.compressor.threshold.value = -1.0;
+      this.compressor.knee.value = 4.0;
+      this.compressor.ratio.value = 12.0;
+      this.compressor.attack.value = 0.003;
+      this.compressor.release.value = 0.25;
+
+      // Chain: source -> filters[0..4] -> bassFilter -> gainNode -> compressor -> destination
       let current = this.sourceNode;
       for (const filter of this.filters) {
         current.connect(filter);
@@ -140,7 +148,8 @@ class WebAudioEqualizer {
       }
       current.connect(this.bassFilter);
       this.bassFilter.connect(this.gainNode);
-      this.gainNode.connect(this.audioCtx.destination);
+      this.gainNode.connect(this.compressor);
+      this.compressor.connect(this.audioCtx.destination);
 
       // Apply initial settings
       this.applySettings(this.settings);

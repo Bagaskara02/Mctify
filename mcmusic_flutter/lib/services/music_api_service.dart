@@ -10,6 +10,11 @@ class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
 
+  /// Invalidate stream URL cache (called when user switches audio quality)
+  static void clearStreamCache() {
+    _streamCache.clear();
+  }
+
   static bool isPreviewUrl(String url) {
     if (url.isEmpty) return false;
     final lower = url.toLowerCase();
@@ -63,9 +68,14 @@ class MusicApiService {
 
   /// Silently pre-fetches and caches next audio stream in background for zero-latency playback
   Future<void> prefetchTrackStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
-    if (track.videoId != null && track.videoId!.isNotEmpty) return;
     try {
-      await resolveVideoId(track.title, track.artist, track.duration);
+      String? vid = track.videoId;
+      if (vid == null || vid.isEmpty) {
+        vid = await resolveVideoId(track.title, track.artist, track.duration);
+      }
+      if (vid != null && vid.isNotEmpty) {
+        await resolveDirectAudioStream(track.copyWith(videoId: vid), quality);
+      }
     } catch (_) {}
   }
 

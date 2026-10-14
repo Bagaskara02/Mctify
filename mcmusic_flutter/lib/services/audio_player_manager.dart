@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
+import 'equalizer_service.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
@@ -26,6 +27,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _isRepeat = false;
   bool _isUsingYoutubeIframe = false;
   bool _isLoadingRecommendations = false;
+  bool _hasPrefetchedNextTrack = false;
 
   // Sleep Timer state
   Timer? _sleepTimer;
@@ -67,6 +69,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _initYoutube();
     _initMediaHandlerCallbacks();
     _loadStoredAudioQuality();
+    // Pre-warm and apply stored Equalizer preset & DSP effects on startup
+    EqualizerService.instance;
   }
 
   static const String _desktopUserAgent =
@@ -307,9 +311,37 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> setAudioQuality(AudioQuality quality) async {
+    if (_audioQuality == quality) return;
     _audioQuality = quality;
     notifyListeners();
     await _storageService.setAudioQuality(quality.name);
+
+    // Invalidate stream cache so future stream resolutions use the new bitrate quality
+    MusicApiService.clearStreamCache();
+
+    // Hot-switch playback in real time: if currently playing a direct stream,
+    // re-request the audio stream at the new bitrate and resume from current position
+    // without resetting playback back to 0:00!
+    if (_currentTrack != null && !_isUsingYoutubeIframe) {
+      final currentPos = _position;
+      final wasPlaying = _isPlaying;
+      try {
+        final newStream = await _apiService.resolveDirectAudioStream(_currentTrack!, quality);
+        if (newStream != null && newStream.isNotEmpty) {
+          await _player.stop();
+          await _player.play(UrlSource(newStream), position: currentPos);
+          if (!wasPlaying) {
+            await _player.pause();
+          }
+          _position = currentPos;
+          _isPlaying = wasPlaying;
+          _syncMediaHandler();
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('[AudioPlayerManager] setAudioQuality hot-switch note: $e');
+      }
+    }
   }
 
   void _initMediaHandlerCallbacks() {
@@ -349,6 +381,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           lastNotifiedMs = pos.inMilliseconds;
           _syncMediaHandler();
           notifyListeners();
+        }
+
+        // Gapless Pre-fetch: pre-cache next track stream 15 seconds before current song ends
+        if (_duration.inSeconds > 20 &&
+            pos.inSeconds >= _duration.inSeconds - 15 &&
+            !_hasPrefetchedNextTrack) {
+          _hasPrefetchedNextTrack = true;
+          _prefetchNextTrackStream();
         }
 
         // Safety auto-advance if within 0.8s of end
@@ -590,6 +630,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _duration = Duration(seconds: track.duration > 0 ? track.duration : 180);
     _isPlaying = true;
     _userRequestedPause = false;
+    _hasPrefetchedNextTrack = false;
     _mediaHandler?.updateTrack(track, _duration);
     _syncMediaHandler();
     notifyListeners(); // Synchronous notification for 0ms lag!
