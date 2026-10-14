@@ -79,8 +79,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       if (!_userRequestedPause && _currentTrack != null && _isPlaying && _ytController != null) {
-        // ZERO DELAY: Keep playing immediately without 300ms lag!
+        _setJsUserRequestedPause(false);
+        _injectBackgroundPlaybackScripts();
+        // Immediate play for 0ms delay!
         _ytController?.playVideo();
+        // Follow-up after 150ms to guarantee continuous playback after OS window transition
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (!_userRequestedPause && _isPlaying) {
+            _ytController?.playVideo();
+          }
+        });
       }
     }
   }
@@ -152,8 +160,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         } else if (value.playerState == ytp.PlayerState.paused) {
           if (_userRequestedPause) {
             _isPlaying = false;
-          } else if (_currentTrack != null) {
-            // Unsolicited pause (e.g. OS screen off or blur event): immediately resume with 0 delay!
+          } else if (!_userRequestedPause && _isPlaying && _currentTrack != null) {
+            // Unsolicited pause while playing (e.g. OS screen off or blur event): immediately resume with 0 delay!
             _ytController?.playVideo();
           }
         }
