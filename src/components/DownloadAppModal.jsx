@@ -68,24 +68,35 @@ export default function DownloadAppModal({ isOpen, onClose }) {
 
           <div className="pt-2">
             <a
-              href="/downloads/McMusic-arm64.apk"
-              download="McMusic.apk"
+              href="https://github.com/Bagaskara02/Mctify/releases/latest/download/McMusic-arm64.apk"
+              target="_blank"
+              rel="noopener noreferrer"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McMusic Mobile APK (20.9 MB)</span>
+              <span>Download McMusic APK via GitHub Release (20.9 MB)</span>
             </a>
             <p className="text-center text-[11px] text-[#b3b3b3] mt-2">
-              Mendukung semua smartphone Android modern (ARM64) • Background Playback Aktif
+              Unduh cepat & stabil via GitHub Releases • Mendukung Android (ARM64)
             </p>
           </div>
-          <div className="text-center pt-1">
+          <div className="text-center pt-1 flex items-center justify-center gap-4">
             <a
               href="/downloads"
               className="text-xs text-[#00a3ff] hover:underline inline-flex items-center gap-1 font-semibold"
             >
-              <span>Buka Halaman Download Center Lengkap</span>
+              <span>Download Center</span>
               <span>→</span>
+            </a>
+            <span className="text-white/20">•</span>
+            <a
+              href="https://github.com/Bagaskara02/Mctify/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#00a3ff] hover:underline inline-flex items-center gap-1 font-semibold"
+            >
+              <span>GitHub Releases</span>
+              <span>↗</span>
             </a>
           </div>
           <button
