@@ -8,49 +8,49 @@ class LyricsResult {
   final double autoOffset;
   final bool isSynced;
   final String source;
-  final String detectedStyle;
 
   const LyricsResult({
     required this.lines,
     this.autoOffset = 0.0,
     this.isSynced = false,
     this.source = 'LRCLIB',
-    this.detectedStyle = 'pop',
   });
 }
 
 class LyricsService {
   static final Map<String, LyricsResult> _cache = {};
 
-  /// Calculate intelligent auto-sync offset based on LRC [offset: xxx] tags
-  /// and audio stream vs studio metadata duration differential.
-  static double calculateAutoSyncOffset(String? syncedLyrics, int? targetDuration, double? trackDuration) {
-    double offset = 0.0;
-    if (syncedLyrics != null && syncedLyrics.isNotEmpty) {
-      final match = RegExp(r'\[offset:\s*([+-]?\d+)\]', caseSensitive: false).firstMatch(syncedLyrics);
-      if (match != null) {
-        final parsed = int.tryParse(match.group(1) ?? '0') ?? 0;
-        offset += parsed / 1000.0;
-      }
-    }
-    if (targetDuration != null && trackDuration != null && targetDuration > 5 && trackDuration > 5) {
-      final diff = targetDuration - trackDuration;
-      if (diff >= 0.3 && diff <= 3.5) {
-        offset -= (diff * 0.2).clamp(0.0, 0.4);
-      } else if (diff <= -0.3 && diff >= -3.5) {
-        offset += (diff.abs() * 0.2).clamp(0.0, 0.4);
-      }
-    }
-    return (offset * 10).roundToDouble() / 10.0;
-  }
-
-  static Map<String, String> cleanTitleAndArtist(String rawTitle, String rawArtist) {
+  /// Aggressively clean dirty YouTube/streaming metadata
+  static Map<String, dynamic> cleanTrackMetadata(String rawTitle, String rawArtist) {
     var title = rawTitle.trim();
     var artist = rawArtist.trim();
 
+    // Strip Topic, VEVO, Official from artist
+    artist = artist.replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+                   .replaceAll(RegExp(r'\s*VEVO$', caseSensitive: false), '')
+                   .replaceAll(RegExp(r'\s*Official$', caseSensitive: false), '')
+                   .trim();
+
+    // If title has 'Artist - Title' format
+    if (title.contains(' - ')) {
+      final parts = title.split(' - ');
+      if (parts.length >= 2) {
+        final p0 = parts[0].trim();
+        final p1 = parts.sublist(1).join(' - ').trim();
+        if (artist.isNotEmpty && (p0.toLowerCase().contains(artist.toLowerCase()) || artist.toLowerCase().contains(p0.toLowerCase()))) {
+          title = p1;
+        } else if (artist.isNotEmpty && (p1.toLowerCase().contains(artist.toLowerCase()) || artist.toLowerCase().contains(p1.toLowerCase()))) {
+          title = p0;
+        } else if (artist.isEmpty) {
+          artist = p0;
+          title = p1;
+        }
+      }
+    }
+
     // Strip common YouTube tags and suffixes
     title = title.replaceAll(
-      RegExp(r'\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]', caseSensitive: false),
+      RegExp(r'\s*[\(\[](official\s*(music\s*)?video|official\s*audio|official\s*lyric(\s*video)?|visualizer|audio|video|clip\s*officiel|mv|hd|4k|remastered|live|session|brooklyn\s*session|10\s*years|lirik|lyrics|feat\.?|ft\.?)[^\)\]]*[\)\]]', caseSensitive: false),
       '',
     );
     title = title.replaceAll(
@@ -59,196 +59,91 @@ class LyricsService {
     );
     title = title.replaceAll(RegExp(r'[◐◑]'), '').trim();
 
-    if (title.contains(' - ')) {
-      final parts = title.split(' - ');
-      if (parts.length == 2) {
-        if (artist.isNotEmpty && parts[0].toLowerCase().contains(artist.toLowerCase())) {
-          title = parts[1].trim();
-        } else if (artist.isNotEmpty && parts[1].toLowerCase().contains(artist.toLowerCase())) {
-          title = parts[0].trim();
-        }
-      }
-    }
-
+    // Clean remaining lonely brackets
     title = title.replaceAll(RegExp(r'[\(\)\[\]]'), '').trim();
     artist = artist.replaceAll(RegExp(r'[\(\)\[\]]'), '').trim();
 
-    return {'title': title, 'artist': artist};
+    final List<String> subTitles = [title];
+    if (title.contains(' / ')) {
+      final subParts = title.split(' / ').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      subTitles.addAll(subParts);
+    }
+
+    return {
+      'title': title,
+      'artist': artist,
+      'subTitles': subTitles,
+    };
   }
 
-  /// Detect song style to provide adaptive lyric animations
-  /// Returns: 'ballad' | 'pop' | 'kinetic' | 'chill'
-  static String detectSongStyle(String title, String artist, List<LyricLine> lines, [int? duration]) {
-    final text = '$title $artist'.toLowerCase();
-
-    // 1. Keyword analysis
-    if (RegExp(r'\b(acoustic|akustik|piano|orchestra|slowed|sad|gundah|galau|heartbreak|sleep|lullaby)\b').hasMatch(text)) {
-      return 'ballad';
-    }
-    if (RegExp(r'\b(rap|hip[\s-]?hop|drill|trap|freestyle|diss|sped up|rock|metal|punk)\b').hasMatch(text)) {
-      return 'kinetic';
-    }
-    if (RegExp(r'\b(chill|lofi|lo-fi|r&b|soul|jazz|indie|night|vibes|ambient|relaxed)\b').hasMatch(text)) {
-      return 'chill';
-    }
-    if (RegExp(r'\b(remix|dance|edm|party|club|upbeat|disco|electronic|house|pop)\b').hasMatch(text)) {
-      return 'pop';
-    }
-
-    // 2. Cadence analysis (Words per second across active singing lines)
-    if (lines.length > 2) {
-      int totalWords = 0;
-      double activeSingingSeconds = 0.0;
-      for (final line in lines) {
-        if (!line.isInstrumental && !line.isInterlude && line.words.isNotEmpty) {
-          totalWords += line.words.length;
-          activeSingingSeconds += math.max(0.5, line.endTime - line.time);
-        }
-      }
-
-      final wordsPerSec = activeSingingSeconds > 0 ? (totalWords / activeSingingSeconds) : 1.2;
-      if (wordsPerSec >= 2.8) return 'kinetic';
-      if (wordsPerSec >= 1.6) return 'pop';
-      if (wordsPerSec <= 0.95) return 'ballad';
-      return 'chill';
-    }
-
-    return 'pop';
+  // Backwards compatibility alias for existing unit tests
+  static Map<String, String> cleanTitleAndArtist(String rawTitle, String rawArtist) {
+    final meta = cleanTrackMetadata(rawTitle, rawArtist);
+    return {
+      'title': meta['title'] as String,
+      'artist': meta['artist'] as String,
+    };
   }
 
-  Future<LyricsResult> fetchLyricsResult(String artist, String title, int duration) async {
-    final cleaned = cleanTitleAndArtist(title, artist);
-    final cleanTitle = cleaned['title'] ?? title;
-    final cleanArtist = cleaned['artist'] ?? artist;
+  Future<LyricsResult> fetchLyricsResult(String rawArtist, String rawTitle, int duration) async {
+    final meta = cleanTrackMetadata(rawTitle, rawArtist);
+    final cleanTitle = meta['title'] as String;
+    final cleanArtist = meta['artist'] as String;
+    final subTitles = meta['subTitles'] as List<String>;
     final targetDuration = duration > 5 ? duration : null;
-    final cacheKey = '${cleanArtist.toLowerCase()}:::${cleanTitle.toLowerCase()}:::${targetDuration ?? 0}';
+    final cacheKey = '${cleanArtist.toLowerCase()}:::${cleanTitle.toLowerCase()}';
 
     if (_cache.containsKey(cacheKey)) {
       return _cache[cacheKey]!;
     }
 
-    // --- TIER 1: Exact lookup with Duration parameter (Matches the exact track recording) ---
-    if (targetDuration != null) {
-      try {
-        final url = Uri.parse(
-          'https://lrclib.net/api/get?artist_name=${Uri.encodeComponent(cleanArtist)}&track_name=${Uri.encodeComponent(cleanTitle)}&duration=$targetDuration',
-        );
-        final res = await http.get(url).timeout(const Duration(seconds: 4));
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final synced = data['syncedLyrics'] as String?;
-          final trackDur = (data['duration'] as num?)?.toDouble();
-          if (synced != null && synced.isNotEmpty) {
-            final parsed = parseLrc(synced);
-            if (parsed.isNotEmpty) {
-              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
-              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
-              final result = LyricsResult(
-                lines: parsed,
-                autoOffset: autoOffset,
-                isSynced: true,
-                source: 'LRCLIB (Exact Match)',
-                detectedStyle: style,
-              );
-              _cache[cacheKey] = result;
-              return result;
-            }
-          }
-        }
-      } catch (_) {}
+    // TIER 1: NetEase Cloud Music (Studio Syllable-Synced YRC & LRC)
+    final netease = await _fetchNetEase(cleanTitle, cleanArtist);
+    if (netease != null && netease.lines.isNotEmpty) {
+      _cache[cacheKey] = netease;
+      return netease;
     }
 
-    // --- TIER 2: Exact lookup without duration ---
+    // TIER 2: LRCLIB (Exact & Flexible Search)
+    final lrclib = await _fetchLrclib(cleanTitle, cleanArtist, targetDuration);
+    if (lrclib != null && lrclib.lines.isNotEmpty) {
+      _cache[cacheKey] = lrclib;
+      return lrclib;
+    }
+
+    // TIER 3: Composite Sub-title retry (e.g. 'Television' from 'Television / So Far So Good')
+    if (subTitles.length > 1) {
+      for (int i = 1; i < subTitles.length; i++) {
+        final sub = subTitles[i];
+        final subNetEase = await _fetchNetEase(sub, cleanArtist);
+        if (subNetEase != null && subNetEase.lines.isNotEmpty) {
+          _cache[cacheKey] = subNetEase;
+          return subNetEase;
+        }
+        final subLrc = await _fetchLrclib(sub, cleanArtist, targetDuration);
+        if (subLrc != null && subLrc.lines.isNotEmpty) {
+          _cache[cacheKey] = subLrc;
+          return subLrc;
+        }
+      }
+    }
+
+    // TIER 4: Lyrist Public API Fallback
     try {
-      final url = Uri.parse(
-        'https://lrclib.net/api/get?artist_name=${Uri.encodeComponent(cleanArtist)}&track_name=${Uri.encodeComponent(cleanTitle)}',
-      );
+      final url = Uri.parse('https://lyrist.vercel.app/api/${Uri.encodeComponent(cleanTitle)}/${Uri.encodeComponent(cleanArtist)}');
       final res = await http.get(url).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        final synced = data['syncedLyrics'] as String?;
-        final returnedDuration = (data['duration'] as num?)?.toDouble();
-        final isAcceptable = targetDuration == null ||
-            returnedDuration == null ||
-            (returnedDuration - targetDuration).abs() <= 12;
-
-        if (synced != null && synced.isNotEmpty && isAcceptable) {
-          final parsed = parseLrc(synced);
-          if (parsed.isNotEmpty) {
-            final autoOffset = calculateAutoSyncOffset(synced, targetDuration, returnedDuration);
-            final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
-            final result = LyricsResult(
-              lines: parsed,
-              autoOffset: autoOffset,
-              isSynced: true,
-              source: 'LRCLIB (Name Match)',
-              detectedStyle: style,
-            );
-            _cache[cacheKey] = result;
-            return result;
-          }
-        }
-      }
-    } catch (_) {}
-
-    // --- TIER 3: Smart Search with Duration-Ranked Scoring ---
-    try {
-      final q = Uri.encodeComponent('$cleanTitle $cleanArtist');
-      final searchUrl = Uri.parse('https://lrclib.net/api/search?q=$q');
-      final res = await http.get(searchUrl).timeout(const Duration(seconds: 4));
-      if (res.statusCode == 200) {
-        final list = jsonDecode(res.body);
-        if (list is List && list.isNotEmpty) {
-          final best = _pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
-          final synced = best?['syncedLyrics'] as String?;
-          final trackDur = (best?['duration'] as num?)?.toDouble();
-          if (synced != null && synced.isNotEmpty) {
-            final parsed = parseLrc(synced);
-            if (parsed.isNotEmpty) {
-              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
-              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
-              final result = LyricsResult(
-                lines: parsed,
-                autoOffset: autoOffset,
-                isSynced: true,
-                source: 'LRCLIB (Ranked Match)',
-                detectedStyle: style,
-              );
-              _cache[cacheKey] = result;
-              return result;
-            }
-          }
-        }
-      }
-    } catch (_) {}
-
-    // --- TIER 4: Fallback search by title alone ---
-    try {
-      final q = Uri.encodeComponent(cleanTitle);
-      final searchUrl = Uri.parse('https://lrclib.net/api/search?q=$q');
-      final res = await http.get(searchUrl).timeout(const Duration(seconds: 4));
-      if (res.statusCode == 200) {
-        final list = jsonDecode(res.body);
-        if (list is List && list.isNotEmpty) {
-          final best = _pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
-          final synced = best?['syncedLyrics'] as String?;
-          final trackDur = (best?['duration'] as num?)?.toDouble();
-          if (synced != null && synced.isNotEmpty) {
-            final parsed = parseLrc(synced);
-            if (parsed.isNotEmpty) {
-              final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
-              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
-              final result = LyricsResult(
-                lines: parsed,
-                autoOffset: autoOffset,
-                isSynced: true,
-                source: 'LRCLIB (Title Search)',
-                detectedStyle: style,
-              );
-              _cache[cacheKey] = result;
-              return result;
-            }
-          }
+        final rawLyrics = data['lyrics'] as String?;
+        if (rawLyrics != null && rawLyrics.trim().isNotEmpty) {
+          final lines = _parsePlain(rawLyrics);
+          final result = LyricsResult(
+            lines: lines,
+            isSynced: false,
+            source: 'Lyrist',
+          );
+          _cache[cacheKey] = result;
+          return result;
         }
       }
     } catch (_) {}
@@ -263,66 +158,187 @@ class LyricsService {
     return res.lines;
   }
 
-  Map<String, dynamic>? _pickBestSearchResult(
-    List<dynamic> list,
-    String cleanTitle,
-    String cleanArtist,
-    int? targetDuration,
-  ) {
-    if (list.isEmpty) return null;
+  Future<LyricsResult?> _fetchNetEase(String title, String artist) async {
+    try {
+      final q = '$title $artist'.trim();
+      final searchUrl = Uri.parse('https://music.163.com/api/cloudsearch/pc');
+      final res = await http.post(
+        searchUrl,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://music.163.com',
+        },
+        body: 's=${Uri.encodeQueryComponent(q)}&type=1&offset=0&limit=3',
+      ).timeout(const Duration(seconds: 4));
 
-    final normTitle = cleanTitle.toLowerCase();
-    final normArtist = cleanArtist.toLowerCase();
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final songs = data['result']?['songs'] as List?;
+        if (songs != null && songs.isNotEmpty) {
+          final id = songs[0]['id'];
+          final lyricUrl = Uri.parse('https://music.163.com/api/song/lyric?id=$id&lv=1&kv=1&tv=-1&yv=1');
+          final lyricRes = await http.get(lyricUrl, headers: {
+            'Referer': 'https://music.163.com',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          }).timeout(const Duration(seconds: 4));
 
-    final scored = list.map((item) {
-      if (item is! Map<String, dynamic>) return {'item': item, 'score': -999};
+          if (lyricRes.statusCode == 200) {
+            final lyricData = jsonDecode(lyricRes.body);
+            final yrc = lyricData['yrc']?['lyric'] as String?;
+            if (yrc != null && yrc.isNotEmpty) {
+              final lines = parseYrc(yrc);
+              if (lines.isNotEmpty) {
+                return LyricsResult(
+                  lines: lines,
+                  isSynced: true,
+                  source: 'NetEase YRC (Studio Syllable-Synced)',
+                );
+              }
+            }
 
-      int score = 0;
-      final synced = item['syncedLyrics'] as String?;
-      if (synced != null && synced.isNotEmpty) score += 100;
+            final lrc = lyricData['lrc']?['lyric'] as String?;
+            if (lrc != null && lrc.isNotEmpty) {
+              final lines = parseLrc(lrc);
+              if (lines.isNotEmpty) {
+                return LyricsResult(
+                  lines: lines,
+                  isSynced: true,
+                  source: 'NetEase LRC',
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
-      // Duration scoring
-      final itemDur = (item['duration'] as num?)?.toDouble();
-      if (targetDuration != null && itemDur != null) {
-        final diff = (itemDur - targetDuration).abs();
-        if (diff <= 2) {
-          score += 90;
-        } else if (diff <= 5) {
-          score += 70;
-        } else if (diff <= 10) {
-          score += 40;
-        } else if (diff <= 18) {
-          score += 15;
-        } else if (diff > 35) {
-          score -= 60;
-        } else if (diff > 60) {
-          score -= 120;
+  Future<LyricsResult?> _fetchLrclib(String cleanTitle, String cleanArtist, int? targetDuration) async {
+    // 1. Exact lookup
+    try {
+      final queryParams = {
+        'artist_name': cleanArtist,
+        'track_name': cleanTitle,
+      };
+      if (targetDuration != null) {
+        queryParams['duration'] = targetDuration.toString();
+      }
+      final url = Uri.https('lrclib.net', '/api/get', queryParams);
+      final res = await http.get(url).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final synced = data['syncedLyrics'] as String?;
+        final plain = data['plainLyrics'] as String?;
+        if (synced != null && synced.isNotEmpty) {
+          return LyricsResult(
+            lines: parseLrc(synced),
+            isSynced: true,
+            source: 'LRCLIB (Exact Match)',
+          );
+        } else if (plain != null && plain.isNotEmpty) {
+          return LyricsResult(
+            lines: _parsePlain(plain),
+            isSynced: false,
+            source: 'LRCLIB (Plain)',
+          );
+        }
+      }
+    } catch (_) {}
+
+    // 2. Flexible search query
+    try {
+      final searchUrl = Uri.parse('https://lrclib.net/api/search?q=${Uri.encodeComponent('$cleanTitle $cleanArtist')}');
+      final res = await http.get(searchUrl).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body);
+        if (list is List && list.isNotEmpty) {
+          final best = list.firstWhere((i) => i['syncedLyrics'] != null, orElse: () => list[0]);
+          final synced = best['syncedLyrics'] as String?;
+          final plain = best['plainLyrics'] as String?;
+          if (synced != null && synced.isNotEmpty) {
+            return LyricsResult(
+              lines: parseLrc(synced),
+              isSynced: true,
+              source: 'LRCLIB (Search Match)',
+            );
+          } else if (plain != null && plain.isNotEmpty) {
+            return LyricsResult(
+              lines: _parsePlain(plain),
+              isSynced: false,
+              source: 'LRCLIB (Plain)',
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  /// Parse NetEase YRC syllable/word-synced format
+  List<LyricLine> parseYrc(String yrcContent) {
+    if (yrcContent.isEmpty) return [];
+    final rawLines = yrcContent.split('\n');
+    final List<LyricLine> parsed = [];
+    final lineHeaderRegex = RegExp(r'^\[(\d+),(\d+)\](.*)');
+    final wordRegex = RegExp(r'\((\d+),(\d+),\d+\)([^(\n]+)');
+
+    for (int i = 0; i < rawLines.length; i++) {
+      final raw = rawLines[i].trim();
+      if (raw.isEmpty) continue;
+      final match = lineHeaderRegex.firstMatch(raw);
+      if (match == null) continue;
+
+      final lineStartMs = int.tryParse(match.group(1) ?? '0') ?? 0;
+      final lineDurMs = int.tryParse(match.group(2) ?? '0') ?? 0;
+      final lineContent = match.group(3) ?? '';
+
+      // Skip credit lines
+      if (RegExp(r'作词|作曲|Written by|Composer|Producer|Arranger|Mixing', caseSensitive: false).hasMatch(lineContent)) {
+        continue;
+      }
+
+      final List<LyricWord> words = [];
+      for (final wMatch in wordRegex.allMatches(lineContent)) {
+        final wStartMs = int.tryParse(wMatch.group(1) ?? '0') ?? 0;
+        final wDurMs = int.tryParse(wMatch.group(2) ?? '0') ?? 0;
+        final wText = wMatch.group(3) ?? '';
+        if (wText.trim().isNotEmpty) {
+          final startSec = wStartMs / 1000.0;
+          final durSec = math.max(0.04, wDurMs / 1000.0);
+          final endSec = startSec + durSec;
+          words.add(LyricWord(
+            word: wText,
+            startTime: startSec,
+            endTime: endSec,
+            duration: durSec,
+            chars: _generateCharTimings(wText, startSec, durSec),
+          ));
         }
       }
 
-      // Title match
-      final itemTitle = ((item['trackName'] ?? '') as String).toLowerCase();
-      if (itemTitle == normTitle) {
-        score += 50;
-      } else if (itemTitle.contains(normTitle) || normTitle.contains(itemTitle)) {
-        score += 30;
+      if (words.isNotEmpty) {
+        final lineText = words.map((w) => w.word).join('').trim();
+        final lineStartSec = lineStartMs / 1000.0;
+        final lineDurSec = math.max(0.6, lineDurMs / 1000.0);
+
+        parsed.add(LyricLine(
+          time: lineStartSec,
+          endTime: lineStartSec + lineDurSec,
+          text: lineText,
+          words: words,
+          isInstrumental: false,
+          isInterlude: false,
+        ));
       }
+    }
 
-      // Artist match
-      final itemArt = ((item['artistName'] ?? '') as String).toLowerCase();
-      if (itemArt == normArtist) {
-        score += 50;
-      } else if (itemArt.contains(normArtist) || normArtist.contains(itemArt)) {
-        score += 30;
-      }
-
-      return {'item': item, 'score': score};
-    }).toList();
-
-    scored.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-    return scored.first['item'] as Map<String, dynamic>?;
+    return _finalizeLinesWithInterludes(parsed);
   }
 
+  /// Parse standard or enhanced LRC
   List<LyricLine> parseLrc(String lrcContent) {
     final List<Map<String, dynamic>> rawParsed = [];
     final timeRegex = RegExp(r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]');
@@ -342,7 +358,6 @@ class LyricsService {
 
       final cleanText = line.replaceAll(RegExp(r'\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]'), '').trim();
 
-      // Empty text timestamp marks the explicit vocal end-time of the previous line
       if (cleanText.isEmpty) {
         if (rawParsed.isNotEmpty) {
           final prev = rawParsed.last;
@@ -354,12 +369,17 @@ class LyricsService {
         continue;
       }
 
+      // Filter credit lines
+      if (RegExp(r'^(作词|作曲|Written by|Composer|Producer):', caseSensitive: false).hasMatch(cleanText)) {
+        continue;
+      }
+
       final isBackgroundVocal = cleanText.startsWith('(') && cleanText.endsWith(')') ||
           cleanText.startsWith('[') && cleanText.endsWith(']');
 
       rawParsed.add({
         'time': time,
-        'text': cleanText.replaceAll(RegExp(r'<\d{2}:\d{2}(?:\.\d{2,3})?>'), '').trim(),
+        'text': cleanText.replaceAll(RegExp(r'<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>'), '').trim(),
         'rawText': cleanText,
         'isBackgroundVocal': isBackgroundVocal,
       });
@@ -376,22 +396,10 @@ class LyricsService {
       final currTime = curr['time'] as double;
       final nextTime = next != null ? (next['time'] as double) : null;
 
-      // Instrumental intro check (> 4.2s)
-      if (i == 0 && currTime > 4.2) {
-        lines.add(LyricLine(
-          time: 0.5,
-          endTime: currTime - 0.2,
-          text: '♪ Intro ♪',
-          isInstrumental: true,
-          isInterlude: true,
-        ));
-      }
-
       final lineText = curr['text'] as String;
       final rawText = curr['rawText'] as String;
       final isBg = curr['isBackgroundVocal'] as bool;
 
-      // Vocal Duration Cap calculation
       double duration;
       if (curr['explicitEndTime'] != null) {
         duration = ((curr['explicitEndTime'] as double) - currTime).clamp(0.8, 12.0);
@@ -406,7 +414,7 @@ class LyricsService {
       final endTime = currTime + duration;
       final words = _computeWordTimings(rawText, currTime, duration);
 
-      final lyricLine = LyricLine(
+      lines.add(LyricLine(
         time: currTime,
         endTime: endTime,
         text: lineText,
@@ -415,14 +423,36 @@ class LyricsService {
         isInstrumental: false,
         isInterlude: false,
         isBackgroundVocal: isBg,
-      );
-      lines.add(lyricLine);
+      ));
+    }
 
-      // Instrumental interlude between lines if gap > 4.5s
-      if (nextTime != null && (nextTime - endTime) > 4.5) {
-        lines.add(LyricLine(
-          time: endTime + 0.15,
-          endTime: nextTime - 0.2,
+    return _finalizeLinesWithInterludes(lines);
+  }
+
+  List<LyricLine> _finalizeLinesWithInterludes(List<LyricLine> parsedLines) {
+    if (parsedLines.isEmpty) return [];
+    final List<LyricLine> result = [];
+
+    for (int i = 0; i < parsedLines.length; i++) {
+      final curr = parsedLines[i];
+      final next = i + 1 < parsedLines.length ? parsedLines[i + 1] : null;
+
+      if (i == 0 && curr.time > 4.2) {
+        result.add(LyricLine(
+          time: 0.5,
+          endTime: curr.time - 0.2,
+          text: '♪ Intro ♪',
+          isInstrumental: true,
+          isInterlude: true,
+        ));
+      }
+
+      result.add(curr);
+
+      if (next != null && (next.time - curr.endTime) > 4.5) {
+        result.add(LyricLine(
+          time: curr.endTime + 0.15,
+          endTime: next.time - 0.2,
           text: '♪ Musik ♪',
           isInstrumental: true,
           isInterlude: true,
@@ -430,17 +460,17 @@ class LyricsService {
       }
     }
 
-    return lines;
+    return result;
   }
 
   List<LyricWord> _computeWordTimings(String rawText, double lineStart, double lineDuration) {
     if (rawText.isEmpty) return [];
 
     // 1. Enhanced LRC inline tags <mm:ss.xx>word
-    final wordTagRegex = RegExp(r'<(\d{2}):(\d{2})(?:\.(\d{2,3}))?>');
+    final wordTagRegex = RegExp(r'<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>');
     if (wordTagRegex.hasMatch(rawText)) {
       final List<LyricWord> tokens = [];
-      final splitRegex = RegExp(r'<(\d{2}):(\d{2})(?:\.(\d{2,3}))?>([^<]+)');
+      final splitRegex = RegExp(r'<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>([^<]+)');
       for (final match in splitRegex.allMatches(rawText)) {
         final min = int.tryParse(match.group(1) ?? '0') ?? 0;
         final sec = int.tryParse(match.group(2) ?? '0') ?? 0;
@@ -477,12 +507,11 @@ class LyricsService {
       }
     }
 
-    // 2. Standard Syllabic Word & Character Weight Generator
-    final clean = rawText.replaceAll(RegExp(r'<\d{2}:\d{2}(?:\.\d{2,3})?>'), '').trim();
+    // 2. Standard Syllabic Word Weight Estimation
+    final clean = rawText.replaceAll(RegExp(r'<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>'), '').trim();
     final rawWords = clean.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     if (rawWords.isEmpty) return [];
 
-    // Vowel & punctuation weights for natural vocal flow
     double calculateWordWeight(String word) {
       final vowels = RegExp(r'[aiueoAIUEO]').allMatches(word).length;
       double weight = math.max(1.0, vowels * 1.6 + word.length * 0.4);
@@ -517,7 +546,6 @@ class LyricsService {
     return result;
   }
 
-  /// Break word down into individual characters with micro-timestamps
   static List<LyricChar> _generateCharTimings(String word, double wordStart, double wordDuration) {
     if (word.isEmpty) return [];
     final chars = word.split('');
@@ -548,5 +576,22 @@ class LyricsService {
     }
 
     return result;
+  }
+
+  List<LyricLine> _parsePlain(String plainText) {
+    if (plainText.isEmpty) return [];
+    return plainText.split('\n').map((line) => line.trim()).where((l) => l.isNotEmpty).toList().asMap().entries.map((e) {
+      final idx = e.key;
+      final line = e.value;
+      final time = idx * 4.0;
+      return LyricLine(
+        time: time,
+        endTime: time + 3.8,
+        text: line,
+        words: _computeWordTimings(line, time, 3.8),
+        isInstrumental: false,
+        isInterlude: false,
+      );
+    }).toList();
   }
 }

@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+import { getLyrics } from './api/lyrics.js'
+
 function musicBackendPlugin() {
   let ytPromise = null;
 
@@ -38,6 +40,29 @@ function musicBackendPlugin() {
         const rawUrl = sorted[0]?.url || item.thumbnails[0]?.url || '';
         return toHighResUrl(rawUrl);
       };
+
+      // 0. Multi-Provider Syllable/Word-Synced Lyrics Resolver Endpoint
+      server.middlewares.use('/api/lyrics', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          const title = url.searchParams.get('title') || url.searchParams.get('track_name') || '';
+          const artist = url.searchParams.get('artist') || url.searchParams.get('artist_name') || '';
+          const duration = parseInt(url.searchParams.get('duration') || '0', 10);
+
+          if (!title) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: 'Missing title' }));
+          }
+
+          const lyrics = await getLyrics(title, artist, duration);
+          res.setHeader('Content-Type', 'application/json');
+          return res.end(JSON.stringify(lyrics));
+        } catch (e) {
+          console.error('Lyrics API Error:', e);
+          res.statusCode = 500;
+          return res.end(JSON.stringify({ error: e.message }));
+        }
+      });
 
       // 1. YouTube Search & Full-Song Resolver Endpoint
       server.middlewares.use('/api/yt/search', async (req, res) => {
