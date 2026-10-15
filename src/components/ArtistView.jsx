@@ -132,7 +132,7 @@ export default function ArtistView({
         <div className="relative z-10 space-y-2">
           {/* Verified Badge */}
           <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-white drop-shadow">
-            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-[#00a3ff] fill-[#00a3ff]" />
+            <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-[#1ed760] fill-[#1ed760]" />
             <span>Diverifikasi oleh Spotify</span>
           </div>
 
@@ -150,10 +150,10 @@ export default function ArtistView({
 
       {/* Action Bar (matching media_1791353080300.png) */}
       <div className="px-4 sm:px-8 py-5 flex items-center gap-4 sm:gap-6 bg-gradient-to-b from-[#121212] to-transparent">
-        {/* Giant Azure Play Button */}
+        {/* Giant Green Play Button */}
         <button
           onClick={handlePlayAll}
-          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#00a3ff] hover:bg-[#2eb4ff] text-black flex items-center justify-center shadow-xl shadow-[#00a3ff]/20 hover:scale-105 active:scale-95 transition-all flex-shrink-0"
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-xl shadow-[#1ed760]/20 hover:scale-105 active:scale-95 transition-all flex-shrink-0"
           title={isPlayingThisArtist ? 'Jeda' : 'Putar'}
         >
           {isPlayingThisArtist ? (
@@ -168,7 +168,7 @@ export default function ArtistView({
           onClick={() => setIsFollowing(!isFollowing)}
           className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold border transition-all active:scale-95 ${
             isFollowing 
-              ? 'border-[#00a3ff] text-[#00a3ff] bg-[#00a3ff]/10' 
+              ? 'border-[#1ed760] text-[#1ed760] bg-[#1ed760]/10' 
               : 'border-white/40 hover:border-white text-white bg-transparent'
           }`}
         >
@@ -193,7 +193,7 @@ export default function ArtistView({
 
         {isLoading ? (
           <div className="py-12 flex items-center justify-center gap-3 text-neutral-400">
-            <Loader2 className="w-6 h-6 animate-spin text-[#00a3ff]" />
+            <Loader2 className="w-6 h-6 animate-spin text-[#1ed760]" />
             <span className="text-sm">Memuat lagu populer {activeArtist?.name}...</span>
           </div>
         ) : (
@@ -226,9 +226,9 @@ export default function ArtistView({
                     <div className="w-6 text-center tabular-nums text-sm font-semibold text-[#b3b3b3] flex-shrink-0">
                       {isCurrent && isPlaying ? (
                         <div className="flex items-end justify-center gap-0.5 h-3.5">
-                          <span className="w-0.5 h-3.5 bg-[#00a3ff] animate-pulse" />
-                          <span className="w-0.5 h-2.5 bg-[#00a3ff] animate-pulse delay-75" />
-                          <span className="w-0.5 h-3.5 bg-[#00a3ff] animate-pulse delay-150" />
+                          <span className="w-0.5 h-3.5 bg-[#1ed760] animate-pulse" />
+                          <span className="w-0.5 h-2.5 bg-[#1ed760] animate-pulse delay-75" />
+                          <span className="w-0.5 h-3.5 bg-[#1ed760] animate-pulse delay-150" />
                         </div>
                       ) : (
                         <span className="group-hover:hidden">{index + 1}</span>
@@ -250,7 +250,7 @@ export default function ArtistView({
                     {/* Title & Explicit Badge */}
                     <div className="min-w-0 flex-1">
                       <p className={`font-bold text-sm truncate tracking-tight ${
-                        isCurrent ? 'text-[#00a3ff]' : 'text-white'
+                        isCurrent ? 'text-[#1ed760]' : 'text-white'
                       }`}>
                         {track.title}
                       </p>
@@ -279,7 +279,7 @@ export default function ArtistView({
                       }}
                       className={`p-1.5 rounded-full transition-transform active:scale-90 ${
                         isLiked 
-                          ? 'text-[#00a3ff] opacity-100' 
+                          ? 'text-[#1ed760] opacity-100' 
                           : 'opacity-0 group-hover:opacity-100 text-[#b3b3b3] hover:text-white'
                       }`}
                       title={isLiked ? 'Disukai' : 'Sukai'}
@@ -352,7 +352,7 @@ export default function ArtistView({
                       className="w-full h-full object-cover"
                     />
 
-                    <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#00a3ff] hover:bg-[#2eb4ff] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
+                    <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
                       <Play className="w-4 h-4 fill-black ml-0.5" />
                     </div>
                   </div>

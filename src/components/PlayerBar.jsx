@@ -183,7 +183,7 @@ export default function PlayerBar({
                 }`}
               />
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <Mic2 className="w-5 h-5 text-[#00a3ff]" />
+                <Mic2 className="w-5 h-5 text-[#1ed760]" />
               </div>
             </div>
 
@@ -208,7 +208,7 @@ export default function PlayerBar({
                 onClick={() => onToggleLike(currentTrack)}
                 className={`p-1.5 rounded-full transition-all active:scale-90 ${
                   isLiked 
-                    ? 'text-[#00a3ff]' 
+                    ? 'text-[#1ed760]' 
                     : 'text-[#b3b3b3] hover:text-white'
                 }`}
                 title={isLiked ? 'Hapus dari Favorit' : 'Simpan ke Favorit'}
@@ -240,7 +240,7 @@ export default function PlayerBar({
           <button
             onClick={onToggleShuffle}
             className={`p-1.5 transition-colors ${
-              isShuffle ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
+              isShuffle ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
             }`}
             title="Putar Acak"
           >
@@ -278,7 +278,7 @@ export default function PlayerBar({
           <button
             onClick={onToggleRepeat}
             className={`p-1.5 relative transition-colors ${
-              currentRepeatMode !== 'off' ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
+              currentRepeatMode !== 'off' ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
             }`}
             title={
               currentRepeatMode === 'one'
@@ -294,7 +294,7 @@ export default function PlayerBar({
               <Repeat className="w-4 h-4" />
             )}
             {currentRepeatMode !== 'off' && (
-              <span className="w-1 h-1 bg-[#00a3ff] rounded-full absolute bottom-0 left-1/2 -translate-x-1/2" />
+              <span className="w-1 h-1 bg-[#1ed760] rounded-full absolute bottom-0 left-1/2 -translate-x-1/2" />
             )}
           </button>
         </div>
@@ -333,7 +333,7 @@ export default function PlayerBar({
               {/* Filled Progress Bar */}
               <div
                 className={`absolute left-0 top-0 bottom-0 rounded-full transition-colors ${
-                  isScrubberHovered || isScrubbing ? 'bg-[#00a3ff]' : 'bg-white'
+                  isScrubberHovered || isScrubbing ? 'bg-[#1ed760]' : 'bg-white'
                 }`}
                 style={{ 
                   width: `${progressPercent}%`,
@@ -378,7 +378,7 @@ export default function PlayerBar({
           }}
           className={`px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase border transition-all active:scale-95 ${
             playbackRate !== 1.0
-              ? 'bg-[#00a3ff]/20 text-[#00a3ff] border-[#00a3ff]/40 shadow-sm'
+              ? 'bg-[#1ed760]/20 text-[#1ed760] border-[#1ed760]/40 shadow-sm'
               : 'text-[#b3b3b3] hover:text-white border-white/10 hover:border-white/20'
           }`}
           title={`Kecepatan Putar: ${playbackRate}x (Klik untuk ganti)`}
@@ -391,14 +391,14 @@ export default function PlayerBar({
           onClick={onOpenSleepTimer}
           className={`relative p-2 rounded-full transition-all active:scale-95 ${
             isSleepTimerActive
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Pengatur Waktu Tidur (Sleep Timer)"
         >
           <Moon className="w-4 h-4" />
           {isSleepTimerActive && (
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#00a3ff] animate-ping" />
+            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#1ed760] animate-ping" />
           )}
         </button>
 
@@ -407,7 +407,7 @@ export default function PlayerBar({
           onClick={onToggleLyrics}
           className={`p-2 rounded-full transition-all active:scale-95 ${
             isLyricsOpen
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Lirik Karaoke Bersinkron"
@@ -420,7 +420,7 @@ export default function PlayerBar({
           onClick={onToggleAudioQuality}
           className={`p-2 rounded-full transition-all active:scale-95 ${
             isAudioQualityOpen
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Kualitas Audio (Bitrate)"
@@ -433,7 +433,7 @@ export default function PlayerBar({
           onClick={onToggleEqualizer}
           className={`p-2 rounded-full transition-all active:scale-95 ${
             isEqualizerOpen
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Equalizer & Efek Suara"
@@ -446,7 +446,7 @@ export default function PlayerBar({
           onClick={onToggleQueue}
           className={`p-2 rounded-full transition-all active:scale-95 ${
             isQueueOpen
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Daftar Antrean Putar"
@@ -459,7 +459,7 @@ export default function PlayerBar({
           onClick={onToggleRightSidebar}
           className={`hidden xl:block p-2 rounded-full transition-all active:scale-95 ${
             isRightSidebarOpen
-              ? 'text-[#00a3ff]'
+              ? 'text-[#1ed760]'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
           title="Tampilan Sedang Diputar"
@@ -497,7 +497,7 @@ export default function PlayerBar({
             <div className="w-full h-1 group-hover:h-1.5 bg-[#4d4d4d] rounded-full transition-all relative">
               <div
                 className={`absolute left-0 top-0 bottom-0 rounded-full transition-colors ${
-                  isVolumeHovered || isVolumeScrubbing ? 'bg-[#00a3ff]' : 'bg-white'
+                  isVolumeHovered || isVolumeScrubbing ? 'bg-[#1ed760]' : 'bg-white'
                 }`}
                 style={{ width: `${currentVolumePercent}%` }}
               />

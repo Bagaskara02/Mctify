@@ -16,7 +16,7 @@
   }
 }
 
-/* Spotify Authentic Color Tokens with Electric Azure Theme */
+/* Spotify Authentic Color Tokens */
 :root {
   --spotify-bg: #000000;
   --spotify-surface: #121212;
@@ -24,11 +24,12 @@
   --spotify-card-hover: #282828;
   --spotify-subtext: #b3b3b3;
   --spotify-text: #ffffff;
+  --spotify-green: #1ed760;
+  --spotify-green-hover: #3be477;
+  --spotify-green-glow: rgba(30, 215, 96, 0.45);
+  --spotify-green-subtle: rgba(30, 215, 96, 0.15);
   --spotify-blue: #00a3ff;
   --spotify-blue-hover: #2eb4ff;
-  --spotify-blue-light: #60c5ff;
-  --spotify-blue-glow: rgba(0, 163, 255, 0.45);
-  --spotify-blue-subtle: rgba(0, 163, 255, 0.15);
 }
 
 /* Custom Scrollbar like Spotify Desktop */
