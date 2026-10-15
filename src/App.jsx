@@ -863,8 +863,8 @@ export default function App() {
         onEnded={handleEnded}
       />
 
-      {/* Upper Area: Sidebar + Spotify Main View + Right Sidebar Now Playing */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Upper Area: 3 Detached Islands (Sidebar + Main Content + Right Sidebar) */}
+      <div className="flex flex-1 min-h-0 px-0 sm:px-2 pb-0 sm:pb-2 gap-2 overflow-hidden bg-black">
         {/* Sidebar (Desktop & Tablet only) */}
         <Sidebar
           currentView={currentView}
@@ -879,10 +879,10 @@ export default function App() {
           onPlaylistContextMenu={handlePlaylistContextMenu}
         />
 
-        {/* Main View Area - Spotify Native Pane with smooth animated transition */}
+        {/* Main View Area - Spotify Native Detached Island */}
         <main 
           key={`${currentView}-${selectedPlaylistId || 'root'}-${selectedArtist?.name || 'none'}`}
-          className="flex-1 my-0 md:my-2 mr-0 md:mr-2 rounded-none md:rounded-lg bg-[#121212] flex flex-col min-w-0 overflow-hidden relative shadow-sm animate-view-fade-in"
+          className="flex-1 rounded-none sm:rounded-lg bg-[#121212] flex flex-col min-w-0 overflow-hidden relative shadow-none animate-view-fade-in"
         >
           {currentView === 'discover' && !selectedPlaylistId && (
             <DiscoverView

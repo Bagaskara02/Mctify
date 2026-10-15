@@ -43,7 +43,7 @@ export default function RightSidebarNowPlaying({
     : lines.slice(0, 3);
 
   return (
-    <aside className="hidden xl:flex w-80 lg:w-96 flex-col bg-[#121212] my-2 mr-2 rounded-lg border-l border-white/5 select-none overflow-hidden relative shadow-lg text-white">
+    <aside className="hidden xl:flex w-80 lg:w-96 flex-col bg-[#121212] rounded-lg select-none overflow-hidden relative shadow-none text-white h-full min-h-0">
       {/* Top Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.04]">
         <h3 className="font-bold text-sm text-white truncate max-w-[220px]" title={currentTrack.album || currentTrack.title}>
@@ -87,14 +87,14 @@ export default function RightSidebarNowPlaying({
               <p className="text-sm text-[#b3b3b3] font-semibold truncate hover:underline hover:text-white cursor-pointer">
                 {currentTrack.artist}
               </p>
-              <CheckCircle2 className="w-4 h-4 text-[#00a3ff] fill-[#00a3ff]/20 flex-shrink-0" title="Terverifikasi" />
+              <CheckCircle2 className="w-4 h-4 text-[#1ed760] fill-[#1ed760]/20 flex-shrink-0" title="Terverifikasi" />
             </div>
           </div>
 
           <button
             onClick={() => onToggleLike(currentTrack)}
             className={`p-2 rounded-full transition-all active:scale-90 flex-shrink-0 ${
-              isLiked ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
+              isLiked ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
             }`}
             title={isLiked ? 'Disukai' : 'Sukai'}
           >
@@ -105,13 +105,13 @@ export default function RightSidebarNowPlaying({
         {/* PRATINJAU LIRIK (Spotify-Exact Lyrics Preview Widget) */}
         <div 
           onClick={onOpenLyrics}
-          className="p-4 rounded-xl bg-gradient-to-br from-[#0c3966] via-[#09223e] to-[#0f1d2e] border border-[#00a3ff]/30 cursor-pointer group hover:border-[#00a3ff]/60 transition-all shadow-xl relative overflow-hidden"
+          className="p-4 rounded-xl bg-[#242424] hover:bg-[#282828] cursor-pointer group transition-all shadow-md relative overflow-hidden"
         >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Mic2 className="w-4 h-4 text-[#00a3ff]" />
+              <Mic2 className="w-4 h-4 text-[#1ed760]" />
               <span className="text-xs font-bold text-white tracking-wide">
-                Pratinjau lirik
+                Lirik
               </span>
             </div>
             <button className="p-1 rounded-full text-white/60 group-hover:text-white transition-colors">
@@ -143,8 +143,8 @@ export default function RightSidebarNowPlaying({
             </div>
           )}
 
-          <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#00a3ff] font-semibold">
-            <span>Buka Beautiful Lyrics Karaoke</span>
+          <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#1ed760] font-semibold">
+            <span>Buka Lirik Karaoke Penuh</span>
             <span>&rarr;</span>
           </div>
         </div>
@@ -172,7 +172,7 @@ export default function RightSidebarNowPlaying({
 
             <button
               onClick={() => onStartRadio(currentTrack)}
-              className="w-full py-2 px-3 rounded-full bg-white/10 hover:bg-[#00a3ff] hover:text-black text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+              className="w-full py-2 px-3 rounded-full bg-white/10 hover:bg-[#1ed760] hover:text-black text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
             >
               <Radio className="w-3.5 h-3.5" />
               <span>Mulai Radio Lagu Ini</span>
