@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   // Spotify Authentic Tokens & Electric Azure Palette
-  static const Color spotifyGreen = Color(0xFF1ED760);
-  static const Color spotifyGreenHover = Color(0xFF3BE477);
-  static const Color primaryAzure = Color(0xFF00A3FF);
-  static const Color primaryAzureHover = Color(0xFF2EB4FF);
+  static const Color spotifyGreen = Color(0xFF3B82F6);
+  static const Color spotifyGreenHover = Color(0xFF2563EB);
+  static const Color primaryAzure = Color(0xFF3B82F6);
+  static const Color primaryAzureHover = Color(0xFF2563EB);
+  static const Color mctifyBlue = Color(0xFF3B82F6);
+  static const Color mctifyBlueHover = Color(0xFF2563EB);
   static const Color darkBackground = Color(0xFF121212);
   static const Color darkCard = Color(0xFF181818);
   static const Color darkSurface = Color(0xFF242424);

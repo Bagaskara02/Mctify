@@ -1,17 +1,19 @@
 /**
- * LRCLIB Synced Lyrics Service & Word-by-Word Karaoke Engine
- * High-accuracy multi-tier matching with duration proximity scoring,
- * Enhanced LRC word timestamps, empty line end-times, and persistent sync calibration.
+ * Mctify Spicy Lyrics Service & Adaptive Karaoke Engine
+ * Features:
+ * 1. Enhanced LRC parsing (<mm:ss.xx>word) & Smart Word + Character Timing Generator
+ * 2. Character-level interpolation with punctuation pause weighting
+ * 3. Instrumental interlude detection (intro > 4s or gap > 4.5s)
+ * 4. Adaptive Song Style & Vibe Auto-Detector (Ballad, Pop, Kinetic/Rap, Chill)
+ * 5. High-accuracy multi-tier search matching & duration proximity scoring
  */
 
 const lyricsMemoryCache = new Map();
 const STORAGE_KEY_SYNC_OFFSETS = 'mcmusic_lyrics_sync_offsets';
-const STORAGE_KEY_GLOBAL_OFFSET = 'mcmusic_lyrics_global_offset';
 
 export const lyricsService = {
   /**
    * Get persistent sync calibration offset for a specific track.
-   * Returns null if no manual adjustment was made, indicating Auto-Sync should be active.
    */
   getTrackSyncOffset(trackKey) {
     try {
@@ -91,7 +93,6 @@ export const lyricsService = {
     let title = (rawTitle || '').trim();
     let artist = (rawArtist || '').trim();
 
-    // Strip common YouTube & streaming tags
     title = title.replace(/\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]/gi, '');
     title = title.replace(/\s*(feat\.|ft\.)\s+[^-\(\]]+/gi, '');
     title = title.replace(/[◐◑]/g, '').trim();
@@ -113,6 +114,48 @@ export const lyricsService = {
   },
 
   /**
+   * Detect song style to provide adaptive lyric animations
+   * Returns: 'ballad' | 'pop' | 'kinetic' | 'chill'
+   */
+  detectSongStyle(title = '', artist = '', lines = [], duration = 180) {
+    const text = `${title} ${artist}`.toLowerCase();
+
+    // 1. Keyword overrides
+    if (/\b(acoustic|akustik|piano|orchestra|slowed|sad|gundah|galau|heartbreak|sleep|lullaby)\b/i.test(text)) {
+      return 'ballad';
+    }
+    if (/\b(rap|hip[\s-]?hop|drill|trap|freestyle|diss|sped up|rock|metal|punk)\b/i.test(text)) {
+      return 'kinetic';
+    }
+    if (/\b(chill|lofi|lo-fi|r&b|soul|jazz|indie|night|vibes|ambient|relaxed)\b/i.test(text)) {
+      return 'chill';
+    }
+    if (/\b(remix|dance|edm|party|club|upbeat|disco|electronic|house|pop)\b/i.test(text)) {
+      return 'pop';
+    }
+
+    // 2. Cadence analysis (Words per second across synced lines)
+    if (lines && lines.length > 2) {
+      let totalWords = 0;
+      let activeSingingSeconds = 0;
+      for (const line of lines) {
+        if (!line.isInstrumental && line.words?.length > 0) {
+          totalWords += line.words.length;
+          activeSingingSeconds += Math.max(0.5, line.duration || 2.0);
+        }
+      }
+
+      const wordsPerSec = activeSingingSeconds > 0 ? (totalWords / activeSingingSeconds) : 1.2;
+      if (wordsPerSec >= 2.8) return 'kinetic'; // Rap / fast lyrics
+      if (wordsPerSec >= 1.6) return 'pop';     // Standard energetic pop
+      if (wordsPerSec <= 0.95) return 'ballad';  // Slow emotional ballad
+      return 'chill';                           // Medium relaxed groove
+    }
+
+    return 'pop';
+  },
+
+  /**
    * Fetch synced or plain lyrics from LRCLIB with multi-tier duration-aware matching
    */
   async fetchLyrics(rawArtist, rawTitle, duration) {
@@ -129,7 +172,7 @@ export const lyricsService = {
       return lyricsMemoryCache.get(cacheKey);
     }
 
-    // --- TIER 1: Exact lookup with Duration parameter (Matches the exact track version!) ---
+    // TIER 1: Exact lookup with Duration parameter
     if (targetDuration) {
       try {
         const params = new URLSearchParams({
@@ -143,13 +186,17 @@ export const lyricsService = {
           const data = await res.json();
           if (data && (data.syncedLyrics || data.plainLyrics)) {
             const autoOffset = this.calculateAutoSyncOffset(data.syncedLyrics, targetDuration, data.duration);
+            const parsedLines = data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics);
+            const detectedStyle = this.detectSongStyle(cleanTitle, cleanArtist, parsedLines, targetDuration);
+
             const result = {
               synced: !!data.syncedLyrics,
-              lines: data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics),
+              lines: parsedLines,
               source: 'LRCLIB (Exact Duration Match)',
               instrumental: data.instrumental || false,
               trackDuration: data.duration,
               autoOffset,
+              detectedStyle,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -160,7 +207,7 @@ export const lyricsService = {
       }
     }
 
-    // --- TIER 2: Exact lookup without duration (verify returned duration is within tolerance) ---
+    // TIER 2: Exact lookup without duration
     try {
       const params = new URLSearchParams({
         track_name: cleanTitle,
@@ -174,13 +221,17 @@ export const lyricsService = {
           const isDurationAcceptable = !targetDuration || !data.duration || Math.abs(data.duration - targetDuration) <= 12;
           if (isDurationAcceptable) {
             const autoOffset = this.calculateAutoSyncOffset(data.syncedLyrics, targetDuration, data.duration);
+            const parsedLines = data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics);
+            const detectedStyle = this.detectSongStyle(cleanTitle, cleanArtist, parsedLines, targetDuration);
+
             const result = {
               synced: !!data.syncedLyrics,
-              lines: data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlain(data.plainLyrics),
+              lines: parsedLines,
               source: 'LRCLIB (Exact Name Match)',
               instrumental: data.instrumental || false,
               trackDuration: data.duration,
               autoOffset,
+              detectedStyle,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -191,7 +242,7 @@ export const lyricsService = {
       console.warn('LRCLIB exact lookup without duration failed, continuing to search', e);
     }
 
-    // --- TIER 3: Smart Search with Duration-Ranked Scoring ---
+    // TIER 3: Smart Search with Duration-Ranked Scoring
     try {
       const q = encodeURIComponent(`${cleanTitle} ${cleanArtist}`.trim());
       const res = await fetch(`https://lrclib.net/api/search?q=${q}`);
@@ -201,13 +252,17 @@ export const lyricsService = {
           const best = this.pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
           if (best && (best.syncedLyrics || best.plainLyrics)) {
             const autoOffset = this.calculateAutoSyncOffset(best.syncedLyrics, targetDuration, best.duration);
+            const parsedLines = best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics);
+            const detectedStyle = this.detectSongStyle(cleanTitle, cleanArtist, parsedLines, targetDuration);
+
             const result = {
               synced: !!best.syncedLyrics,
-              lines: best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics),
+              lines: parsedLines,
               source: 'LRCLIB (Ranked Match)',
               instrumental: best.instrumental || false,
               trackDuration: best.duration,
               autoOffset,
+              detectedStyle,
             };
             lyricsMemoryCache.set(cacheKey, result);
             return result;
@@ -218,39 +273,9 @@ export const lyricsService = {
       console.warn('LRCLIB combined search failed', e);
     }
 
-    // --- TIER 4: Fallback search by title alone if combined query yielded nothing ---
-    try {
-      const q = encodeURIComponent(cleanTitle);
-      const res = await fetch(`https://lrclib.net/api/search?q=${q}`);
-      if (res.ok) {
-        const list = await res.json();
-        if (Array.isArray(list) && list.length > 0) {
-          const best = this.pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration);
-          if (best && (best.syncedLyrics || best.plainLyrics)) {
-            const autoOffset = this.calculateAutoSyncOffset(best.syncedLyrics, targetDuration, best.duration);
-            const result = {
-              synced: !!best.syncedLyrics,
-              lines: best.syncedLyrics ? this.parseLrc(best.syncedLyrics) : this.parsePlain(best.plainLyrics),
-              source: 'LRCLIB (Title Search)',
-              instrumental: best.instrumental || false,
-              trackDuration: best.duration,
-              autoOffset,
-            };
-            lyricsMemoryCache.set(cacheKey, result);
-            return result;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('LRCLIB title fallback search failed', e);
-    }
-
     return null;
   },
 
-  /**
-   * Rank search results to select the exact version matching the audio duration and metadata
-   */
   pickBestSearchResult(list, cleanTitle, cleanArtist, targetDuration) {
     if (!list || list.length === 0) return null;
 
@@ -262,18 +287,16 @@ export const lyricsService = {
       if (item.syncedLyrics) score += 100;
       if (item.plainLyrics) score += 20;
 
-      // Duration match scoring (Prevents selecting live/acoustic/remix versions with wrong timings!)
       if (targetDuration && item.duration) {
         const diff = Math.abs(item.duration - targetDuration);
         if (diff <= 2) score += 90;
         else if (diff <= 5) score += 70;
         else if (diff <= 10) score += 40;
         else if (diff <= 18) score += 15;
-        else if (diff > 35) score -= 60; // Penalty for large duration mismatch
-        else if (diff > 60) score -= 120; // Severe penalty for completely different version
+        else if (diff > 35) score -= 60;
+        else if (diff > 60) score -= 120;
       }
 
-      // Title match scoring
       const itemTitle = (item.trackName || '').toLowerCase();
       if (itemTitle === normTitle) {
         score += 50;
@@ -281,7 +304,6 @@ export const lyricsService = {
         score += 30;
       }
 
-      // Artist match scoring
       const itemArtist = (item.artistName || '').toLowerCase();
       if (itemArtist === normArtist) {
         score += 50;
@@ -297,8 +319,7 @@ export const lyricsService = {
   },
 
   /**
-   * Parse timestamped LRC string into structured line objects
-   * Handles empty line end-timestamps and extracts precise word-by-word karaoke timing!
+   * Parse timestamped LRC string into structured line & word & character objects
    */
   parseLrc(lrcText) {
     if (!lrcText) return [];
@@ -328,7 +349,7 @@ export const lyricsService = {
 
       const cleanText = rawLine.replace(/\[\d{2}:\d{2}(?:\.\d{2,3})?\]/g, '').trim();
 
-      // Empty text timestamp marks the explicit vocal end-time of the previous line!
+      // Empty text timestamp marks the explicit vocal end-time of previous line
       if (!cleanText) {
         if (parsed.length > 0) {
           const prev = parsed[parsed.length - 1];
@@ -357,45 +378,52 @@ export const lyricsService = {
 
     parsed.sort((a, b) => a.time - b.time);
 
-    // Compute line durations and word-level karaoke intervals
+    // Compute line durations and word & character-level intervals
     const withWordTimings = [];
     for (let i = 0; i < parsed.length; i++) {
       const curr = parsed[i];
       const next = parsed[i + 1];
 
-      // Instrumental intro check
-      if (i === 0 && curr.time > 6) {
+      // Instrumental intro check (> 4s)
+      if (i === 0 && curr.time > 4.2) {
         withWordTimings.push({
           id: 'instrumental-intro',
           time: 0.5,
-          endTime: curr.time - 0.4,
-          text: '♪  Intro  ♪',
+          endTime: curr.time - 0.2,
+          text: '• • •',
           isInstrumental: true,
+          isInterlude: true,
           words: [],
         });
       }
 
-      // Calculate line duration if not explicitly marked by empty line timestamp
+      // Calculate line duration with Smart Cap
       if (!curr.explicitEndTime) {
-        const lineDuration = next
-          ? Math.min(8.0, Math.max(1.2, (next.time - curr.time) * 0.94))
-          : 4.5;
-        curr.duration = lineDuration;
-        curr.endTime = curr.time + lineDuration;
+        if (next) {
+          const rawGap = next.time - curr.time;
+          // activeDuration capped intelligently so the last word doesn't stretch during long music breaks
+          const activeDuration = Math.min(rawGap - 0.15, Math.max(1.8, curr.text.length * 0.11));
+          curr.duration = Math.max(0.8, Math.min(activeDuration, 9.5));
+          curr.endTime = curr.time + curr.duration;
+        } else {
+          curr.duration = Math.max(1.8, Math.min(curr.text.length * 0.11, 4.5));
+          curr.endTime = curr.time + curr.duration;
+        }
       }
 
-      // Tokenize line into animated word objects (Enhanced or Syllabic)
-      curr.words = this.computeWordTimings(curr.rawText || curr.text, curr.time, curr.duration);
+      // Tokenize line into animated words & characters (Enhanced LRC or Syllabic Generator)
+      curr.words = this.computeWordAndCharTimings(curr.rawText || curr.text, curr.time, curr.duration);
       withWordTimings.push(curr);
 
-      // Instrumental break between lines if gap > 4 seconds
-      if (next && (next.time - curr.endTime) > 3.8) {
+      // Instrumental interlude between lines if gap > 4.5 seconds
+      if (next && (next.time - curr.endTime) > 4.5) {
         withWordTimings.push({
-          id: `instrumental-${curr.time}`,
-          time: curr.endTime + 0.3,
-          endTime: next.time - 0.4,
-          text: '♪  Musik  ♪',
+          id: `interlude-${curr.time}`,
+          time: curr.endTime + 0.15,
+          endTime: next.time - 0.2,
+          text: '• • •',
           isInstrumental: true,
+          isInterlude: true,
           words: [],
         });
       }
@@ -405,10 +433,9 @@ export const lyricsService = {
   },
 
   /**
-   * Compute word-by-word timestamps for Apple Music / Beautiful Lyrics karaoke
-   * Supports inline enhanced LRC tags <mm:ss.xx> or high-precision syllabic weights
+   * Compute word and character-level timings with punctuation pause weights
    */
-  computeWordTimings(rawText, lineStart, lineDuration) {
+  computeWordAndCharTimings(rawText, lineStart, lineDuration) {
     if (!rawText) return [];
 
     // 1. Check for Enhanced LRC inline timestamps (<00:12.34>word)
@@ -436,29 +463,28 @@ export const lyricsService = {
           tokens[i].endTime = Math.max(tokens[i].startTime + 0.15, nextStart);
           tokens[i].duration = tokens[i].endTime - tokens[i].startTime;
           tokens[i].id = `word-${i}-${tokens[i].startTime}`;
+          tokens[i].chars = this.generateCharTimings(tokens[i].word, tokens[i].startTime, tokens[i].duration);
         }
         return tokens;
       }
     }
 
-    // 2. Standard LRC: Realistic Syllabic & Vowel Weight Calculation (Indonesian & Global cadence)
+    // 2. Standard LRC: Smart Syllabic & Character Weight Generator
     const clean = rawText.replace(/<\d{2}:\d{2}(?:\.\d{2,3})?>/g, '').trim();
     const rawWords = clean.split(/\s+/).filter(w => w.length > 0);
     if (rawWords.length === 0) return [];
 
-    // Count vowel clusters (singers hold vowels, not consonants)
-    const countSyllables = (word) => {
-      const cleaned = word.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!cleaned) return 1;
-      const matches = cleaned.match(/[aiueo]+/g);
-      return matches ? Math.max(1, matches.length) : 1;
+    // Vowel & punctuation weights
+    const calculateWordWeight = (word) => {
+      const vowels = (word.match(/[aiueoAIUEO]/g) || []).length;
+      let weight = Math.max(1, vowels * 1.6 + word.length * 0.4);
+      // Extra weight for punctuation pauses at end of words
+      if (/[,;]$/.test(word)) weight += 0.8;
+      if (/[.!?]$/.test(word)) weight += 1.4;
+      return weight;
     };
 
-    const weights = rawWords.map(w => {
-      const syl = countSyllables(w);
-      return Math.max(1, syl * 1.5 + w.length * 0.4);
-    });
-
+    const weights = rawWords.map(calculateWordWeight);
     const totalWeight = weights.reduce((sum, w) => sum + w, 0);
     const activeSingingDuration = Math.max(0.6, lineDuration * 0.94);
 
@@ -471,11 +497,44 @@ export const lyricsService = {
       currentOffset += wordDuration;
 
       return {
-        id: `word-${idx}-${startTime}`,
+        id: `word-${idx}-${startTime.toFixed(2)}`,
         word,
         startTime,
         endTime,
         duration: wordDuration,
+        chars: this.generateCharTimings(word, startTime, wordDuration),
+      };
+    });
+  },
+
+  /**
+   * Break each word down into individual characters with micro-timestamps
+   */
+  generateCharTimings(word, wordStart, wordDuration) {
+    if (!word) return [];
+    const chars = Array.from(word);
+    if (chars.length === 0) return [];
+
+    // Vowels carry longer phonation than consonants
+    const charWeights = chars.map(ch => {
+      if (/[aiueoAIUEO]/.test(ch)) return 1.8;
+      if (/[,.!?]/.test(ch)) return 0.6;
+      return 1.0;
+    });
+
+    const totalWeight = charWeights.reduce((s, w) => s + w, 0);
+    let curOffset = 0;
+
+    return chars.map((char, cIdx) => {
+      const charDur = (charWeights[cIdx] / totalWeight) * wordDuration;
+      const start = wordStart + curOffset;
+      const end = start + charDur;
+      curOffset += charDur;
+      return {
+        char,
+        startTime: start,
+        endTime: end,
+        duration: charDur,
       };
     });
   },
@@ -486,14 +545,14 @@ export const lyricsService = {
   parsePlain(plainText) {
     if (!plainText) return [];
     return plainText.split('\n').map((line, idx) => {
-      const time = idx * 4;
+      const time = idx * 3.8;
       return {
         id: `plain-${idx}`,
         time,
-        endTime: time + 3.8,
+        endTime: time + 3.6,
         text: line.trim(),
-        duration: 3.8,
-        words: this.computeWordTimings(line.trim(), time, 3.8),
+        duration: 3.6,
+        words: this.computeWordAndCharTimings(line.trim(), time, 3.6),
         isPlain: true,
       };
     }).filter(l => l.text.length > 0);

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import '../models/lyric_line.dart';
 
@@ -7,12 +8,14 @@ class LyricsResult {
   final double autoOffset;
   final bool isSynced;
   final String source;
+  final String detectedStyle;
 
   const LyricsResult({
     required this.lines,
     this.autoOffset = 0.0,
     this.isSynced = false,
     this.source = 'LRCLIB',
+    this.detectedStyle = 'pop',
   });
 }
 
@@ -73,6 +76,46 @@ class LyricsService {
     return {'title': title, 'artist': artist};
   }
 
+  /// Detect song style to provide adaptive lyric animations
+  /// Returns: 'ballad' | 'pop' | 'kinetic' | 'chill'
+  static String detectSongStyle(String title, String artist, List<LyricLine> lines, [int? duration]) {
+    final text = '$title $artist'.toLowerCase();
+
+    // 1. Keyword analysis
+    if (RegExp(r'\b(acoustic|akustik|piano|orchestra|slowed|sad|gundah|galau|heartbreak|sleep|lullaby)\b').hasMatch(text)) {
+      return 'ballad';
+    }
+    if (RegExp(r'\b(rap|hip[\s-]?hop|drill|trap|freestyle|diss|sped up|rock|metal|punk)\b').hasMatch(text)) {
+      return 'kinetic';
+    }
+    if (RegExp(r'\b(chill|lofi|lo-fi|r&b|soul|jazz|indie|night|vibes|ambient|relaxed)\b').hasMatch(text)) {
+      return 'chill';
+    }
+    if (RegExp(r'\b(remix|dance|edm|party|club|upbeat|disco|electronic|house|pop)\b').hasMatch(text)) {
+      return 'pop';
+    }
+
+    // 2. Cadence analysis (Words per second across active singing lines)
+    if (lines.length > 2) {
+      int totalWords = 0;
+      double activeSingingSeconds = 0.0;
+      for (final line in lines) {
+        if (!line.isInstrumental && !line.isInterlude && line.words.isNotEmpty) {
+          totalWords += line.words.length;
+          activeSingingSeconds += math.max(0.5, line.endTime - line.time);
+        }
+      }
+
+      final wordsPerSec = activeSingingSeconds > 0 ? (totalWords / activeSingingSeconds) : 1.2;
+      if (wordsPerSec >= 2.8) return 'kinetic';
+      if (wordsPerSec >= 1.6) return 'pop';
+      if (wordsPerSec <= 0.95) return 'ballad';
+      return 'chill';
+    }
+
+    return 'pop';
+  }
+
   Future<LyricsResult> fetchLyricsResult(String artist, String title, int duration) async {
     final cleaned = cleanTitleAndArtist(title, artist);
     final cleanTitle = cleaned['title'] ?? title;
@@ -99,11 +142,13 @@ class LyricsService {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
               final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
               final result = LyricsResult(
                 lines: parsed,
                 autoOffset: autoOffset,
                 isSynced: true,
                 source: 'LRCLIB (Exact Match)',
+                detectedStyle: style,
               );
               _cache[cacheKey] = result;
               return result;
@@ -131,11 +176,13 @@ class LyricsService {
           final parsed = parseLrc(synced);
           if (parsed.isNotEmpty) {
             final autoOffset = calculateAutoSyncOffset(synced, targetDuration, returnedDuration);
+            final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
             final result = LyricsResult(
               lines: parsed,
               autoOffset: autoOffset,
               isSynced: true,
               source: 'LRCLIB (Name Match)',
+              detectedStyle: style,
             );
             _cache[cacheKey] = result;
             return result;
@@ -159,11 +206,13 @@ class LyricsService {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
               final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
               final result = LyricsResult(
                 lines: parsed,
                 autoOffset: autoOffset,
                 isSynced: true,
                 source: 'LRCLIB (Ranked Match)',
+                detectedStyle: style,
               );
               _cache[cacheKey] = result;
               return result;
@@ -188,11 +237,13 @@ class LyricsService {
             final parsed = parseLrc(synced);
             if (parsed.isNotEmpty) {
               final autoOffset = calculateAutoSyncOffset(synced, targetDuration, trackDur);
+              final style = detectSongStyle(cleanTitle, cleanArtist, parsed, targetDuration);
               final result = LyricsResult(
                 lines: parsed,
                 autoOffset: autoOffset,
                 isSynced: true,
                 source: 'LRCLIB (Title Search)',
+                detectedStyle: style,
               );
               _cache[cacheKey] = result;
               return result;
@@ -291,7 +342,7 @@ class LyricsService {
 
       final cleanText = line.replaceAll(RegExp(r'\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]'), '').trim();
 
-      // Empty text timestamp marks the explicit vocal end-time of the previous line!
+      // Empty text timestamp marks the explicit vocal end-time of the previous line
       if (cleanText.isEmpty) {
         if (rawParsed.isNotEmpty) {
           final prev = rawParsed.last;
@@ -325,26 +376,34 @@ class LyricsService {
       final currTime = curr['time'] as double;
       final nextTime = next != null ? (next['time'] as double) : null;
 
-      // Instrumental intro check
-      if (i == 0 && currTime > 6.0) {
+      // Instrumental intro check (> 4.2s)
+      if (i == 0 && currTime > 4.2) {
         lines.add(LyricLine(
           time: 0.5,
-          endTime: currTime - 0.4,
-          text: '♪  Intro  ♪',
+          endTime: currTime - 0.2,
+          text: '♪ Intro ♪',
           isInstrumental: true,
+          isInterlude: true,
         ));
       }
-
-      double endTime = (curr['explicitEndTime'] as double?) ??
-          (nextTime != null
-              ? (currTime + ((nextTime - currTime) * 0.94).clamp(1.2, 8.0))
-              : currTime + 4.5);
 
       final lineText = curr['text'] as String;
       final rawText = curr['rawText'] as String;
       final isBg = curr['isBackgroundVocal'] as bool;
-      final duration = (endTime - currTime).clamp(0.8, 15.0);
 
+      // Vocal Duration Cap calculation
+      double duration;
+      if (curr['explicitEndTime'] != null) {
+        duration = ((curr['explicitEndTime'] as double) - currTime).clamp(0.8, 12.0);
+      } else if (nextTime != null) {
+        final rawGap = nextTime - currTime;
+        final capped = math.min(rawGap - 0.15, math.max(1.8, lineText.length * 0.11));
+        duration = capped.clamp(0.8, 9.5);
+      } else {
+        duration = math.min(lineText.length * 0.11, 4.5).clamp(1.8, 4.5);
+      }
+
+      final endTime = currTime + duration;
       final words = _computeWordTimings(rawText, currTime, duration);
 
       final lyricLine = LyricLine(
@@ -354,17 +413,19 @@ class LyricsService {
         rawText: rawText,
         words: words,
         isInstrumental: false,
+        isInterlude: false,
         isBackgroundVocal: isBg,
       );
       lines.add(lyricLine);
 
-      // Instrumental break between lines if gap > 3.8s
-      if (nextTime != null && (nextTime - endTime) > 3.8) {
+      // Instrumental interlude between lines if gap > 4.5s
+      if (nextTime != null && (nextTime - endTime) > 4.5) {
         lines.add(LyricLine(
-          time: endTime + 0.3,
-          endTime: nextTime - 0.4,
-          text: '♪  Musik  ♪',
+          time: endTime + 0.15,
+          endTime: nextTime - 0.2,
+          text: '♪ Musik ♪',
           isInstrumental: true,
+          isInterlude: true,
         ));
       }
     }
@@ -403,30 +464,43 @@ class LyricsService {
           final next = i + 1 < tokens.length ? tokens[i + 1] : null;
           final nextStart = next != null ? next.startTime : (lineStart + lineDuration);
           final end = (tokens[i].startTime + 0.15).clamp(tokens[i].startTime + 0.15, nextStart);
+          final wordDur = end - tokens[i].startTime;
           adjusted.add(LyricWord(
             word: tokens[i].word,
             startTime: tokens[i].startTime,
             endTime: end,
-            duration: end - tokens[i].startTime,
+            duration: wordDur,
+            chars: _generateCharTimings(tokens[i].word, tokens[i].startTime, wordDur),
           ));
         }
         return adjusted;
       }
     }
 
-    // 2. Standard Syllabic Word Weight Estimation
+    // 2. Standard Syllabic Word & Character Weight Generator
     final clean = rawText.replaceAll(RegExp(r'<\d{2}:\d{2}(?:\.\d{2,3})?>'), '').trim();
     final rawWords = clean.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     if (rawWords.isEmpty) return [];
 
-    final totalChars = rawWords.fold<int>(0, (sum, w) => sum + (w.isNotEmpty ? w.length : 1));
+    // Vowel & punctuation weights for natural vocal flow
+    double calculateWordWeight(String word) {
+      final vowels = RegExp(r'[aiueoAIUEO]').allMatches(word).length;
+      double weight = math.max(1.0, vowels * 1.6 + word.length * 0.4);
+      if (RegExp(r'[,;]$').hasMatch(word)) weight += 0.8;
+      if (RegExp(r'[.!?]$').hasMatch(word)) weight += 1.4;
+      return weight;
+    }
+
+    final weights = rawWords.map(calculateWordWeight).toList();
+    final totalWeight = weights.fold<double>(0.0, (sum, w) => sum + w);
     final activeDuration = (lineDuration * 0.94).clamp(0.6, 12.0);
 
     double currentOffset = 0.0;
     final List<LyricWord> result = [];
-    for (final word in rawWords) {
-      final weight = (word.isNotEmpty ? word.length : 1) / totalChars;
-      final wordDur = (activeDuration * weight).clamp(0.18, 5.0);
+    for (int idx = 0; idx < rawWords.length; idx++) {
+      final word = rawWords[idx];
+      final wordWeight = weights[idx] / totalWeight;
+      final wordDur = (activeDuration * wordWeight).clamp(0.18, 5.0);
       final start = lineStart + currentOffset;
       final end = start + wordDur;
       currentOffset += wordDur;
@@ -436,6 +510,40 @@ class LyricsService {
         startTime: start,
         endTime: end,
         duration: wordDur,
+        chars: _generateCharTimings(word, start, wordDur),
+      ));
+    }
+
+    return result;
+  }
+
+  /// Break word down into individual characters with micro-timestamps
+  static List<LyricChar> _generateCharTimings(String word, double wordStart, double wordDuration) {
+    if (word.isEmpty) return [];
+    final chars = word.split('');
+    if (chars.isEmpty) return [];
+
+    final weights = chars.map((ch) {
+      if (RegExp(r'[aiueoAIUEO]').hasMatch(ch)) return 1.8;
+      if (RegExp(r'[,.!?]').hasMatch(ch)) return 0.6;
+      return 1.0;
+    }).toList();
+
+    final totalWeight = weights.fold<double>(0.0, (s, w) => s + w);
+    double curOffset = 0.0;
+
+    final List<LyricChar> result = [];
+    for (int i = 0; i < chars.length; i++) {
+      final charDur = (weights[i] / totalWeight) * wordDuration;
+      final start = wordStart + curOffset;
+      final end = start + charDur;
+      curOffset += charDur;
+
+      result.add(LyricChar(
+        char: chars[i],
+        startTime: start,
+        endTime: end,
+        duration: charDur,
       ));
     }
 

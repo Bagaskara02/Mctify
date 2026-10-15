@@ -16,7 +16,7 @@
   }
 }
 
-/* Spotify Authentic Color Tokens */
+/* Mctify Color Tokens - Dark Neutral Surfaces with Electric Blue Signature */
 :root {
   --spotify-bg: #000000;
   --spotify-surface: #121212;
@@ -24,12 +24,16 @@
   --spotify-card-hover: #282828;
   --spotify-subtext: #b3b3b3;
   --spotify-text: #ffffff;
-  --spotify-green: #1ed760;
-  --spotify-green-hover: #3be477;
-  --spotify-green-glow: rgba(30, 215, 96, 0.45);
-  --spotify-green-subtle: rgba(30, 215, 96, 0.15);
-  --spotify-blue: #00a3ff;
-  --spotify-blue-hover: #2eb4ff;
+  --mctify-blue: #3B82F6;
+  --mctify-blue-hover: #2563EB;
+  --mctify-blue-glow: rgba(59, 130, 246, 0.45);
+  --mctify-blue-subtle: rgba(59, 130, 246, 0.15);
+  --spotify-green: #3B82F6;
+  --spotify-green-hover: #2563EB;
+  --spotify-green-glow: rgba(59, 130, 246, 0.45);
+  --spotify-green-subtle: rgba(59, 130, 246, 0.15);
+  --spotify-blue: #3B82F6;
+  --spotify-blue-hover: #2563EB;
 }
 
 /* Custom Scrollbar like Spotify Desktop */

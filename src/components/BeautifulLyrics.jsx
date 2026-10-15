@@ -9,32 +9,109 @@ import {
   Sparkles,
   RotateCcw,
   Minus,
-  Plus
+  Plus,
+  Flame,
+  Waves,
+  Zap,
+  Moon
 } from 'lucide-react';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 import { DEFAULT_ARTWORK, getHighResArtworkUrl } from '../services/musicApi';
 import { lyricsService } from '../services/lyricsService';
 
 /**
- * Syllable & Character-by-Character Karaoke Fade-Wipe Widget (Apple Music & Lyra style)
- * Sweeps smoothly across letters from left to right as the singer sings ("BA GUS", etc.)
+ * Character & Syllable-by-Character Spicy Lyrics Karaoke Widget
+ * Sweeps smoothly across letters from left to right as the singer sings
+ * Features dynamic song styles:
+ * - Ballad: liquid flow, soft continuous gradient wipe, gentle elevation
+ * - Pop: elastic bouncy spring jump, bright vibrant energy
+ * - Kinetic: crisp syllable snap, high-contrast flash, punchy rap cadence
+ * - Chill: silky luminescent float, ethereal halo, relaxed drift
  */
-function KaraokeWordWipe({ word, currentTimeSec, onTap }) {
-  const start = word.startTime;
-  const end = word.endTime;
-  const dur = Math.max(0.04, word.duration || (end - start));
+function KaraokeWordWipe({ word, currentTimeSec, onTap, styleMode = 'pop' }) {
+  const isActivelySinging = currentTimeSec >= word.startTime && currentTimeSec < word.endTime;
+  const isFinished = currentTimeSec >= word.endTime;
 
-  let progress = 0;
-  if (currentTimeSec < start) {
-    progress = 0;
-  } else if (currentTimeSec >= end) {
-    progress = 1;
-  } else {
-    progress = (currentTimeSec - start) / dur;
-    progress = Math.max(0, Math.min(1, progress));
+  // Syllable / Character-level rendering if breakdown exists
+  if (word.chars && word.chars.length > 0) {
+    return (
+      <span
+        onClick={(e) => {
+          e.stopPropagation();
+          onTap?.();
+        }}
+        className={`inline-flex items-baseline cursor-pointer select-none transition-all duration-150 ${
+          isActivelySinging
+            ? styleMode === 'pop'
+              ? 'scale-[1.07] -translate-y-1 font-black drop-shadow-[0_0_18px_rgba(59,130,246,0.9)]'
+              : styleMode === 'kinetic'
+              ? 'scale-[1.04] font-black drop-shadow-[0_0_20px_rgba(37,99,235,1)] tracking-tight'
+              : styleMode === 'ballad'
+              ? 'scale-[1.03] -translate-y-0.5 font-black drop-shadow-[0_0_16px_rgba(96,165,250,0.85)]'
+              : 'scale-[1.02] font-black drop-shadow-[0_0_14px_rgba(59,130,246,0.7)]'
+            : isFinished
+            ? 'text-white font-extrabold'
+            : 'text-white/35 font-bold hover:text-white/60'
+        }`}
+        style={{ letterSpacing: '-0.02em' }}
+      >
+        {word.chars.map((ch, cIdx) => {
+          let charProgress = 0;
+          if (currentTimeSec < ch.startTime) {
+            charProgress = 0;
+          } else if (currentTimeSec >= ch.endTime) {
+            charProgress = 1;
+          } else {
+            const cDur = Math.max(0.02, ch.duration || (ch.endTime - ch.startTime));
+            charProgress = Math.max(0, Math.min(1, (currentTimeSec - ch.startTime) / cDur));
+          }
+
+          const isCharActive = charProgress > 0 && charProgress < 1;
+          const cp = charProgress * 100;
+
+          return (
+            <span
+              key={cIdx}
+              className={`inline-block transition-transform duration-75 ${
+                isCharActive && styleMode === 'pop' ? '-translate-y-0.5 scale-110' : ''
+              }`}
+              style={
+                isCharActive
+                  ? {
+                      backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, cp - 6).toFixed(1)}%, #60A5FA ${cp.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, cp + 10).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      filter: 'drop-shadow(0 0 14px rgba(59, 130, 246, 0.95))',
+                    }
+                  : charProgress >= 1
+                  ? {
+                      color: '#FFFFFF',
+                      filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.3))',
+                    }
+                  : {
+                      color: 'rgba(255, 255, 255, 0.35)',
+                    }
+              }
+            >
+              {ch.char}
+            </span>
+          );
+        })}
+      </span>
+    );
   }
 
-  const isActivelySinging = progress > 0 && progress < 1;
+  // Word-level interpolation fallback
+  const dur = Math.max(0.04, word.duration || (word.endTime - word.startTime));
+  let progress = 0;
+  if (currentTimeSec < word.startTime) {
+    progress = 0;
+  } else if (currentTimeSec >= word.endTime) {
+    progress = 1;
+  } else {
+    progress = Math.max(0, Math.min(1, (currentTimeSec - word.startTime) / dur));
+  }
+
   const p = progress * 100;
 
   return (
@@ -45,7 +122,7 @@ function KaraokeWordWipe({ word, currentTimeSec, onTap }) {
       }}
       className={`inline-block transition-transform duration-100 cursor-pointer select-none ${
         isActivelySinging
-          ? 'scale-[1.05] -translate-y-0.5 font-black'
+          ? 'scale-[1.06] -translate-y-0.5 font-black'
           : progress >= 1
           ? 'text-white font-extrabold'
           : 'text-white/35 font-bold hover:text-white/60'
@@ -54,14 +131,14 @@ function KaraokeWordWipe({ word, currentTimeSec, onTap }) {
         letterSpacing: '-0.02em',
         ...(isActivelySinging
           ? {
-              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 6).toFixed(1)}%, #00E5FF ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 8).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
+              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 6).toFixed(1)}%, #3B82F6 ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 8).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 0 16px rgba(0, 229, 255, 0.9)) drop-shadow(0 0 4px #00E5FF)',
+              filter: 'drop-shadow(0 0 16px rgba(59, 130, 246, 0.9))',
             }
           : progress >= 1
           ? {
-              filter: 'drop-shadow(0 0 10px rgba(0, 163, 255, 0.35))',
+              filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.35))',
             }
           : {}),
       }}
@@ -92,10 +169,10 @@ function KaraokeLineWipe({ line, currentTimeSec }) {
       style={
         isActivelySinging
           ? {
-              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 4).toFixed(1)}%, #00E5FF ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 6).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
+              backgroundImage: `linear-gradient(90deg, #FFFFFF 0%, #FFFFFF ${Math.max(0, p - 4).toFixed(1)}%, #3B82F6 ${p.toFixed(1)}%, rgba(255, 255, 255, 0.35) ${Math.min(100, p + 6).toFixed(1)}%, rgba(255, 255, 255, 0.35) 100%)`,
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 0 16px rgba(0, 229, 255, 0.85))',
+              filter: 'drop-shadow(0 0 16px rgba(59, 130, 246, 0.85))',
             }
           : {
               color: progress >= 1 ? '#FFFFFF' : 'rgba(255, 255, 255, 0.35)',
@@ -104,6 +181,50 @@ function KaraokeLineWipe({ line, currentTimeSec }) {
     >
       {line.text}
     </span>
+  );
+}
+
+function InterludeIndicator({ line, currentTimeSec, isActive }) {
+  const dur = Math.max(0.5, line.endTime - line.time);
+  const progress = Math.max(0, Math.min(1, (currentTimeSec - line.time) / dur));
+  const dot1 = progress >= 0.1;
+  const dot2 = progress >= 0.45;
+  const dot3 = progress >= 0.8;
+
+  return (
+    <div
+      className={`transition-all duration-300 py-3 flex items-center gap-3 select-none ${
+        isActive ? 'opacity-100 scale-100' : 'opacity-35 scale-95'
+      }`}
+    >
+      <Music className="w-5 h-5 text-[#3B82F6]" />
+      <span className="text-xs sm:text-sm font-bold tracking-widest uppercase font-mono text-[#60A5FA]">
+        Musik
+      </span>
+      <div className="flex items-center gap-2 ml-1">
+        <span
+          className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+            isActive && dot1
+              ? 'bg-[#3B82F6] scale-125 shadow-[0_0_12px_#3B82F6]'
+              : 'bg-white/20 scale-100'
+          }`}
+        />
+        <span
+          className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+            isActive && dot2
+              ? 'bg-[#3B82F6] scale-125 shadow-[0_0_12px_#3B82F6]'
+              : 'bg-white/20 scale-100'
+          }`}
+        />
+        <span
+          className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+            isActive && dot3
+              ? 'bg-[#3B82F6] scale-125 shadow-[0_0_12px_#3B82F6]'
+              : 'bg-white/20 scale-100'
+          }`}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -119,8 +240,9 @@ export default function BeautifulLyrics({
 }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fontSize, setFontSize] = useState('large'); // 'normal' | 'large' | 'huge'
-  const [manualOffset, setManualOffset] = useState(null); // null = Auto-Sync mode active!
-  const [palette, setPalette] = useState({ primary: '#00a3ff', secondary: '#2eb4ff', tertiary: '#0055b3' });
+  const [manualOffset, setManualOffset] = useState(null); // null = Auto-Sync mode active
+  const [selectedStyle, setSelectedStyle] = useState('auto'); // 'auto' | 'ballad' | 'pop' | 'kinetic' | 'chill'
+  const [palette, setPalette] = useState({ primary: '#3B82F6', secondary: '#60A5FA', tertiary: '#1D4ED8' });
   const [autoScroll, setAutoScroll] = useState(true);
   const [userScrolled, setUserScrolled] = useState(false);
 
@@ -135,7 +257,7 @@ export default function BeautifulLyrics({
 
   const trackKey = track ? `${(track.artist || '').trim().toLowerCase()}:::${(track.title || '').trim().toLowerCase()}` : '';
 
-  // Synchronize reference with player's 80ms time polling
+  // Synchronize reference with player's time polling
   useEffect(() => {
     lastReportedTimeRef.current = currentTime;
     lastTimestampRef.current = performance.now();
@@ -198,9 +320,9 @@ export default function BeautifulLyrics({
     if (track?.artwork) {
       extractPaletteFromImage(getHighResArtworkUrl(track.artwork)).then(pal => {
         setPalette({
-          primary: pal.primary || '#00a3ff',
-          secondary: pal.secondary || '#2eb4ff',
-          tertiary: '#0055b3',
+          primary: pal.primary || '#3B82F6',
+          secondary: pal.secondary || '#60A5FA',
+          tertiary: '#1D4ED8',
         });
       });
     }
@@ -209,6 +331,10 @@ export default function BeautifulLyrics({
   // Effective playback time with calibrated auto/manual offset
   const effectiveTime = Math.max(0, smoothTime + effectiveOffset);
   const lines = lyricsData?.lines || [];
+
+  // Determine active song style
+  const detectedStyle = lyricsData?.detectedStyle || lyricsService.detectSongStyle(track?.title, track?.artist, lines, duration) || 'pop';
+  const activeStyle = selectedStyle === 'auto' ? detectedStyle : selectedStyle;
 
   // Determine active line index
   let activeIndex = -1;
@@ -262,30 +388,42 @@ export default function BeautifulLyrics({
     }
   };
 
+  const getStyleBadgeInfo = (st) => {
+    switch (st) {
+      case 'ballad':
+        return { label: 'Balada', icon: Waves, color: 'text-sky-400' };
+      case 'kinetic':
+        return { label: 'Rap / Rock', icon: Flame, color: 'text-amber-400' };
+      case 'chill':
+        return { label: 'Santai', icon: Moon, color: 'text-indigo-400' };
+      case 'pop':
+      default:
+        return { label: 'Pop Energik', icon: Zap, color: 'text-blue-400' };
+    }
+  };
+
+  const detectedInfo = getStyleBadgeInfo(detectedStyle);
+
   return (
     <div 
       className={`fixed inset-0 z-50 flex flex-col overflow-hidden transition-all duration-500 bg-[#06080e] ${
         isFullscreen ? 'p-0' : 'p-3 sm:p-6'
       }`}
     >
-      {/* Dynamic Ambient Background - Electric Azure & Album Mesh Glow Canvas */}
+      {/* Dynamic Ambient Background - Mctify Electric Blue Canvas */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none select-none">
-        {/* Floating Electric Azure Orb 1 */}
         <div 
           className="absolute -top-[15%] -left-[10%] w-[65vw] h-[65vw] rounded-full blur-[130px] opacity-40 animate-drift-1 transition-colors duration-1000"
           style={{ background: `radial-gradient(circle, ${palette.primary} 0%, transparent 70%)` }}
         />
-        {/* Floating Cyan/Blue Orb 2 */}
         <div 
           className="absolute top-[35%] -right-[15%] w-[60vw] h-[60vw] rounded-full blur-[140px] opacity-35 animate-drift-2 transition-colors duration-1000"
-          style={{ background: `radial-gradient(circle, #00a3ff 0%, transparent 70%)` }}
+          style={{ background: 'radial-gradient(circle, #3B82F6 0%, transparent 70%)' }}
         />
-        {/* Floating Royal Navy Orb 3 */}
         <div 
           className="absolute -bottom-[20%] left-[25%] w-[70vw] h-[70vw] rounded-full blur-[150px] opacity-30 animate-drift-3 transition-colors duration-1000"
           style={{ background: `radial-gradient(circle, ${palette.tertiary} 0%, transparent 70%)` }}
         />
-        {/* Darkening veil for high-contrast typography */}
         <div className="absolute inset-0 bg-black/60 backdrop-blur-[70px]" />
       </div>
 
@@ -314,16 +452,51 @@ export default function BeautifulLyrics({
             </div>
           </div>
 
-          {/* Controls: Offset, Font size, Fullscreen, Close */}
+          {/* Controls: Style selector, Offset, Font size, Fullscreen, Close */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Song Adaptive Style Mode Selector */}
+            <div className="hidden md:flex items-center gap-1 px-2 py-1 rounded-xl bg-white/5 border border-white/10 text-xs">
+              <button
+                onClick={() => setSelectedStyle('auto')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  selectedStyle === 'auto'
+                    ? 'bg-[#3B82F6] text-white shadow-md shadow-[#3B82F6]/30'
+                    : 'text-white/60 hover:text-white'
+                }`}
+                title={`Deteksi otomatis gaya animasi (${detectedInfo.label})`}
+              >
+                <Sparkles className="w-3 h-3 text-white" />
+                <span>Otomatis ({detectedInfo.label})</span>
+              </button>
+
+              {[
+                { key: 'pop', label: 'Pop ⚡' },
+                { key: 'ballad', label: 'Balada 🌊' },
+                { key: 'kinetic', label: 'Rap 🔥' },
+                { key: 'chill', label: 'Santai 🌙' },
+              ].map((st) => (
+                <button
+                  key={st.key}
+                  onClick={() => setSelectedStyle(st.key)}
+                  className={`px-2 py-1 rounded-lg text-xs transition-all ${
+                    selectedStyle === st.key
+                      ? 'bg-[#3B82F6] text-white font-bold shadow-md shadow-[#3B82F6]/30'
+                      : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
             {/* Sync Tuner & Calibration Widget */}
             <div className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80">
-              <Clock className="w-3.5 h-3.5 text-[#00a3ff]" />
+              <Clock className="w-3.5 h-3.5 text-[#3B82F6]" />
               
               {/* Auto / Manual Indicator Pill */}
               {isAutoSync ? (
-                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#00a3ff]/15 border border-[#00a3ff]/30 text-[10px] text-[#00e5ff] font-bold">
-                  <Sparkles className="w-2.5 h-2.5 text-[#00e5ff] animate-pulse" />
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#3B82F6]/15 border border-[#3B82F6]/30 text-[10px] text-[#60A5FA] font-bold">
+                  <Sparkles className="w-2.5 h-2.5 text-[#60A5FA] animate-pulse" />
                   <span>Auto-Sync</span>
                   <span className="font-mono tabular-nums text-white/90">
                     {effectiveOffset === 0 ? '0.0s' : effectiveOffset > 0 ? `+${effectiveOffset.toFixed(1)}s` : `${effectiveOffset.toFixed(1)}s`}
@@ -357,7 +530,7 @@ export default function BeautifulLyrics({
               {!isAutoSync && (
                 <button 
                   onClick={resetToAutoSync}
-                  className="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-[#00e5ff] hover:text-white flex items-center gap-1 text-[11px] font-bold border border-[#00e5ff]/30 bg-[#00a3ff]/10"
+                  className="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-[#60A5FA] hover:text-white flex items-center gap-1 text-[11px] font-bold border border-[#60A5FA]/30 bg-[#3B82F6]/10"
                   title="Kembalikan ke Auto-Sync"
                 >
                   <RotateCcw className="w-2.5 h-2.5" />
@@ -390,7 +563,7 @@ export default function BeautifulLyrics({
                   onClick={() => setFontSize(size)}
                   className={`px-2 py-1 rounded-lg capitalize transition-all ${
                     fontSize === size 
-                      ? 'bg-[#00a3ff] text-black font-bold shadow-md shadow-[#00a3ff]/30' 
+                      ? 'bg-[#3B82F6] text-white font-bold shadow-md shadow-[#3B82F6]/30' 
                       : 'text-white/50 hover:text-white/80'
                   }`}
                 >
@@ -403,7 +576,7 @@ export default function BeautifulLyrics({
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="p-2 sm:p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 transition-all active:scale-95"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Cinema Fullscreen'}
+              title={isFullscreen ? 'Keluar Layar Penuh' : 'Layar Penuh Cinema'}
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
@@ -412,7 +585,7 @@ export default function BeautifulLyrics({
             <button
               onClick={onClose}
               className="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all active:scale-95"
-              title="Close Lyrics"
+              title="Tutup Lirik"
             >
               <X className="w-5 h-5" />
             </button>
@@ -438,9 +611,9 @@ export default function BeautifulLyrics({
                   }}
                 />
                 {isPlaying && (
-                  <div className="absolute bottom-4 right-4 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[#00a3ff]/40 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#00a3ff] animate-ping" />
-                    <span className="text-xs font-semibold text-[#00a3ff]">Karaoke Akurat</span>
+                  <div className="absolute bottom-4 right-4 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-[#3B82F6]/40 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#3B82F6] animate-ping" />
+                    <span className="text-xs font-semibold text-[#60A5FA]">Karaoke Spicy</span>
                   </div>
                 )}
               </div>
@@ -459,9 +632,9 @@ export default function BeautifulLyrics({
             </div>
 
             <div className="pt-4 border-t border-white/10 flex items-center justify-between text-xs text-neutral-400">
-              <span className="flex items-center gap-1.5 text-[#00a3ff] font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-[#00a3ff]" />
-                Lirik Sinkron & Karaoke
+              <span className="flex items-center gap-1.5 text-[#3B82F6] font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-[#3B82F6]" />
+                Mode: {activeStyle.toUpperCase()}
               </span>
               <span>Klik lirik untuk melompat</span>
             </div>
@@ -475,7 +648,7 @@ export default function BeautifulLyrics({
           >
             {isLoadingLyrics ? (
               <div className="h-full flex flex-col items-center justify-center gap-4 text-white/50">
-                <div className="w-10 h-10 border-4 border-white/20 border-t-[#00a3ff] rounded-full animate-spin" />
+                <div className="w-10 h-10 border-4 border-white/20 border-t-[#3B82F6] rounded-full animate-spin" />
                 <p className="text-sm font-medium animate-pulse">Menghubungkan lirik sinkron durasi akurat...</p>
               </div>
             ) : lines.length === 0 ? (
@@ -494,27 +667,15 @@ export default function BeautifulLyrics({
                   const isActive = idx === activeIndex;
                   const isPast = idx < activeIndex;
 
-                  // Instrumental break indicator
-                  if (line.isInstrumental) {
+                  // Instrumental break / interlude indicator
+                  if (line.isInstrumental || line.isInterlude) {
                     return (
-                      <div 
-                        key={line.id || idx}
-                        ref={isActive ? activeLineRef : null}
-                        className={`transition-all duration-300 py-3 flex items-center gap-3 ${
-                          isActive ? 'text-[#00a3ff] opacity-100 scale-100' : 'text-white/30 opacity-40 scale-95'
-                        }`}
-                      >
-                        <Music className="w-5 h-5 text-[#00a3ff]" />
-                        <span className="text-base sm:text-lg font-bold tracking-widest uppercase font-mono">
-                          {line.text || '♪  Musik  ♪'}
-                        </span>
-                        {isActive && (
-                          <div className="flex gap-1.5 ml-2">
-                            <span className="w-2 h-2 rounded-full bg-[#00a3ff] animate-ping" />
-                            <span className="w-2 h-2 rounded-full bg-[#00a3ff]/70" />
-                            <span className="w-2 h-2 rounded-full bg-[#00a3ff]/40" />
-                          </div>
-                        )}
+                      <div key={line.id || idx} ref={isActive ? activeLineRef : null}>
+                        <InterludeIndicator
+                          line={line}
+                          currentTimeSec={effectiveTime}
+                          isActive={isActive}
+                        />
                       </div>
                     );
                   }
@@ -539,12 +700,12 @@ export default function BeautifulLyrics({
                         <span 
                           className={`w-2 h-2 rounded-full transition-all duration-300 flex-shrink-0 ${
                             isActive 
-                              ? 'opacity-100 scale-100 bg-[#00a3ff]' 
+                              ? 'opacity-100 scale-100 bg-[#3B82F6]' 
                               : 'opacity-0 scale-0'
                           }`} 
                         />
                         
-                        {/* If Active Line: Animate Word-by-Word with Syllable & Character Fade-Wipe! */}
+                        {/* If Active Line: Animate Word-by-Word with Syllable & Character Fade-Wipe */}
                         {isActive ? (
                           line.words && line.words.length > 0 ? (
                             <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5">
@@ -554,6 +715,7 @@ export default function BeautifulLyrics({
                                   word={w}
                                   currentTimeSec={effectiveTime}
                                   onTap={() => onSeek(w.startTime)}
+                                  styleMode={activeStyle}
                                 />
                               ))}
                             </div>

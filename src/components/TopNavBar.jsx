@@ -32,7 +32,7 @@ export default function TopNavBar({
         onClick={() => setCurrentView('discover')}
         className="flex items-center gap-2 cursor-pointer flex-shrink-0 group"
       >
-        <div className="w-9 h-9 rounded-full bg-[#1ed760] flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+        <div className="w-9 h-9 rounded-full bg-[#3B82F6] flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
           <Music className="w-5 h-5 text-black stroke-[2.5]" />
         </div>
         <span className="font-bold text-lg tracking-tight text-white hidden sm:inline-block">
@@ -108,7 +108,7 @@ export default function TopNavBar({
           className="hidden md:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#242424] hover:bg-[#2e2e2e] text-white text-xs font-bold transition-all active:scale-95"
           title="Buat Playlist Baru"
         >
-          <Plus className="w-4 h-4 text-[#1ed760]" />
+          <Plus className="w-4 h-4 text-[#3B82F6]" />
           <span>Buat</span>
         </button>
 

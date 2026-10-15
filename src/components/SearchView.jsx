@@ -156,7 +156,7 @@ export default function SearchView({
       {isLoading && (
         <div className="space-y-6 pt-2 animate-view-fade-in">
           <div className="flex items-center gap-2.5 text-xs text-neutral-400">
-            <Loader2 className="w-4 h-4 animate-spin text-[#1ed760]" />
+            <Loader2 className="w-4 h-4 animate-spin text-[#3B82F6]" />
             <span>Mencari "{searchQuery}"...</span>
           </div>
 
@@ -275,7 +275,7 @@ export default function SearchView({
 
                       {/* Floating Play Button */}
                       <div
-                        className={`absolute right-5 bottom-5 w-12 h-12 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95 ${
+                        className={`absolute right-5 bottom-5 w-12 h-12 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95 ${
                           currentTrack?.id === topSong.id
                             ? 'opacity-100 translate-y-0'
                             : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'
@@ -337,7 +337,7 @@ export default function SearchView({
 
                             <div className="min-w-0 flex-1">
                               <p className={`font-bold text-sm truncate tracking-tight ${
-                                isCurrent ? 'text-[#1ed760]' : 'text-white'
+                                isCurrent ? 'text-[#3B82F6]' : 'text-white'
                               }`}>
                                 {t.title}
                               </p>
@@ -360,7 +360,7 @@ export default function SearchView({
                                 onToggleLike(t);
                               }}
                               className={`p-1.5 rounded-full transition-transform active:scale-90 ${
-                                isLiked ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
+                                isLiked ? 'text-[#3B82F6]' : 'text-[#b3b3b3] hover:text-white'
                               }`}
                             >
                               <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
@@ -418,7 +418,7 @@ export default function SearchView({
                             className="w-full h-full object-cover"
                           />
 
-                          <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
+                          <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
                             <Play className="w-4 h-4 fill-black ml-0.5" />
                           </div>
                         </div>
@@ -485,7 +485,7 @@ export default function SearchView({
 
                         <div className="min-w-0 flex-1">
                           <p className={`font-bold text-sm truncate tracking-tight ${
-                            isCurrent ? 'text-[#1ed760]' : 'text-white'
+                            isCurrent ? 'text-[#3B82F6]' : 'text-white'
                           }`}>
                             {t.title}
                           </p>
@@ -508,7 +508,7 @@ export default function SearchView({
                             onToggleLike(t);
                           }}
                           className={`p-1.5 rounded-full transition-transform active:scale-90 ${
-                            isLiked ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
+                            isLiked ? 'text-[#3B82F6]' : 'text-[#b3b3b3] hover:text-white'
                           }`}
                         >
                           <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
@@ -562,7 +562,7 @@ export default function SearchView({
                       />
 
                       {/* Floating Play Button */}
-                      <div className="absolute right-2 bottom-2 w-11 h-11 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
+                      <div className="absolute right-2 bottom-2 w-11 h-11 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
                         <Play className="w-5 h-5 fill-black ml-0.5" />
                       </div>
                     </div>

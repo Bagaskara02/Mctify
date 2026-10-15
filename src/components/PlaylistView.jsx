@@ -120,7 +120,7 @@ export default function PlaylistView({
           <button
             onClick={() => onPlayAll(processedTracks.length > 0 ? processedTracks : rawTracks)}
             disabled={rawTracks.length === 0}
-            className="w-10 h-10 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all flex-shrink-0"
+            className="w-10 h-10 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all flex-shrink-0"
             title="Putar Playlist"
           >
             <Play className="w-4 h-4 fill-black ml-0.5" />
@@ -178,7 +178,7 @@ export default function PlaylistView({
           <button
             onClick={() => onPlayAll(processedTracks.length > 0 ? processedTracks : rawTracks)}
             disabled={rawTracks.length === 0}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-40"
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-40"
             title="Putar Semua"
           >
             <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-black ml-0.5" />
@@ -267,7 +267,7 @@ export default function PlaylistView({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#b3b3b3] hover:text-white bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
               title="Urutkan Playlist"
             >
-              <ArrowUpDown className="w-3.5 h-3.5 text-[#1ed760]" />
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#3B82F6]" />
               <span className="hidden sm:inline">
                 {sortBy === 'custom' && 'Urutan Kustom'}
                 {sortBy === 'title' && 'Judul (A-Z)'}
@@ -302,11 +302,11 @@ export default function PlaylistView({
                         setIsSortMenuOpen(false);
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/10 transition-colors ${
-                        sortBy === opt.key ? 'text-[#1ed760] font-bold bg-white/5' : 'text-neutral-200'
+                        sortBy === opt.key ? 'text-[#3B82F6] font-bold bg-white/5' : 'text-neutral-200'
                       }`}
                     >
                       <span>{opt.label}</span>
-                      {sortBy === opt.key && <Check className="w-3.5 h-3.5 text-[#1ed760]" />}
+                      {sortBy === opt.key && <Check className="w-3.5 h-3.5 text-[#3B82F6]" />}
                     </button>
                   ))}
                 </div>
@@ -331,7 +331,7 @@ export default function PlaylistView({
             <p className="text-xs">Tidak ditemukan lagu untuk "{searchQuery}" di playlist ini.</p>
             <button
               onClick={() => setSearchQuery('')}
-              className="mt-2 text-xs font-semibold text-[#1ed760] hover:underline"
+              className="mt-2 text-xs font-semibold text-[#3B82F6] hover:underline"
             >
               Hapus pencarian
             </button>
@@ -380,12 +380,12 @@ export default function PlaylistView({
                     <div className="w-6 flex items-center justify-center flex-shrink-0">
                       {isCurrent && isPlaying ? (
                         <div className="flex items-end gap-0.5 h-3.5 group-hover:hidden">
-                          <span className="w-1 bg-[#1ed760] rounded-full animate-eq-1" />
-                          <span className="w-1 bg-[#1ed760] rounded-full animate-eq-2" />
-                          <span className="w-1 bg-[#1ed760] rounded-full animate-eq-3" />
+                          <span className="w-1 bg-[#3B82F6] rounded-full animate-eq-1" />
+                          <span className="w-1 bg-[#3B82F6] rounded-full animate-eq-2" />
+                          <span className="w-1 bg-[#3B82F6] rounded-full animate-eq-3" />
                         </div>
                       ) : (
-                        <span className={`tabular-nums text-xs text-[#b3b3b3] group-hover:hidden ${isCurrent ? 'text-[#1ed760] font-bold' : ''}`}>
+                        <span className={`tabular-nums text-xs text-[#b3b3b3] group-hover:hidden ${isCurrent ? 'text-[#3B82F6] font-bold' : ''}`}>
                           {idx + 1}
                         </span>
                       )}
@@ -410,7 +410,7 @@ export default function PlaylistView({
                     />
 
                     <div className="truncate min-w-0">
-                      <p className={`text-sm font-bold truncate tracking-tight ${isCurrent ? 'text-[#1ed760]' : 'text-white'}`}>
+                      <p className={`text-sm font-bold truncate tracking-tight ${isCurrent ? 'text-[#3B82F6]' : 'text-white'}`}>
                         {cleanTrackTitle(t.title)}
                       </p>
                       <p className="text-xs text-[#b3b3b3] truncate mt-0.5">
@@ -433,7 +433,7 @@ export default function PlaylistView({
                       }}
                       className={`p-1.5 rounded-full transition-all ${
                         isLiked 
-                          ? '!opacity-100 text-[#1ed760]' 
+                          ? '!opacity-100 text-[#3B82F6]' 
                           : 'opacity-0 group-hover:opacity-100 text-[#b3b3b3] hover:text-white'
                       }`}
                       title="Sukai"
@@ -447,7 +447,7 @@ export default function PlaylistView({
                         onPlayTrack(t, processedTracks);
                         onOpenLyrics();
                       }}
-                      className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 text-[#b3b3b3] hover:text-[#1ed760] transition-all"
+                      className="p-1.5 rounded-full opacity-0 group-hover:opacity-100 text-[#b3b3b3] hover:text-[#3B82F6] transition-all"
                       title="Lirik Karaoke"
                     >
                       <Mic2 className="w-3.5 h-3.5" />

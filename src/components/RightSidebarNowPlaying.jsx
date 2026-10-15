@@ -87,14 +87,14 @@ export default function RightSidebarNowPlaying({
               <p className="text-sm text-[#b3b3b3] font-semibold truncate hover:underline hover:text-white cursor-pointer">
                 {currentTrack.artist}
               </p>
-              <CheckCircle2 className="w-4 h-4 text-[#1ed760] fill-[#1ed760]/20 flex-shrink-0" title="Terverifikasi" />
+              <CheckCircle2 className="w-4 h-4 text-[#3B82F6] fill-[#3B82F6]/20 flex-shrink-0" title="Terverifikasi" />
             </div>
           </div>
 
           <button
             onClick={() => onToggleLike(currentTrack)}
             className={`p-2 rounded-full transition-all active:scale-90 flex-shrink-0 ${
-              isLiked ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
+              isLiked ? 'text-[#3B82F6]' : 'text-[#b3b3b3] hover:text-white'
             }`}
             title={isLiked ? 'Disukai' : 'Sukai'}
           >
@@ -109,7 +109,7 @@ export default function RightSidebarNowPlaying({
         >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Mic2 className="w-4 h-4 text-[#1ed760]" />
+              <Mic2 className="w-4 h-4 text-[#3B82F6]" />
               <span className="text-xs font-bold text-white tracking-wide">
                 Lirik
               </span>
@@ -143,7 +143,7 @@ export default function RightSidebarNowPlaying({
             </div>
           )}
 
-          <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#1ed760] font-semibold">
+          <div className="mt-4 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#3B82F6] font-semibold">
             <span>Buka Lirik Karaoke Penuh</span>
             <span>&rarr;</span>
           </div>
@@ -172,7 +172,7 @@ export default function RightSidebarNowPlaying({
 
             <button
               onClick={() => onStartRadio(currentTrack)}
-              className="w-full py-2 px-3 rounded-full bg-white/10 hover:bg-[#1ed760] hover:text-black text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+              className="w-full py-2 px-3 rounded-full bg-white/10 hover:bg-[#3B82F6] hover:text-black text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
             >
               <Radio className="w-3.5 h-3.5" />
               <span>Mulai Radio Lagu Ini</span>
