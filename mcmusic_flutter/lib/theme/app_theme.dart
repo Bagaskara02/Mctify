@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Electric Azure Spotify Palette
+  // Spotify Authentic Tokens & Electric Azure Palette
+  static const Color spotifyGreen = Color(0xFF1ED760);
+  static const Color spotifyGreenHover = Color(0xFF3BE477);
   static const Color primaryAzure = Color(0xFF00A3FF);
   static const Color primaryAzureHover = Color(0xFF2EB4FF);
   static const Color darkBackground = Color(0xFF121212);
@@ -59,7 +61,19 @@ class AppTheme {
       cardTheme: CardThemeData(
         color: darkCard,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: darkCard,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(8))),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: darkCard,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+        ),
       ),
       sliderTheme: SliderThemeData(
         activeTrackColor: primaryAzure,

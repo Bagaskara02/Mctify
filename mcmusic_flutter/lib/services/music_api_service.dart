@@ -666,9 +666,39 @@ class MusicApiService {
   }
 
   static String? extractYouTubeId(String input) {
+    if (input.trim().isEmpty) return null;
     final clean = input.trim();
-    final reg = RegExp(r'(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})', caseSensitive: false);
-    final match = reg.firstMatch(clean);
+
+    // 1. Support share message text with embedded URL (e.g. "Dengarkan di YouTube: https://youtu.be/...")
+    final urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
+    final urlMatch = urlRegex.firstMatch(clean);
+    final target = urlMatch != null ? urlMatch.group(0)! : clean;
+
+    try {
+      final uri = Uri.parse(target.startsWith('http') ? target : 'https://$target');
+      String? videoId = uri.queryParameters['v'];
+      if (videoId == null || videoId.isEmpty) {
+        if (uri.host.contains('youtu.be')) {
+          final segments = uri.pathSegments;
+          if (segments.isNotEmpty) videoId = segments.first;
+        } else if (uri.path.contains('/shorts/') || uri.path.contains('/embed/') || uri.path.contains('/live/')) {
+          final segments = uri.pathSegments;
+          if (segments.isNotEmpty) videoId = segments.last;
+        }
+      }
+      if (videoId != null) {
+        if (videoId.contains('?')) videoId = videoId.split('?').first;
+        if (videoId.contains('&')) videoId = videoId.split('&').first;
+        if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(videoId)) return videoId;
+      }
+    } catch (_) {}
+
+    // 2. Regex fallback
+    final reg = RegExp(
+      r'(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:embed\/|v\/|watch\?.*v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})',
+      caseSensitive: false,
+    );
+    final match = reg.firstMatch(target);
     if (match != null && match.groupCount >= 1) return match.group(1);
     if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(clean)) return clean;
     return null;

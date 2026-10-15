@@ -16,10 +16,11 @@ void showImportYouTubeDialog({
   HapticFeedback.lightImpact();
   showModalBottomSheet(
     context: context,
-    backgroundColor: const Color(0xFF141923),
+    backgroundColor: const Color(0xFF181818),
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (ctx) => _ImportYouTubeDialogContent(
       player: player,
@@ -167,17 +168,19 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 14,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedPadding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           // Drag handle
           Center(
             child: Container(
@@ -238,24 +241,27 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
               Expanded(
                 child: TextField(
                   controller: _controller,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.go,
+                  autofocus: true,
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: 'Tempel link YouTube (https://youtu.be/...)',
                     hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                     filled: true,
-                    fillColor: const Color(0xFF0B0E14),
+                    fillColor: const Color(0xFF242424),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Colors.white12),
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Colors.white12),
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppTheme.primaryAzure),
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: AppTheme.primaryAzure, width: 1.5),
                     ),
                   ),
                   onSubmitted: (_) => _handleResolve(),
@@ -452,6 +458,8 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
           ],
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }

@@ -205,7 +205,7 @@ export default function SearchView({
               <div
                 key={cat.name}
                 onClick={() => setSearchQuery(cat.name)}
-                className={`relative h-28 sm:h-36 rounded-lg p-4 bg-gradient-to-br ${cat.color} overflow-hidden cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] transition-transform`}
+                className={`relative h-28 sm:h-36 rounded-lg p-4 bg-gradient-to-br ${cat.color} overflow-hidden cursor-pointer shadow-md hover:brightness-105 transition-all`}
               >
                 <h3 className="font-black text-lg sm:text-xl text-white tracking-tight">
                   {cat.name}

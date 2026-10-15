@@ -1,184 +1,69 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+:root {
+  /* Spotify Authentic Design System 2025-2026 */
+  --bg-black: #000000;
+  --bg-base: #121212;
+  --bg-elevated: #181818;
+  --bg-highlight: #1f1f1f;
+  --bg-press: #090909;
+  --bg-tinted: rgba(255, 255, 255, 0.07);
+  
+  --text-base: #ffffff;
+  --text-subdued: #b3b3b3;
+  --text-muted: #727272;
+  
+  --spotify-green: #1ed760;
+  --spotify-green-hover: #3be477;
+  
+  --radius-panel: 8px;
+  --radius-card: 6px;
+  --radius-thumb: 4px;
 }
 
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
+/* 1. Eliminate generic AI Slop: remove glowing borders, neon shadows, and card translations */
+.spotify-card, .track-card, .playlist-card, .artist-card {
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: var(--radius-card);
+  padding: 12px;
+  transition: background-color 0.2s ease;
 }
 
-#center {
+.spotify-card:hover, .track-card:hover, .playlist-card:hover, .artist-card:hover {
+  background-color: var(--bg-highlight) !important;
+  transform: none !important; /* Spotify keeps cards stationary on hover! */
+}
+
+/* 2. Artwork: natural dark drop shadow, not colored neon glow */
+.spotify-card img, .playlist-card img, .artist-card img {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* 3. Track Rows: Flat table rows, compact and clean */
+.spotify-track-row, .track-row, .song-item {
+  height: 56px;
+  margin: 0;
+  padding: 0 16px;
+  background: transparent;
+  border: none !important;
+  border-radius: var(--radius-thumb);
   display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
+  align-items: center;
+  transition: background-color 0.15s ease;
 }
 
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
+.spotify-track-row:hover, .track-row:hover, .song-item:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
+/* 4. Spotify Authentic typography styling */
+body {
+  font-family: 'Circular Std', 'CircularSp', 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: -0.015em;
+  background-color: var(--bg-black);
+  color: var(--text-base);
+  -webkit-font-smoothing: antialiased;
 }

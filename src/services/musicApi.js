@@ -278,12 +278,37 @@ export const musicApi = {
   },
 
   /**
-   * Extract YouTube Video ID from any URL or raw ID
+   * Extract YouTube Video ID from any URL, share link, or raw ID.
+   * Handles: youtu.be, music.youtube.com, m.youtube.com, shorts, embed, and share text with embedded links.
    */
   extractYouTubeId(input) {
     if (!input || typeof input !== 'string') return null;
     const clean = input.trim();
-    const match = clean.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([a-zA-Z0-9_-]{11})/i);
+
+    // 1. Support share message text with embedded URL (e.g. "Check out this song: https://youtu.be/...")
+    const urlMatch = clean.match(/https?:\/\/[^\s]+/i);
+    const target = urlMatch ? urlMatch[0] : clean;
+
+    try {
+      const url = new URL(target.startsWith('http') ? target : `https://${target}`);
+      let videoId = url.searchParams.get('v');
+      if (!videoId) {
+        if (url.hostname.includes('youtu.be')) {
+          videoId = url.pathname.slice(1).split('/')[0];
+        } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/')) {
+          const parts = url.pathname.split('/');
+          videoId = parts[parts.length - 1] || parts[2];
+        }
+      }
+      if (videoId) {
+        if (videoId.includes('?')) videoId = videoId.split('?')[0];
+        if (videoId.includes('&')) videoId = videoId.split('&')[0];
+        if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return videoId;
+      }
+    } catch (_) {}
+
+    // 2. Regex fallback for non-standard formats
+    const match = target.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:embed\/|v\/|watch\?.*v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i);
     if (match) return match[1];
     if (/^[a-zA-Z0-9_-]{11}$/.test(clean)) return clean;
     return null;

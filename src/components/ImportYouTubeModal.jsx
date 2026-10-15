@@ -8,7 +8,6 @@ import {
   ListMusic, 
   Heart, 
   Plus, 
-  Check, 
   AlertCircle,
   ClipboardPaste,
   Sparkles
@@ -20,6 +19,50 @@ const YoutubeIcon = ({ className = "w-5 h-5" }) => (
     <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
   </svg>
 );
+
+/**
+ * Robust YouTube URL Parser supporting all mobile share links,
+ * youtu.be, music.youtube.com, shorts, query string parameters (?si=),
+ * and share text with embedded links.
+ */
+export function extractYouTubeInfo(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return { videoId: null, listId: null, isValid: false };
+  }
+  try {
+    const cleaned = rawUrl.trim();
+    // Support share messages containing embedded URLs (e.g. "Dengarkan: https://youtu.be/...")
+    const urlMatch = cleaned.match(/https?:\/\/[^\s]+/i);
+    const target = urlMatch ? urlMatch[0] : cleaned;
+
+    const url = new URL(target.startsWith('http') ? target : `https://${target}`);
+    const listId = url.searchParams.get('list');
+    let videoId = url.searchParams.get('v');
+
+    if (!videoId) {
+      if (url.hostname.includes('youtu.be')) {
+        videoId = url.pathname.slice(1).split('/')[0];
+      } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/')) {
+        const parts = url.pathname.split('/').filter(Boolean);
+        videoId = parts[parts.length - 1];
+      }
+    }
+    if (videoId) {
+      if (videoId.includes('?')) videoId = videoId.split('?')[0];
+      if (videoId.includes('&')) videoId = videoId.split('&')[0];
+    }
+    if (!videoId && /^[a-zA-Z0-9_-]{11}$/.test(cleaned)) {
+      videoId = cleaned;
+    }
+    return { videoId, listId, isValid: Boolean(videoId || listId) };
+  } catch {
+    const match = rawUrl.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:embed\/|v\/|watch\?.*v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i);
+    const listMatch = rawUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/i);
+    const videoId = match ? match[1] : (/^[a-zA-Z0-9_-]{11}$/.test(rawUrl.trim()) ? rawUrl.trim() : null);
+    const listId = listMatch ? listMatch[1] : null;
+    return { videoId, listId, isValid: Boolean(videoId || listId) };
+  }
+}
 
 export default function ImportYouTubeModal({
   isOpen,
@@ -54,8 +97,10 @@ export default function ImportYouTubeModal({
       if (navigator.clipboard) {
         const text = await navigator.clipboard.readText();
         if (text) {
-          setInputVal(text.trim());
-          handleResolve(text.trim());
+          const info = extractYouTubeInfo(text);
+          const effective = info.videoId ? `https://www.youtube.com/watch?v=${info.videoId}` : text.trim();
+          setInputVal(effective);
+          handleResolve(effective);
         }
       }
     } catch (_) {}
@@ -75,10 +120,10 @@ export default function ImportYouTubeModal({
       if (track && track.videoId) {
         setResolvedTrack(track);
       } else {
-        setErrorMsg('Lagu tidak ditemukan dari link atau pencarian YouTube ini. Pastikan link video valid.');
+        setErrorMsg('Lagu tidak ditemukan dari link atau pencarian YouTube ini. Pastikan link video publik & valid.');
       }
-    } catch (err) {
-      setErrorMsg('Gagal memuat info video YouTube. Silakan coba link lain.');
+    } catch {
+      setErrorMsg('Gagal memuat info video YouTube. Silakan periksa koneksi atau coba link lain.');
     } finally {
       setIsLoading(false);
     }
@@ -119,73 +164,87 @@ export default function ImportYouTubeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-[#181818] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white">
+    <div 
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-view-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
+      <div 
+        className="relative w-full max-w-lg max-h-[88dvh] bg-[#181818] rounded-t-2xl sm:rounded-xl shadow-2xl overflow-hidden flex flex-col text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#282828]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#ff0000]/20 text-[#ff0000] flex items-center justify-center border border-[#ff0000]/30 shadow-lg shadow-[#ff0000]/10">
+            <div className="w-9 h-9 rounded-lg bg-[#ff0000]/15 text-[#ff4e4e] flex items-center justify-center flex-shrink-0">
               <YoutubeIcon className="w-5 h-5 fill-current" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2">
                 Import Lagu dari YouTube
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#ff0000]/20 text-[#ff4e4e] border border-[#ff0000]/30">
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/10 text-white/80">
                   Full Audio
                 </span>
               </h2>
               <p className="text-xs text-[#b3b3b3]">
-                Putar lagu favorit atau tambahkan musik yang belum ada di McMusic
+                Putar lagu langsung atau tambahkan musik ke playlist kamu
               </p>
             </div>
           </div>
 
           <button
             onClick={handleClose}
-            className="p-1.5 rounded-full hover:bg-white/10 text-[#b3b3b3] hover:text-white transition-colors"
+            className="p-1.5 rounded-full hover:bg-white/10 text-[#b3b3b3] hover:text-white transition-colors flex-shrink-0"
+            title="Tutup"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Input Form */}
+        {/* Scrollable Body - Keyboard safe with dvh constraint */}
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto overscroll-contain">
+          {/* Mobile-Safe Input Form */}
           <form 
             onSubmit={(e) => {
               e.preventDefault();
-              handleResolve();
+              if (!isLoading && inputVal.trim()) handleResolve();
             }}
             className="space-y-2"
           >
-            <label className="text-xs font-semibold text-[#b3b3b3] flex items-center justify-between">
-              <span>Link Video YouTube atau Judul Lagu:</span>
+            <div className="flex items-center justify-between text-xs text-[#b3b3b3]">
+              <span className="font-semibold">Link YouTube / YouTube Music:</span>
               <button
                 type="button"
                 onClick={handlePaste}
-                className="text-xs text-[#00a3ff] hover:underline flex items-center gap-1 font-normal"
+                onPointerDown={(e) => e.stopPropagation()}
+                className="text-xs text-[#1ed760] hover:underline flex items-center gap-1 font-semibold"
               >
                 <ClipboardPaste className="w-3.5 h-3.5" />
-                Tempel dari Clipboard
+                Tempel Link
               </button>
-            </label>
+            </div>
 
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#b3b3b3]" />
+                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#727272]" />
                 <input
-                  type="text"
+                  type="url"
+                  inputMode="url"
+                  enterKeyHint="go"
+                  autoFocus
                   value={inputVal}
                   onChange={(e) => setInputVal(e.target.value)}
                   placeholder="https://youtu.be/... atau judul lagu"
-                  className="w-full pl-9 pr-3 py-2.5 bg-[#242424] border border-white/10 rounded-xl text-white placeholder-[#727272] text-xs focus:outline-none focus:border-[#00a3ff] transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 bg-[#242424] rounded-md text-white placeholder-[#727272] text-xs focus:outline-none focus:ring-1 focus:ring-[#1ed760] transition-colors"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading || !inputVal.trim()}
-                className="px-4 py-2.5 rounded-xl bg-[#00a3ff] hover:bg-[#008fe0] disabled:opacity-40 disabled:hover:bg-[#00a3ff] text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md flex-shrink-0"
+                onPointerDown={(e) => e.stopPropagation()}
+                className="px-4 py-2.5 rounded-md bg-[#1ed760] hover:bg-[#3be477] disabled:opacity-40 disabled:hover:bg-[#1ed760] text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md flex-shrink-0"
               >
                 {isLoading ? (
                   <>
@@ -204,7 +263,7 @@ export default function ImportYouTubeModal({
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-md bg-red-500/10 text-red-400 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -212,22 +271,24 @@ export default function ImportYouTubeModal({
 
           {/* Resolved Track Preview Card */}
           {resolvedTrack && (
-            <div className="p-4 rounded-xl bg-[#202020] border border-white/10 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <div className="flex items-center gap-3.5">
-                <img
-                  src={resolvedTrack.artwork || DEFAULT_ARTWORK}
-                  alt={resolvedTrack.title}
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    e.currentTarget.src = DEFAULT_ARTWORK;
-                  }}
-                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0 shadow-md"
-                />
+            <div className="p-3.5 sm:p-4 rounded-md bg-[#242424] space-y-4 animate-view-fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-[4px] overflow-hidden flex-shrink-0 bg-[#181818] shadow-md">
+                  <img
+                    src={resolvedTrack.artwork || DEFAULT_ARTWORK}
+                    alt={resolvedTrack.title}
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = DEFAULT_ARTWORK;
+                    }}
+                    className="w-full h-full object-cover scale-[1.35]"
+                  />
+                </div>
                 <div className="min-w-0 flex-1">
-                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-[#ff0000]/20 text-[#ff5252] mb-1">
+                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ff0000]/15 text-[#ff5252] mb-1">
                     YouTube Stream
                   </span>
-                  <h3 className="text-sm font-bold text-white truncate">
+                  <h3 className="text-sm font-bold text-white truncate tracking-tight">
                     {resolvedTrack.title}
                   </h3>
                   <p className="text-xs text-[#b3b3b3] truncate mt-0.5">
@@ -237,26 +298,32 @@ export default function ImportYouTubeModal({
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 border-t border-white/5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
                 <button
+                  type="button"
                   onClick={handlePlayNow}
-                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#00a3ff] hover:bg-[#008fe0] text-black font-bold text-xs transition-colors"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black font-bold text-xs transition-colors"
                 >
                   <Play className="w-3.5 h-3.5 fill-black" />
                   <span>{addedStatus === 'played' ? 'Sedang Diputar' : 'Putar Sekarang'}</span>
                 </button>
 
                 <button
+                  type="button"
                   onClick={handlePlayNext}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors"
                 >
-                  <ListMusic className="w-3.5 h-3.5 text-[#00a3ff]" />
-                  <span>{addedStatus === 'next' ? 'Diputar Berikutnya' : 'Putar Setelah Ini'}</span>
+                  <ListMusic className="w-3.5 h-3.5 text-[#1ed760]" />
+                  <span>{addedStatus === 'next' ? 'Diputar Berikutnya' : 'Setelah Ini'}</span>
                 </button>
 
                 <button
+                  type="button"
                   onClick={handleAddQueue}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors col-span-2 sm:col-span-1"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors col-span-2 sm:col-span-1"
                 >
                   <ListPlus className="w-3.5 h-3.5" />
                   <span>{addedStatus === 'queue' ? 'Di Antrean' : 'Ke Antrean'}</span>
@@ -264,12 +331,12 @@ export default function ImportYouTubeModal({
               </div>
 
               {/* Add to Playlist or Favorites */}
-              <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="pt-2 border-t border-white/[0.06] flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <div className="flex-1 flex items-center gap-2">
                   <select
                     value={selectedPlaylistId}
                     onChange={(e) => setSelectedPlaylistId(e.target.value)}
-                    className="flex-1 px-3 py-2 bg-[#282828] border border-white/10 rounded-lg text-xs text-white focus:outline-none"
+                    className="flex-1 px-3 py-2 bg-[#181818] rounded-md text-xs text-white focus:outline-none"
                   >
                     <option value="">Pilih Playlist Tujuan...</option>
                     {playlists.map((pl) => (
@@ -280,9 +347,11 @@ export default function ImportYouTubeModal({
                   </select>
 
                   <button
+                    type="button"
                     disabled={!selectedPlaylistId}
                     onClick={handleAddToPlaylistClick}
-                    className="px-3 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-30 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="px-3 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-30 rounded-md text-xs font-semibold flex items-center gap-1"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Tambah</span>
@@ -290,10 +359,12 @@ export default function ImportYouTubeModal({
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleSaveToLiked}
-                  className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 text-[#b3b3b3] hover:text-white"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 text-[#b3b3b3] hover:text-white"
                 >
-                  <Heart className={`w-3.5 h-3.5 ${addedStatus === 'liked' ? 'fill-[#00a3ff] text-[#00a3ff]' : ''}`} />
+                  <Heart className={`w-3.5 h-3.5 ${addedStatus === 'liked' ? 'fill-[#1ed760] text-[#1ed760]' : ''}`} />
                   <span>{addedStatus === 'liked' ? 'Tersimpan' : 'Suka'}</span>
                 </button>
               </div>
