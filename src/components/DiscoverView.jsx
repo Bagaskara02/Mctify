@@ -98,7 +98,7 @@ export default function DiscoverView({
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">{greeting}</h1>
               {personalizedFeed?.isPersonalized && (
                 <p className="text-xs text-[#b3b3b3] mt-1 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#1ed760]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#3B82F6]" />
                   <span>Dipersonalisasi berdasarkan lagu & artis yang sering kamu putar</span>
                 </p>
               )}
@@ -111,7 +111,7 @@ export default function DiscoverView({
                 className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-xs font-semibold text-[#b3b3b3] hover:text-white flex items-center gap-1.5 transition-all border border-white/5 disabled:opacity-50"
                 title="Segarkan Rekomendasi Beranda"
               >
-                <RotateCw className={`w-3.5 h-3.5 ${isLoadingFeed ? 'animate-spin text-[#1ed760]' : ''}`} />
+                <RotateCw className={`w-3.5 h-3.5 ${isLoadingFeed ? 'animate-spin text-[#3B82F6]' : ''}`} />
                 <span className="hidden sm:inline">Segarkan</span>
               </button>
             )}
@@ -161,7 +161,7 @@ export default function DiscoverView({
 
                   {/* Circular Spotify Green Play Button */}
                   <div
-                    className={`mr-3 sm:mr-4 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-xl transition-all duration-200 hover:scale-105 active:scale-95 flex-shrink-0 ${
+                    className={`mr-3 sm:mr-4 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-xl transition-all duration-200 hover:scale-105 active:scale-95 flex-shrink-0 ${
                       isCurrent
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0'
@@ -213,7 +213,7 @@ export default function DiscoverView({
                       className="w-full h-full object-cover"
                     />
 
-                    <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
+                    <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all duration-300">
                       <Play className="w-4 h-4 fill-black ml-0.5" />
                     </div>
                   </div>
@@ -242,7 +242,7 @@ export default function DiscoverView({
                     {section.title}
                   </h2>
                   {section.badge && (
-                    <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#1ed760]/15 text-[#1ed760] border border-[#1ed760]/30">
+                    <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#3B82F6]/15 text-[#3B82F6] border border-[#3B82F6]/30">
                       {section.badge}
                     </span>
                   )}
@@ -295,9 +295,9 @@ export default function DiscoverView({
                         }`}
                       />
 
-                      {/* Floating Green Play Button */}
+                      {/* Floating Play Button */}
                       <div
-                        className={`absolute right-2 bottom-2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 ${
+                        className={`absolute right-2 bottom-2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 ${
                           isCurrent
                             ? 'opacity-100 translate-y-0'
                             : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'
@@ -334,7 +334,7 @@ export default function DiscoverView({
                             onToggleLike(t);
                           }}
                           className={`p-1.5 rounded-full transition-colors ${
-                            isLiked ? 'text-[#1ed760]' : 'text-[#b3b3b3] hover:text-white'
+                            isLiked ? 'text-[#3B82F6]' : 'text-[#b3b3b3] hover:text-white'
                           }`}
                           title="Sukai"
                         >

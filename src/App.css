@@ -11,8 +11,10 @@
   --text-subdued: #b3b3b3;
   --text-muted: #727272;
   
-  --spotify-green: #1ed760;
-  --spotify-green-hover: #3be477;
+  --mctify-blue: #3B82F6;
+  --mctify-blue-hover: #2563EB;
+  --spotify-green: #3B82F6;
+  --spotify-green-hover: #2563EB;
   
   --radius-panel: 8px;
   --radius-card: 6px;

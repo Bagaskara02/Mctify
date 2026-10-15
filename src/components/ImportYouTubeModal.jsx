@@ -218,7 +218,7 @@ export default function ImportYouTubeModal({
                 type="button"
                 onClick={handlePaste}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="text-xs text-[#1ed760] hover:underline flex items-center gap-1 font-semibold"
+                className="text-xs text-[#3B82F6] hover:underline flex items-center gap-1 font-semibold"
               >
                 <ClipboardPaste className="w-3.5 h-3.5" />
                 Tempel Link
@@ -236,7 +236,7 @@ export default function ImportYouTubeModal({
                   value={inputVal}
                   onChange={(e) => setInputVal(e.target.value)}
                   placeholder="https://youtu.be/... atau judul lagu"
-                  className="w-full pl-9 pr-3 py-2.5 bg-[#242424] rounded-md text-white placeholder-[#727272] text-xs focus:outline-none focus:ring-1 focus:ring-[#1ed760] transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 bg-[#242424] rounded-md text-white placeholder-[#727272] text-xs focus:outline-none focus:ring-1 focus:ring-[#3B82F6] transition-colors"
                 />
               </div>
 
@@ -244,7 +244,7 @@ export default function ImportYouTubeModal({
                 type="submit"
                 disabled={isLoading || !inputVal.trim()}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="px-4 py-2.5 rounded-md bg-[#1ed760] hover:bg-[#3be477] disabled:opacity-40 disabled:hover:bg-[#1ed760] text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md flex-shrink-0"
+                className="px-4 py-2.5 rounded-md bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-40 disabled:hover:bg-[#3B82F6] text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md flex-shrink-0"
               >
                 {isLoading ? (
                   <>
@@ -303,7 +303,7 @@ export default function ImportYouTubeModal({
                   type="button"
                   onClick={handlePlayNow}
                   onPointerDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-[#1ed760] hover:bg-[#3be477] text-black font-bold text-xs transition-colors"
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black font-bold text-xs transition-colors"
                 >
                   <Play className="w-3.5 h-3.5 fill-black" />
                   <span>{addedStatus === 'played' ? 'Sedang Diputar' : 'Putar Sekarang'}</span>
@@ -315,7 +315,7 @@ export default function ImportYouTubeModal({
                   onPointerDown={(e) => e.stopPropagation()}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors"
                 >
-                  <ListMusic className="w-3.5 h-3.5 text-[#1ed760]" />
+                  <ListMusic className="w-3.5 h-3.5 text-[#3B82F6]" />
                   <span>{addedStatus === 'next' ? 'Diputar Berikutnya' : 'Setelah Ini'}</span>
                 </button>
 
@@ -364,7 +364,7 @@ export default function ImportYouTubeModal({
                   onPointerDown={(e) => e.stopPropagation()}
                   className="px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 text-xs font-semibold flex items-center justify-center gap-1.5 text-[#b3b3b3] hover:text-white"
                 >
-                  <Heart className={`w-3.5 h-3.5 ${addedStatus === 'liked' ? 'fill-[#1ed760] text-[#1ed760]' : ''}`} />
+                  <Heart className={`w-3.5 h-3.5 ${addedStatus === 'liked' ? 'fill-[#3B82F6] text-[#3B82F6]' : ''}`} />
                   <span>{addedStatus === 'liked' ? 'Tersimpan' : 'Suka'}</span>
                 </button>
               </div>

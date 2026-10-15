@@ -154,12 +154,12 @@ export default function Sidebar({
               </div>
               <div className="truncate">
                 <p className={`text-sm font-semibold truncate ${
-                  currentView === 'liked' && !selectedPlaylistId ? 'text-[#1ed760]' : 'text-white'
+                  currentView === 'liked' && !selectedPlaylistId ? 'text-[#3B82F6]' : 'text-white'
                 }`}>
                   Lagu yang Disukai
                 </p>
                 <div className="flex items-center gap-1.5 text-xs text-[#b3b3b3] mt-0.5">
-                  <Pin className="w-3 h-3 text-[#1ed760] rotate-45 flex-shrink-0" />
+                  <Pin className="w-3 h-3 text-[#3B82F6] rotate-45 flex-shrink-0" />
                   <span className="truncate">Playlist • {likedCount} lagu</span>
                 </div>
               </div>
@@ -196,7 +196,7 @@ export default function Sidebar({
                   className="w-12 h-12 rounded-md object-cover flex-shrink-0 bg-[#282828]"
                 />
                 <div className="truncate">
-                  <p className={`text-sm font-semibold truncate ${isSelected ? 'text-[#1ed760]' : 'text-white'}`}>
+                  <p className={`text-sm font-semibold truncate ${isSelected ? 'text-[#3B82F6]' : 'text-white'}`}>
                     {pl.name}
                   </p>
                   <p className="text-xs text-[#b3b3b3] truncate mt-0.5">

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -36,7 +37,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   Timer? _userScrollTimer;
   double? _manualOffset;
   double _autoOffset = 0.0;
+  String _detectedStyle = 'pop';
+  String _selectedStyle = 'auto'; // 'auto' | 'pop' | 'ballad' | 'kinetic' | 'chill'
 
+  String get activeStyle => _selectedStyle == 'auto' ? _detectedStyle : _selectedStyle;
   bool get isAutoSync => _manualOffset == null;
   double get effectiveSyncOffset => isAutoSync ? _autoOffset : _manualOffset!;
 
@@ -79,6 +83,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         _activeLineIndex = 0;
         _manualOffset = null;
         _autoOffset = 0.0;
+        _detectedStyle = 'pop';
         _lastKnownPlayerSec = 0.0;
         _currentEffectiveSec = 0.0;
         _lastKnownTimestampMs = DateTime.now().millisecondsSinceEpoch;
@@ -149,6 +154,23 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     HapticFeedback.mediumImpact();
   }
 
+  void _cycleStyle() {
+    setState(() {
+      if (_selectedStyle == 'auto') {
+        _selectedStyle = 'pop';
+      } else if (_selectedStyle == 'pop') {
+        _selectedStyle = 'ballad';
+      } else if (_selectedStyle == 'ballad') {
+        _selectedStyle = 'kinetic';
+      } else if (_selectedStyle == 'kinetic') {
+        _selectedStyle = 'chill';
+      } else {
+        _selectedStyle = 'auto';
+      }
+    });
+    HapticFeedback.selectionClick();
+  }
+
   @override
   void dispose() {
     widget.player.removeListener(_onPlayerStateChanged);
@@ -169,6 +191,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
       setState(() {
         _lyrics = result.lines;
         _autoOffset = result.autoOffset;
+        _detectedStyle = result.detectedStyle;
         _isLoading = false;
         _lineKeys.clear();
       });
@@ -180,7 +203,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final key = _lineKeys[index];
     final lineCtx = key?.currentContext;
     if (lineCtx != null) {
-      // Anchors active line smoothly at 35% from the top of the viewport (Spotify standard)
+      // Anchors active line smoothly at 35% from the top of the viewport
       Scrollable.ensureVisible(
         lineCtx,
         alignment: 0.35,
@@ -188,7 +211,6 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         curve: Curves.easeOutCubic,
       );
     } else {
-      // Robust mathematical fallback if line is not mounted in view yet
       final viewport = _scrollController.position.viewportDimension;
       const avgItemHeight = 56.0;
       final target = (48.0 + (index * avgItemHeight)) - (viewport * 0.35);
@@ -197,6 +219,20 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         duration: const Duration(milliseconds: 380),
         curve: Curves.easeOutCubic,
       );
+    }
+  }
+
+  String _getStyleLabel(String st) {
+    switch (st) {
+      case 'ballad':
+        return '🌊 Balada';
+      case 'kinetic':
+        return '🔥 Rap';
+      case 'chill':
+        return '🌙 Santai';
+      case 'pop':
+      default:
+        return '⚡ Pop';
     }
   }
 
@@ -232,8 +268,8 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFF060B14),
-              Color(0xFF091424),
+              Color(0xFF04070D),
+              Color(0xFF07101E),
               Color(0xFF0C192E),
             ],
           ),
@@ -265,40 +301,86 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 1),
-                          Text(
-                            _currentTrack.artist,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppTheme.textMuted,
-                              fontSize: 12,
-                            ),
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _currentTrack.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppTheme.textMuted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Song Style Mode Selector Pill
+                              GestureDetector(
+                                onTap: _cycleStyle,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF3B82F6).withAlpha(35),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF3B82F6).withAlpha(80),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _selectedStyle == 'auto'
+                                        ? 'AUTO (${_getStyleLabel(_detectedStyle)})'
+                                        : _getStyleLabel(_selectedStyle),
+                                    style: const TextStyle(
+                                      color: Color(0xFF60A5FA),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                    // Auto Sync & Tuning Pill
+                    // Auto Sync & Tuning Pill with -0.5, -0.1, +0.1, +0.5 buttons
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: isAutoSync ? const Color(0xFF0F2231) : const Color(0xFF1F1D14),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
                           color: isAutoSync
-                              ? const Color(0xFF00E5FF).withAlpha(120)
+                              ? const Color(0xFF3B82F6).withAlpha(120)
                               : Colors.amberAccent.withAlpha(120),
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // -0.5s button
                           InkWell(
-                            onTap: () => _updateSyncOffset(-0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _updateSyncOffset(-0.5),
+                            borderRadius: BorderRadius.circular(6),
                             child: const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-                              child: Icon(Icons.remove, size: 13, color: Colors.white70),
+                              child: Text(
+                                '-.5',
+                                style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                          // -0.1s button
+                          InkWell(
+                            onTap: () => _updateSyncOffset(-0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+                              child: Icon(Icons.remove, size: 12, color: Colors.white70),
                             ),
                           ),
                           GestureDetector(
@@ -309,15 +391,15 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   if (isAutoSync) ...[
-                                    const Icon(Icons.bolt, size: 13, color: Color(0xFF00E5FF)),
+                                    const Icon(Icons.bolt, size: 12, color: Color(0xFF60A5FA)),
                                     const SizedBox(width: 2),
                                   ],
                                   Text(
                                     isAutoSync
-                                        ? 'AUTO SYNC'
+                                        ? 'AUTO'
                                         : '${effectiveSyncOffset >= 0 ? '+' : ''}${effectiveSyncOffset.toStringAsFixed(1)}s',
                                     style: TextStyle(
-                                      color: isAutoSync ? const Color(0xFF00E5FF) : Colors.amberAccent,
+                                      color: isAutoSync ? const Color(0xFF60A5FA) : Colors.amberAccent,
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: isAutoSync ? 0.4 : 0.0,
@@ -327,19 +409,32 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                               ),
                             ),
                           ),
+                          // +0.1s button
                           InkWell(
                             onTap: () => _updateSyncOffset(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(6),
                             child: const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
-                              child: Icon(Icons.add, size: 13, color: Colors.white70),
+                              child: Icon(Icons.add, size: 12, color: Colors.white70),
+                            ),
+                          ),
+                          // +0.5s button
+                          InkWell(
+                            onTap: () => _updateSyncOffset(0.5),
+                            borderRadius: BorderRadius.circular(6),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+                              child: Text(
+                                '+.5',
+                                style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
                           if (!isAutoSync) ...[
                             const SizedBox(width: 2),
                             GestureDetector(
                               onTap: _resetToAutoSync,
-                              child: const Icon(Icons.refresh, size: 12, color: Color(0xFF00E5FF)),
+                              child: const Icon(Icons.refresh, size: 12, color: Color(0xFF60A5FA)),
                             ),
                           ],
                         ],
@@ -353,7 +448,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
               Expanded(
                 child: _isLoading
                     ? const Center(
-                        child: CircularProgressIndicator(color: AppTheme.primaryAzure),
+                        child: CircularProgressIndicator(color: Color(0xFF3B82F6)),
                       )
                     : _lyrics.isEmpty
                         ? const Center(
@@ -388,25 +483,14 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                 final isPassed = index < _activeLineIndex;
                                 final itemKey = _lineKeys.putIfAbsent(index, () => GlobalKey());
 
-                                // Instrumental break
-                                if (line.isInstrumental) {
-                                  return Padding(
+                                // Instrumental break / interlude
+                                if (line.isInstrumental || line.isInterlude) {
+                                  return KeyedSubtree(
                                     key: itemKey,
-                                    padding: const EdgeInsets.symmetric(vertical: 20),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.music_note, color: AppTheme.primaryAzure, size: 18),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          line.text,
-                                          style: TextStyle(
-                                            color: isActive ? const Color(0xFF00E5FF) : Colors.white24,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 2.0,
-                                          ),
-                                        ),
-                                      ],
+                                    child: InterludeIndicator(
+                                      line: line,
+                                      currentTimeSec: effectiveSec,
+                                      isActive: isActive,
                                     ),
                                   );
                                 }
@@ -429,7 +513,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                         letterSpacing: -0.4,
                                       ),
                                       child: isActive && line.words.isNotEmpty
-                                          // Word-by-word with fluid character fade-geser
+                                          // Word-by-word with syllable & character fade wipe
                                           ? Wrap(
                                               spacing: 7.0,
                                               runSpacing: 6.0,
@@ -437,6 +521,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                                 return KaraokeWordWipe(
                                                   word: w,
                                                   currentTimeSec: effectiveSec,
+                                                  styleMode: activeStyle,
                                                   onTap: () {
                                                     widget.player.seek(
                                                       Duration(milliseconds: (w.startTime * 1000).toInt()),
@@ -457,7 +542,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                                 shadows: isActive
                                                     ? const [
                                                         Shadow(
-                                                          color: Color(0x9900A3FF),
+                                                          color: Color(0x993B82F6),
                                                           blurRadius: 18,
                                                         ),
                                                       ]
@@ -476,7 +561,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: const BoxDecoration(
-                  color: Color(0xFF091424),
+                  color: Color(0xFF07101E),
                   border: Border(top: BorderSide(color: Colors.white10)),
                 ),
                 child: Row(
@@ -496,7 +581,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 3.5,
-                          activeTrackColor: AppTheme.primaryAzure,
+                          activeTrackColor: const Color(0xFF3B82F6),
                           inactiveTrackColor: Colors.white12,
                           thumbColor: Colors.white,
                           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
@@ -528,18 +613,86 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   }
 }
 
-/// Syllable / Word Karaoke Fade-Wipe Widget (Apple Music & Lyra style)
-/// Sweeps smoothly across letters from left to right as the singer sings ("BA GUS", etc.)
+/// Instrumental Interlude Indicator with 3 pulsing/filling dots
+class InterludeIndicator extends StatelessWidget {
+  final LyricLine line;
+  final double currentTimeSec;
+  final bool isActive;
+
+  const InterludeIndicator({
+    super.key,
+    required this.line,
+    required this.currentTimeSec,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dur = math.max(0.5, line.endTime - line.time);
+    final progress = ((currentTimeSec - line.time) / dur).clamp(0.0, 1.0);
+    final dot1 = progress >= 0.1;
+    final dot2 = progress >= 0.45;
+    final dot3 = progress >= 0.8;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Row(
+        children: [
+          const Icon(Icons.music_note, color: Color(0xFF3B82F6), size: 18),
+          const SizedBox(width: 8),
+          Text(
+            'MUSIK',
+            style: TextStyle(
+              color: isActive ? const Color(0xFF60A5FA) : Colors.white24,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2.0,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Row(
+            children: [
+              _buildDot(dot1),
+              const SizedBox(width: 6),
+              _buildDot(dot2),
+              const SizedBox(width: 6),
+              _buildDot(dot3),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDot(bool isFilled) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: isFilled && isActive ? 8 : 6,
+      height: isFilled && isActive ? 8 : 6,
+      decoration: BoxDecoration(
+        color: isFilled && isActive ? const Color(0xFF3B82F6) : Colors.white24,
+        shape: BoxShape.circle,
+        boxShadow: isFilled && isActive
+            ? const [BoxShadow(color: Color(0x993B82F6), blurRadius: 8, spreadRadius: 1)]
+            : null,
+      ),
+    );
+  }
+}
+
+/// Syllable / Word Karaoke Fade-Wipe Widget with adaptive styles
 class KaraokeWordWipe extends StatelessWidget {
   final LyricWord word;
   final double currentTimeSec;
   final VoidCallback onTap;
+  final String styleMode;
 
   const KaraokeWordWipe({
     super.key,
     required this.word,
     required this.currentTimeSec,
     required this.onTap,
+    this.styleMode = 'pop',
   });
 
   @override
@@ -559,71 +712,93 @@ class KaraokeWordWipe extends StatelessWidget {
 
     final isActivelySinging = progress > 0.0 && progress < 1.0;
 
+    double scale = 1.0;
+    double dy = 0.0;
+    if (isActivelySinging) {
+      if (styleMode == 'pop') {
+        scale = 1.06;
+        dy = -2.0;
+      } else if (styleMode == 'ballad') {
+        scale = 1.03;
+        dy = -1.0;
+      } else if (styleMode == 'kinetic') {
+        scale = 1.04;
+      } else {
+        scale = 1.02;
+      }
+    }
+
     return GestureDetector(
       onTap: onTap,
-      child: isActivelySinging
-          ? ShaderMask(
-              shaderCallback: (Rect bounds) {
-                // Smooth gradient wipe band across the letters of the word
-                final p = progress.clamp(0.0, 1.0);
-                final stopA = (p - 0.06).clamp(0.0, 1.0);
-                final stopB = (p + 0.06).clamp(0.0, 1.0);
+      child: Transform.translate(
+        offset: Offset(0, dy),
+        child: Transform.scale(
+          scale: scale,
+          alignment: Alignment.centerLeft,
+          child: isActivelySinging
+              ? ShaderMask(
+                  shaderCallback: (Rect bounds) {
+                    final p = progress.clamp(0.0, 1.0);
+                    final stopA = (p - 0.06).clamp(0.0, 1.0);
+                    final stopB = (p + 0.06).clamp(0.0, 1.0);
 
-                return LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: const [
-                    Color(0xFFFFFFFF),
-                    Color(0xFF00E5FF), // Neon cyan highlight on current syllable
-                    Color(0x60FFFFFF), // Dimmed upcoming letters
-                    Color(0x60FFFFFF),
-                  ],
-                  stops: [
-                    0.0,
-                    stopA,
-                    stopB,
-                    1.0,
-                  ],
-                ).createShader(bounds);
-              },
-              blendMode: BlendMode.srcIn,
-              child: Text(
-                word.word,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w900,
-                  height: 1.35,
-                  letterSpacing: -0.4,
-                  shadows: [
-                    Shadow(
-                      color: Color(0xCC00E5FF),
-                      blurRadius: 16,
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : Text(
-              word.word,
-              style: TextStyle(
-                color: progress >= 1.0
-                    ? Colors.white
-                    : Colors.white.withAlpha(85),
-                fontSize: progress >= 1.0 ? 26 : 25,
-                fontWeight: progress >= 1.0 ? FontWeight.w800 : FontWeight.w600,
-                height: 1.35,
-                letterSpacing: -0.4,
-                shadows: progress >= 1.0
-                    ? const [
+                    return LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: const [
+                        Color(0xFFFFFFFF),
+                        Color(0xFF60A5FA), // Neon electric blue highlight
+                        Color(0x60FFFFFF),
+                        Color(0x60FFFFFF),
+                      ],
+                      stops: [
+                        0.0,
+                        stopA,
+                        stopB,
+                        1.0,
+                      ],
+                    ).createShader(bounds);
+                  },
+                  blendMode: BlendMode.srcIn,
+                  child: Text(
+                    word.word,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 27,
+                      fontWeight: FontWeight.w900,
+                      height: 1.35,
+                      letterSpacing: -0.4,
+                      shadows: [
                         Shadow(
-                          color: Color(0x6600A3FF),
-                          blurRadius: 10,
+                          color: Color(0xCC3B82F6),
+                          blurRadius: 16,
                         ),
-                      ]
-                    : null,
-              ),
-            ),
+                      ],
+                    ),
+                  ),
+                )
+              : Text(
+                  word.word,
+                  style: TextStyle(
+                    color: progress >= 1.0
+                        ? Colors.white
+                        : Colors.white.withAlpha(85),
+                    fontSize: progress >= 1.0 ? 26 : 25,
+                    fontWeight: progress >= 1.0 ? FontWeight.w800 : FontWeight.w600,
+                    height: 1.35,
+                    letterSpacing: -0.4,
+                    shadows: progress >= 1.0
+                        ? const [
+                            Shadow(
+                              color: Color(0x663B82F6),
+                              blurRadius: 10,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+        ),
+      ),
     );
   }
 }
