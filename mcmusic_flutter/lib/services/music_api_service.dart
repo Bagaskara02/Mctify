@@ -126,14 +126,44 @@ class MusicApiService {
       return _streamCache[cleanKey];
     }
 
+    // 1. Primary: McMusic Vercel Backend API (powered by youtubei.js YouTube Music)
+    // Instant ~120ms response, strictly returns official studio album audio tracks (Topic tracks), 0 skits.
+    try {
+      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?q=${Uri.encodeComponent('$title $artist')}&duration=${expectedDuration ?? 0}');
+      final res = await http.get(url).timeout(const Duration(milliseconds: 3500));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final vid = data['videoId'] as String?;
+        final resDur = (data['duration'] as num?)?.toInt();
+        final isDurAcceptable = expectedDuration == null ||
+            expectedDuration == 0 ||
+            resDur == null ||
+            (resDur - expectedDuration).abs() <= 20;
+
+        if (vid != null && vid.isNotEmpty && isDurAcceptable) {
+          _streamCache[cleanKey] = vid;
+          return vid;
+        }
+      }
+    } catch (e) {
+      debugPrint('resolveVideoId Vercel backend error: $e');
+    }
+
+    // 2. Fallback: Search via YoutubeExplode with Smart Candidate Scoring
     final yt = YoutubeExplode();
     try {
-      // 1. Primary: Search via YoutubeExplode
-      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
-      if (searchResults.isNotEmpty) {
-        final scored = searchResults.map((v) {
+      // Query with 'audio' first to find clean studio tracks over 40s-skit music videos
+      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist audio').timeout(const Duration(seconds: 4));
+      var pool = searchResults.take(10).toList();
+      if (pool.isEmpty) {
+        final broadResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
+        pool = broadResults.take(10).toList();
+      }
+
+      if (pool.isNotEmpty) {
+        final scored = pool.map((v) {
           final dur = v.duration?.inSeconds;
-          final score = _scoreCandidate(v.title, sanitizedTitle, firstArtist, dur, expectedDuration);
+          final score = _scoreCandidate(v.title, v.author, sanitizedTitle, firstArtist, dur, expectedDuration);
           return MapEntry(v.id.value, score);
         }).toList();
 
@@ -143,12 +173,12 @@ class MusicApiService {
         return bestId;
       }
     } catch (e) {
-      debugPrint('resolveVideoId primary error: $e');
+      debugPrint('resolveVideoId YoutubeExplode error: $e');
     } finally {
       yt.close();
     }
 
-    // 2. Fallback: YouTube Music WEB_REMIX API
+    // 3. Fallback: YouTube Music WEB_REMIX API
     try {
       final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
       final body = jsonEncode({
@@ -171,7 +201,7 @@ class MusicApiService {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         },
         body: body,
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200) {
         final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
@@ -183,22 +213,6 @@ class MusicApiService {
       }
     } catch (e) {
       debugPrint('resolveVideoId WEB_REMIX fallback error: $e');
-    }
-
-    // 3. Fallback: McMusic Vercel Backend API (powered by youtubei.js)
-    try {
-      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?q=${Uri.encodeComponent('$title $artist')}&duration=${expectedDuration ?? 0}');
-      final res = await http.get(url).timeout(const Duration(seconds: 6));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final vid = data['videoId'] as String?;
-        if (vid != null && vid.isNotEmpty) {
-          _streamCache[cleanKey] = vid;
-          return vid;
-        }
-      }
-    } catch (e) {
-      debugPrint('resolveVideoId Vercel backend error: $e');
     }
 
     return null;
@@ -219,57 +233,7 @@ class MusicApiService {
 
     final yt = YoutubeExplode();
     try {
-      String? bestVideoId;
-
-      // 1. First attempt: Search via YoutubeExplode with candidate ranking
-      try {
-        final searchResults = await yt.search.search('$title $artist').timeout(const Duration(seconds: 6));
-        if (searchResults.isNotEmpty) {
-          final scored = searchResults.map((v) {
-            final dur = v.duration?.inSeconds;
-            final score = _scoreCandidate(v.title, title, artist, dur, expectedDurationSeconds);
-            return MapEntry(v.id.value, score);
-          }).toList();
-
-          scored.sort((a, b) => b.value.compareTo(a.value));
-          bestVideoId = scored.first.key;
-        }
-      } catch (e) {
-        debugPrint('YoutubeExplode search note: $e');
-      }
-
-      // 2. Second attempt: Fallback to YouTube Music WEB_REMIX API
-      if (bestVideoId == null) {
-        try {
-          final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
-          final body = jsonEncode({
-            'context': {
-              'client': {
-                'clientName': 'WEB_REMIX',
-                'clientVersion': '1.20240101.01.00',
-                'hl': 'id',
-                'gl': 'ID',
-              }
-            },
-            'query': '$title $artist',
-          });
-
-          final res = await http.post(
-            url,
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            },
-            body: body,
-          ).timeout(const Duration(seconds: 5));
-
-          if (res.statusCode == 200) {
-            final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
-            bestVideoId = match?.group(1);
-          }
-        } catch (_) {}
-      }
+      final bestVideoId = await resolveVideoId(title, artist, expectedDurationSeconds);
 
       if (bestVideoId != null) {
         final manifest = await yt.videos.streamsClient.getManifest(bestVideoId);
@@ -321,12 +285,16 @@ class MusicApiService {
 
   static int _scoreCandidate(
     String videoTitle,
+    String videoAuthor,
     String title,
     String artist, [
     int? videoDurationSeconds,
     int? expectedDurationSeconds,
   ]) {
-    final lower = videoTitle.toLowerCase();
+    final lowerTitle = videoTitle.toLowerCase();
+    final lowerAuthor = videoAuthor.toLowerCase();
+    final combined = '$lowerTitle $lowerAuthor';
+
     final normVideo = _normalizeQuery(videoTitle);
     final coreTitle = extractCoreTitle(title);
     final normCoreTitle = _normalizeQuery(coreTitle);
@@ -349,10 +317,10 @@ class MusicApiService {
     }
 
     // 2. Artist match bonus
-    if (normVideo.contains(normArtist)) {
-      score += 150;
-    } else if (normVideo.contains(firstArtist)) {
-      score += 80;
+    if (normVideo.contains(normArtist) || lowerAuthor.contains(artist.toLowerCase())) {
+      score += 200;
+    } else if (normVideo.contains(firstArtist) || lowerAuthor.contains(firstArtist)) {
+      score += 100;
     }
 
     final isAcousticRequested = cleanTitle.contains('acoustic');
@@ -363,45 +331,47 @@ class MusicApiService {
 
     // Symmetrical version scoring:
     if (isAcousticRequested) {
-      if (lower.contains('acoustic')) {
+      if (combined.contains('acoustic')) {
         score += 750;
         // Prefer clean studio acoustic release (zero intro dialogue/monologue) over live session videos
-        if (lower.contains('topic') || lower.contains('official audio') || !lower.contains('live')) {
-          score += 300;
+        if (lowerAuthor.contains('- topic') || lowerTitle.contains('official audio') || !combined.contains('live')) {
+          score += 350;
         }
       } else {
         score -= 900;
       }
     } else {
-      if (lower.contains('acoustic')) score -= 850;
+      if (combined.contains('acoustic')) score -= 850;
     }
 
     if (isRemixRequested) {
-      if (lower.contains('remix')) {
+      if (combined.contains('remix')) {
         score += 750;
       } else {
         score -= 900;
       }
     } else {
-      if (lower.contains('remix')) score -= 850;
+      if (combined.contains('remix')) score -= 850;
     }
 
     if (isLiveRequested) {
-      if (lower.contains('live') || lower.contains('concert') || lower.contains('konser')) {
+      if (combined.contains('live') || combined.contains('concert') || combined.contains('konser')) {
         score += 750;
       } else {
         score -= 900;
       }
     } else if (!isAcousticRequested) {
-      if (lower.contains('live') || lower.contains('concert') || lower.contains('konser')) {
+      if (combined.contains('live') || combined.contains('concert') || combined.contains('konser')) {
         score -= 850;
       }
     }
 
     if (isSessionRequested || isStrippedRequested) {
-      if (lower.contains('session') || lower.contains('stripped')) {
+      if (combined.contains('session') || combined.contains('stripped')) {
         score += 750;
       }
+    } else if (!isAcousticRequested && combined.contains('session')) {
+      score -= 600;
     }
 
     final unwanted = [
@@ -415,26 +385,43 @@ class MusicApiService {
     }
 
     for (final term in unwanted) {
-      if (lower.contains(term) && !cleanTitle.contains(term)) {
+      if (combined.contains(term) && !cleanTitle.contains(term)) {
         score -= 850;
       }
     }
 
-    // Prioritize official clean studio audio (topic track or official audio) to eliminate skits/intro talking
-    if (lower.contains('- topic') || lower.contains('official audio') || lower.contains('provided to youtube by')) {
-      score += 350;
-    } else if (lower.contains('official video') || lower.contains('official music video')) {
-      score += 180;
+    // HEAVY BOOST FOR CLEAN STUDIO AUDIO (Topic track or Official Audio)
+    if (lowerAuthor.contains('- topic') || lowerTitle.contains('- topic') || combined.contains('official audio') || combined.contains('provided to youtube by')) {
+      score += 650;
     }
 
+    // HEAVY PENALTY FOR MUSIC VIDEOS (Cinematic skits, pool dialogue, film intros desync lyrics & ruin listening!)
+    final isMv = combined.contains('music video') ||
+        combined.contains('official video') ||
+        combined.contains('official music video') ||
+        combined.contains('video klip') ||
+        combined.contains('clip officiel') ||
+        combined.contains('visualizer') ||
+        RegExp(r'[\(\[]\s*(mv|official mv)\s*[\)\]]', caseSensitive: false).hasMatch(videoTitle);
+
+    if (isMv) {
+      score -= 750;
+    }
+
+    // Duration matching
     if (videoDurationSeconds != null && expectedDurationSeconds != null && expectedDurationSeconds > 0) {
       final diff = (videoDurationSeconds - expectedDurationSeconds).abs();
-      if (diff <= 3) {
+      if (diff <= 2) {
+        score += 300;
+      } else if (diff <= 5) {
         score += 150;
       } else if (diff <= 10) {
-        score += 80;
-      } else if (diff > 35) {
-        score -= 250;
+        score += 50;
+      } else if (diff > 12) {
+        score -= 400;
+      }
+      if (diff > 25) {
+        score -= 900;
       }
     }
     return score;

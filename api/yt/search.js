@@ -102,6 +102,8 @@ export default async function handler(req, res) {
       return items.map(item => {
         const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
         const normTitle = titleStr.toLowerCase();
+        const authorStr = (item.artists?.[0]?.name || item.author?.name || '').toLowerCase();
+        const combined = `${normTitle} ${authorStr}`;
         let score = 1000;
 
         // 1. Core title check: Disqualify completely if candidate doesn't even contain the core title!
@@ -119,54 +121,71 @@ export default async function handler(req, res) {
 
         // Two-way symmetric version matching
         if (isAcousticRequested) {
-          if (normTitle.includes('acoustic')) {
+          if (combined.includes('acoustic')) {
             score += 750;
-            if (normTitle.includes('topic') || normTitle.includes('official audio') || !normTitle.includes('live')) {
-              score += 300;
+            if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || !combined.includes('live')) {
+              score += 350;
             }
           } else {
             score -= 900;
           }
         } else {
-          if (normTitle.includes('acoustic')) score -= 850;
+          if (combined.includes('acoustic')) score -= 850;
         }
 
         if (isRemixRequested) {
-          if (normTitle.includes('remix')) score += 750;
+          if (combined.includes('remix')) score += 750;
           else score -= 900;
         } else {
-          if (normTitle.includes('remix')) score -= 850;
+          if (combined.includes('remix')) score -= 850;
         }
 
         if (isLiveRequested) {
-          if (normTitle.includes('live') || normTitle.includes('concert') || normTitle.includes('konser')) score += 750;
+          if (combined.includes('live') || combined.includes('concert') || combined.includes('konser')) score += 750;
           else score -= 900;
         } else if (!isAcousticRequested) {
-          if (normTitle.includes('live') || normTitle.includes('concert') || normTitle.includes('konser')) score -= 850;
+          if (combined.includes('live') || combined.includes('concert') || combined.includes('konser')) score -= 850;
         }
 
         if (isSessionRequested || isStrippedRequested) {
-          if (normTitle.includes('session') || normTitle.includes('stripped')) score += 750;
+          if (combined.includes('session') || combined.includes('stripped')) score += 750;
+        } else if (!isAcousticRequested && combined.includes('session')) {
+          score -= 600;
         }
 
         for (const kw of activeUnwanted) {
-          if (normTitle.includes(kw)) {
+          if (combined.includes(kw)) {
             score -= 850;
           }
         }
 
-        if (normTitle.includes('- topic') || normTitle.includes('official audio') || normTitle.includes('provided to youtube by')) {
-          score += 350;
-        } else if (normTitle.includes('official video') || normTitle.includes('official music video')) {
-          score += 180;
+        // Heavy boost for clean studio audio (Topic track, Official Audio)
+        if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || combined.includes('provided to youtube by')) {
+          score += 650;
         }
 
+        // Heavy penalty for Music Videos (skits, pool dialogue, film intros desync lyrics & ruin listening!)
+        const isMv = combined.includes('music video') ||
+          combined.includes('official video') ||
+          combined.includes('official music video') ||
+          combined.includes('video klip') ||
+          combined.includes('clip officiel') ||
+          combined.includes('visualizer') ||
+          /\b(mv|official mv)\b/i.test(normTitle);
+
+        if (isMv) {
+          score -= 750;
+        }
+
+        // Duration matching
         if (targetDuration > 0) {
           const dur = getDurationSec(item);
           const diff = Math.abs(dur - targetDuration);
-          if (diff <= 3) score += 150;
-          else if (diff <= 10) score += 80;
-          else if (diff > 35) score -= 250;
+          if (diff <= 2) score += 350;
+          else if (diff <= 5) score += 150;
+          else if (diff <= 10) score += 50;
+          else if (diff > 12) score -= 450;
+          if (diff > 25) score -= 1200;
         }
 
         return { item, score };
