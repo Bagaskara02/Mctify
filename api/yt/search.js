@@ -60,15 +60,24 @@ export default async function handler(req, res) {
     }
 
     const yt = await getYT();
-    const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
+    const qLower = q.toLowerCase();
+    const isAcousticRequested = qLower.includes('acoustic');
+    const isRemixRequested = qLower.includes('remix');
+    const isLiveRequested = qLower.includes('live') || qLower.includes('concert') || qLower.includes('konser');
+    const isSessionRequested = qLower.includes('session');
+    const isStrippedRequested = qLower.includes('stripped') || qLower.includes('piano');
+
     const unwantedKeywords = [
-      'brooklyn session', 'session', 'live', 'concert', 'konser', 'tour',
-      'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan',
+      '10 years', 'tribute', 'karaoke', 'terjemahan',
       'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
       'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
       'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
     ];
-    const activeUnwanted = unwantedKeywords.filter(kw => !q.toLowerCase().includes(kw));
+    if (!isAcousticRequested && !isSessionRequested) {
+      unwantedKeywords.push('brooklyn session', 'session');
+    }
+
+    const activeUnwanted = unwantedKeywords.filter(kw => !qLower.includes(kw));
 
     const getDurationSec = (item) => {
       if (item.duration?.seconds) return item.duration.seconds;
@@ -84,6 +93,32 @@ export default async function handler(req, res) {
         const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
         const normTitle = titleStr.toLowerCase();
         let score = 1000;
+
+        // Two-way symmetric version matching
+        if (isAcousticRequested) {
+          if (normTitle.includes('acoustic')) score += 750;
+          else score -= 900;
+        } else {
+          if (normTitle.includes('acoustic')) score -= 850;
+        }
+
+        if (isRemixRequested) {
+          if (normTitle.includes('remix')) score += 750;
+          else score -= 900;
+        } else {
+          if (normTitle.includes('remix')) score -= 850;
+        }
+
+        if (isLiveRequested) {
+          if (normTitle.includes('live') || normTitle.includes('concert') || normTitle.includes('konser')) score += 750;
+          else score -= 900;
+        } else if (!isAcousticRequested) {
+          if (normTitle.includes('live') || normTitle.includes('concert') || normTitle.includes('konser')) score -= 850;
+        }
+
+        if (isSessionRequested || isStrippedRequested) {
+          if (normTitle.includes('session') || normTitle.includes('stripped')) score += 750;
+        }
 
         for (const kw of activeUnwanted) {
           if (normTitle.includes(kw)) {

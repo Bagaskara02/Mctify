@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -327,23 +326,65 @@ class MusicApiService {
     if (lower.contains(cleanTitle)) score += 60;
     if (lower.contains(cleanArtist)) score += 40;
 
-    final unwanted = [
-      'brooklyn session', 'session', 'live', 'concert', 'konser', 'tour',
-      'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan',
-      'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
-      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
-      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
-    ];
-    for (final term in unwanted) {
-      if (lower.contains(term) && !cleanTitle.contains(term)) {
+    final isAcousticRequested = cleanTitle.contains('acoustic');
+    final isRemixRequested = cleanTitle.contains('remix');
+    final isLiveRequested = cleanTitle.contains('live') || cleanTitle.contains('concert') || cleanTitle.contains('konser');
+    final isSessionRequested = cleanTitle.contains('session');
+    final isStrippedRequested = cleanTitle.contains('stripped') || cleanTitle.contains('piano');
+
+    // Symmetrical version scoring:
+    if (isAcousticRequested) {
+      if (lower.contains('acoustic')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
+    } else {
+      if (lower.contains('acoustic')) score -= 850;
+    }
+
+    if (isRemixRequested) {
+      if (lower.contains('remix')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
+    } else {
+      if (lower.contains('remix')) score -= 850;
+    }
+
+    if (isLiveRequested) {
+      if (lower.contains('live') || lower.contains('concert') || lower.contains('konser')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
+    } else if (!isAcousticRequested) {
+      // Acoustic performances on YouTube are frequently titled "Acoustic Live" or "Live Sessions"
+      if (lower.contains('live') || lower.contains('concert') || lower.contains('konser')) {
         score -= 850;
       }
     }
 
-    // Explicit bonus if requested version is matched
-    for (final term in ['brooklyn session', 'acoustic', 'remix', 'live', 'session']) {
-      if (cleanTitle.contains(term) && lower.contains(term)) {
-        score += 80;
+    if (isSessionRequested || isStrippedRequested) {
+      if (lower.contains('session') || lower.contains('stripped')) {
+        score += 750;
+      }
+    }
+
+    final unwanted = [
+      '10 years', 'tribute', 'karaoke', 'terjemahan',
+      'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
+      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
+      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
+    ];
+    if (!isAcousticRequested && !isSessionRequested) {
+      unwanted.addAll(['brooklyn session', 'session']);
+    }
+
+    for (final term in unwanted) {
+      if (lower.contains(term) && !cleanTitle.contains(term)) {
+        score -= 850;
       }
     }
 
@@ -571,6 +612,7 @@ class MusicApiService {
           final artist = (item['artist']?['name'] ?? '').toString();
           if (title.isNotEmpty) {
             final tid = 'dz_${item['id']}';
+            final rank = (item['rank'] as num?)?.toInt() ?? 0;
             list.add(Track(
               id: tid,
               title: title,
@@ -581,6 +623,43 @@ class MusicApiService {
               duration: (item['duration'] as num?)?.toInt() ?? 180,
               streamCount: '${(80 + list.length * 12)}.000.000',
               isExplicit: item['explicit_lyrics'] == true,
+              popularity: rank,
+            ));
+          }
+        }
+      }
+    } catch (_) {}
+    return list;
+  }
+
+  // Parallelized fast search helper: YouTube Music Multi-Catalog (Popularity-ordered Hits)
+  Future<List<Track>> _searchYoutubeMusic(String query) async {
+    final List<Track> list = [];
+    try {
+      final url = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent(query)}');
+      final res = await http.get(url).timeout(const Duration(milliseconds: 3200));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final songs = (data['songs'] as List? ?? []);
+        for (int i = 0; i < songs.length; i++) {
+          final s = songs[i];
+          final title = (s['title'] ?? '').toString();
+          final artist = (s['artist'] ?? '').toString();
+          final vid = (s['videoId'] ?? s['id'] ?? '').toString();
+          if (title.isNotEmpty) {
+            final pop = (850000 - (i * 25000)).clamp(200000, 850000);
+            list.add(Track(
+              id: 'yt_$vid',
+              videoId: vid,
+              title: title,
+              artist: artist,
+              album: (s['album'] ?? 'Single').toString(),
+              artwork: (s['artwork'] ?? defaultArtwork).toString(),
+              audioUrl: '',
+              duration: (s['duration'] as num?)?.toInt() ?? 180,
+              streamCount: '${(300 - i * 10).clamp(50, 950)}.000.000',
+              isExplicit: false,
+              popularity: pop,
             ));
           }
         }
@@ -614,14 +693,37 @@ class MusicApiService {
   }
 
   static String _normalizeQuery(String s) {
-    return s
+    final base = s
         .toLowerCase()
         .replaceAll('ü', 'u')
         .replaceAll(RegExp(r"['’´`]"), '')
         .replaceAll(RegExp(r'[\(\)\[\]\-–—.,\/#!$%\^&\*;:{}=\_`~?]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+
+    // Expand common abbreviations so informal queries find global studio titles
+    final expanded = base.split(' ').map((t) {
+      if (t == 'u') return 'you';
+      if (t == 'ur') return 'your';
+      if (t == 'r') return 'are';
+      if (t == 'im') return 'i am';
+      if (t == 'ft' || t == 'feat') return 'featuring';
+      return t;
+    }).toList();
+
+    return expanded.join(' ');
   }
+
+  static const List<String> _superstarArtists = [
+    'justin bieber', 'dj khaled', 'the weeknd', 'taylor swift', 'bruno mars',
+    'billie eilish', 'coldplay', 'ed sheeran', 'ariana grande', 'drake',
+    'post malone', 'dua lipa', 'eminem', 'rihanna', 'maroon 5', 'shawn mendes',
+    'charlie puth', 'sam smith', 'adele', 'katy perry', 'harry styles',
+    'olivia rodrigo', 'kendrick lamar', 'travis scott', 'sza', 'bts', 'blackpink',
+    'niki', 'rich brian', 'bernadya', 'sal priadi', 'hindia', 'mahalini',
+    'tulus', 'juicy luicy', 'sheila on 7', 'dewa 19', 'noah', 'tiara andini',
+    'lyodra', 'yura yunita', 'pamungkas', 'feby putri', 'fiersa besari', 'glenn fredly'
+  ];
 
   static int _calculateSearchRelevance(Track track, String rawQuery) {
     final qNorm = _normalizeQuery(rawQuery);
@@ -674,20 +776,64 @@ class MusicApiService {
     final matchRatio = matchedTokens / qTokens.length;
     score += (matchRatio * 700).round();
 
+    // 1. Prefix match bonus (Spotify-like instant hit suggestion on short prefixes like "im the ")
+    if (tTitle.startsWith(qNorm)) {
+      score += 550;
+    } else if (combined.startsWith(qNorm)) {
+      score += 400;
+    }
+
     // Exact phrase match bonus
     if (tTitle.contains(qNorm) || combined.contains(qNorm)) {
       score += 450;
     }
     if (tTitle == qNorm) {
-      score += 600;
+      score += 650;
+    }
+
+    // 2. Global Popularity Boost (Deezer rank & YouTube Music stream weighting)
+    if (track.popularity > 0) {
+      score += ((track.popularity / 1000) * 0.85).round();
+    }
+
+    // 3. Superstar / Global Hitmaker artist bonus
+    if (_superstarArtists.any((art) => tArtist.contains(art))) {
+      score += 450;
+    }
+
+    // 4. Two-way version scoring for search (acoustic, remix, live)
+    final isAcousticRequested = qNorm.contains('acoustic');
+    final isRemixRequested = qNorm.contains('remix');
+    final isLiveRequested = qNorm.contains('live') || qNorm.contains('concert') || qNorm.contains('konser');
+
+    if (isAcousticRequested) {
+      if (tTitle.contains('acoustic')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
+    }
+    if (isRemixRequested) {
+      if (tTitle.contains('remix')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
+    }
+    if (isLiveRequested) {
+      if (tTitle.contains('live') || tTitle.contains('concert')) {
+        score += 750;
+      } else {
+        score -= 900;
+      }
     }
 
     // HEAVY PENALTIES FOR NON-ORIGINAL TRACKS (Remix, Live, Concert, Cover, Karaoke, Tribute, Slowed)
     const junkTerms = [
-      'remix', 'live', 'concert', 'konser', 'tour', 'cover', 'karaoke',
-      'instrumental', 'tribute', 'parodi', 'parody', 'sped up', 'slowed',
-      'reverb', 'nightcore', 'reaction', 'tutorial', 'originally performed',
-      'in the style of', 'backing track', 'guitar cover', 'piano cover', 'acoustic cover'
+      'cover', 'karaoke', 'instrumental', 'tribute', 'parodi', 'parody',
+      'sped up', 'slowed', 'reverb', 'nightcore', 'reaction', 'tutorial',
+      'originally performed', 'in the style of', 'backing track',
+      'guitar cover', 'piano cover', 'acoustic cover'
     ];
 
     for (final term in junkTerms) {
@@ -698,6 +844,14 @@ class MusicApiService {
       } else {
         score += 300;
       }
+    }
+
+    if (!isRemixRequested && !qNorm.contains('remix') && tTitle.contains('remix')) {
+      score -= 850;
+    }
+    if (!isLiveRequested && !isAcousticRequested && !qNorm.contains('live') &&
+        (tTitle.contains('live') || tTitle.contains('concert') || tTitle.contains('konser'))) {
+      score -= 850;
     }
 
     // STUDIO ORIGINAL BONUS
@@ -711,7 +865,7 @@ class MusicApiService {
     return score;
   }
 
-  // Search tracks across query (Parallel iTunes + Deezer with Studio Original Priority)
+  // Search tracks across query (Parallel Deezer + iTunes + YouTube Music with Popularity & Studio Original Priority)
   Future<List<Track>> searchTracks(String query) async {
     final cleanQ = query.trim().toLowerCase();
     if (cleanQ.isEmpty) return [];
@@ -719,13 +873,14 @@ class MusicApiService {
     final List<Track> results = [];
     final Set<String> seenKeys = <String>{};
 
-    // 1. Run iTunes & Deezer in parallel for instant response (<400ms)
+    // 1. Run Deezer, iTunes & YouTube Music in parallel for instant response (<400ms)
     final responses = await Future.wait([
-      _searchItunes(query),
       _searchDeezer(query),
+      _searchItunes(query),
+      _searchYoutubeMusic(query),
     ]);
 
-    final rawPool = <Track>[...responses[0], ...responses[1]];
+    final rawPool = <Track>[...responses[0], ...responses[1], ...responses[2]];
 
     // 2. Score and deduplicate candidates by studio original relevance and typo tolerance
     rawPool.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));

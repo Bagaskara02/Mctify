@@ -9,6 +9,7 @@ class Track {
   final String? videoId;
   final String streamCount;
   final bool isExplicit;
+  final int popularity;
 
   Track({
     required this.id,
@@ -21,6 +22,7 @@ class Track {
     this.videoId,
     this.streamCount = '120.450.000',
     this.isExplicit = false,
+    this.popularity = 0,
   }) : artwork = toHighResArtwork(artwork);
 
   static String toHighResArtwork(String url) {
@@ -66,6 +68,7 @@ class Track {
     String? videoId,
     String? streamCount,
     bool? isExplicit,
+    int? popularity,
   }) {
     return Track(
       id: id ?? this.id,
@@ -78,6 +81,7 @@ class Track {
       videoId: videoId ?? this.videoId,
       streamCount: streamCount ?? this.streamCount,
       isExplicit: isExplicit ?? this.isExplicit,
+      popularity: popularity ?? this.popularity,
     );
   }
 
@@ -92,6 +96,7 @@ class Track {
     'videoId': videoId,
     'streamCount': streamCount,
     'isExplicit': isExplicit,
+    'popularity': popularity,
   };
 
   factory Track.fromJson(Map<String, dynamic> json) => Track(
@@ -105,5 +110,6 @@ class Track {
     videoId: json['videoId'],
     streamCount: json['streamCount'] ?? '120.450.000',
     isExplicit: json['isExplicit'] ?? false,
+    popularity: (json['popularity'] as num?)?.toInt() ?? 0,
   );
 }

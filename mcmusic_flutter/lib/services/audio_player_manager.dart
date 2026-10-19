@@ -31,6 +31,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _isLoadingRecommendations = false;
   bool _hasPrefetchedNextTrack = false;
   Timer? _backgroundWatchdogTimer;
+  Duration _lastWatchdogPosition = Duration.zero;
+  int _watchdogStallCount = 0;
 
   // Sleep Timer state
   Timer? _sleepTimer;
@@ -108,10 +110,33 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _startWatchdog() {
     _backgroundWatchdogTimer?.cancel();
+    _watchdogStallCount = 0;
+    _lastWatchdogPosition = _position;
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (_isPlaying && !_userRequestedPause && _isUsingYoutubeIframe && _ytController != null) {
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
+
+        // Detect if audio playback is stalled in background while screen is off
+        if (_position == _lastWatchdogPosition && _position > Duration.zero) {
+          _watchdogStallCount++;
+          if (_watchdogStallCount >= 2) {
+            // Stalled for 4-6 seconds: enforce playback kick
+            _acquireNativeLocks();
+            _ytController?.playVideo();
+          }
+          if (_watchdogStallCount >= 5) {
+            // Stalled for 10 seconds: inject direct JS play trigger
+            try {
+              _ytController?.webViewController.runJavaScript(
+                'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
+              );
+            } catch (_) {}
+          }
+        } else {
+          _watchdogStallCount = 0;
+          _lastWatchdogPosition = _position;
+        }
       }
     });
   }
@@ -119,6 +144,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void _stopWatchdog() {
     _backgroundWatchdogTimer?.cancel();
     _backgroundWatchdogTimer = null;
+    _watchdogStallCount = 0;
   }
 
   @override
@@ -286,6 +312,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             _isPlaying = false;
           } else if (!_userRequestedPause && _isPlaying && _currentTrack != null) {
             // Unsolicited pause while playing (e.g. OS screen off or blur event): immediately resume with 0 delay!
+            _acquireNativeLocks();
+            _setJsUserRequestedPause(false);
+            _injectBackgroundPlaybackScripts();
+            _ytController?.playVideo();
+          }
+        } else if (value.playerState == ytp.PlayerState.cued || value.playerState == ytp.PlayerState.unStarted) {
+          // Video loaded/cued while screen is off / app in background: immediately force play!
+          if (!_userRequestedPause && _isPlaying && _currentTrack != null) {
             _acquireNativeLocks();
             _setJsUserRequestedPause(false);
             _injectBackgroundPlaybackScripts();

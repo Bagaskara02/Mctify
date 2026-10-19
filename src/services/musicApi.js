@@ -137,7 +137,28 @@ function normalizeSearchText(s) {
     .replace(/[\(\)\[\]\-–—.,\/#!$%\^&\*;:{}=\_`~?]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Expand common informal abbreviations
+  return base.split(' ').map(t => {
+    if (t === 'u') return 'you';
+    if (t === 'ur') return 'your';
+    if (t === 'r') return 'are';
+    if (t === 'im') return 'i am';
+    if (t === 'ft' || t === 'feat') return 'featuring';
+    return t;
+  }).join(' ');
 }
+
+const SUPERSTAR_ARTISTS = [
+  'justin bieber', 'dj khaled', 'the weeknd', 'taylor swift', 'bruno mars',
+  'billie eilish', 'coldplay', 'ed sheeran', 'ariana grande', 'drake',
+  'post malone', 'dua lipa', 'eminem', 'rihanna', 'maroon 5', 'shawn mendes',
+  'charlie puth', 'sam smith', 'adele', 'katy perry', 'harry styles',
+  'olivia rodrigo', 'kendrick lamar', 'travis scott', 'sza', 'bts', 'blackpink',
+  'niki', 'rich brian', 'bernadya', 'sal priadi', 'hindia', 'mahalini',
+  'tulus', 'juicy luicy', 'sheila on 7', 'dewa 19', 'noah', 'tiara andini',
+  'lyodra', 'yura yunita', 'pamungkas', 'feby putri', 'fiersa besari', 'glenn fredly'
+];
 
 function calculateSearchRelevance(track, rawQuery) {
   const qNorm = normalizeSearchText(rawQuery);
@@ -189,19 +210,55 @@ function calculateSearchRelevance(track, rawQuery) {
   const matchRatio = matchedTokens / qTokens.length;
   score += Math.round(matchRatio * 700);
 
+  // 1. Prefix match bonus (Spotify-like instant hit suggestion on short prefixes like "im the ")
+  if (tTitle.startsWith(qNorm)) {
+    score += 550;
+  } else if (combined.startsWith(qNorm)) {
+    score += 400;
+  }
+
   if (tTitle.includes(qNorm) || combined.includes(qNorm)) {
     score += 450;
   }
   if (tTitle === qNorm) {
-    score += 600;
+    score += 650;
+  }
+
+  // 2. Popularity / Rank weighting
+  const rank = track.popularity || track.rank || 0;
+  if (rank > 0) {
+    score += Math.round((rank / 1000) * 0.85);
+  }
+
+  // 3. Superstar / Global Hitmaker artist bonus
+  if (SUPERSTAR_ARTISTS.some(art => tArtist.includes(art))) {
+    score += 450;
+  }
+
+  // 4. Two-way version scoring for search (acoustic, remix, live)
+  const isAcousticRequested = qNorm.includes('acoustic');
+  const isRemixRequested = qNorm.includes('remix');
+  const isLiveRequested = qNorm.includes('live') || qNorm.includes('concert') || qNorm.includes('konser');
+
+  if (isAcousticRequested) {
+    if (tTitle.includes('acoustic')) score += 750;
+    else score -= 900;
+  }
+  if (isRemixRequested) {
+    if (tTitle.includes('remix')) score += 750;
+    else score -= 900;
+  }
+  if (isLiveRequested) {
+    if (tTitle.includes('live') || tTitle.includes('concert')) score += 750;
+    else score -= 900;
   }
 
   // HEAVY PENALTIES FOR NON-ORIGINAL VERSIONS (Remix, Live, Concert, Cover, Karaoke, Tribute, Slowed)
   const junkTerms = [
-    'remix', 'live', 'concert', 'konser', 'tour', 'cover', 'karaoke',
-    'instrumental', 'tribute', 'parodi', 'parody', 'sped up', 'speed up', 'slowed',
-    'reverb', 'nightcore', 'reaction', 'tutorial', 'originally performed',
-    'in the style of', 'backing track', 'guitar cover', 'piano cover', 'acoustic cover'
+    'cover', 'karaoke', 'instrumental', 'tribute', 'parodi', 'parody',
+    'sped up', 'speed up', 'slowed', 'reverb', 'nightcore', 'reaction',
+    'tutorial', 'originally performed', 'in the style of', 'backing track',
+    'guitar cover', 'piano cover', 'acoustic cover'
   ];
 
   for (const term of junkTerms) {
@@ -212,6 +269,14 @@ function calculateSearchRelevance(track, rawQuery) {
     } else {
       score += 300;
     }
+  }
+
+  if (!isRemixRequested && !qNorm.includes('remix') && tTitle.includes('remix')) {
+    score -= 850;
+  }
+  if (!isLiveRequested && !isAcousticRequested && !qNorm.includes('live') &&
+      (tTitle.includes('live') || tTitle.includes('concert') || tTitle.includes('konser'))) {
+    score -= 850;
   }
 
   // STUDIO ORIGINAL BONUS
