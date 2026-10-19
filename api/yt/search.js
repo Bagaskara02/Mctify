@@ -60,7 +60,17 @@ export default async function handler(req, res) {
     }
 
     const yt = await getYT();
+    const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
     const qLower = q.toLowerCase();
+
+    const extractCoreTitle = (str) => {
+      return str
+        .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+        .replace(/\s*-\s*(acoustic|live|remix|version|official).*/gi, '')
+        .trim();
+    };
+    const coreQ = extractCoreTitle(qLower);
+
     const isAcousticRequested = qLower.includes('acoustic');
     const isRemixRequested = qLower.includes('remix');
     const isLiveRequested = qLower.includes('live') || qLower.includes('concert') || qLower.includes('konser');
@@ -94,10 +104,29 @@ export default async function handler(req, res) {
         const normTitle = titleStr.toLowerCase();
         let score = 1000;
 
+        // 1. Core title check: Disqualify completely if candidate doesn't even contain the core title!
+        if (coreQ && normTitle.includes(coreQ)) {
+          score += 650;
+        } else if (coreQ) {
+          const coreTokens = coreQ.split(' ').filter(w => w.length > 2);
+          const matched = coreTokens.filter(tok => normTitle.includes(tok)).length;
+          if (coreTokens.length > 0 && matched === coreTokens.length) {
+            score += 450;
+          } else {
+            score -= 2000; // WRONG SONG!
+          }
+        }
+
         // Two-way symmetric version matching
         if (isAcousticRequested) {
-          if (normTitle.includes('acoustic')) score += 750;
-          else score -= 900;
+          if (normTitle.includes('acoustic')) {
+            score += 750;
+            if (normTitle.includes('topic') || normTitle.includes('official audio') || !normTitle.includes('live')) {
+              score += 300;
+            }
+          } else {
+            score -= 900;
+          }
         } else {
           if (normTitle.includes('acoustic')) score -= 850;
         }
@@ -126,16 +155,18 @@ export default async function handler(req, res) {
           }
         }
 
-        if (normTitle.includes('official audio') || normTitle.includes('official track') || normTitle.includes('official music video') || normTitle.includes('official video') || normTitle.includes('provided to youtube by')) {
-          score += 250;
+        if (normTitle.includes('- topic') || normTitle.includes('official audio') || normTitle.includes('provided to youtube by')) {
+          score += 350;
+        } else if (normTitle.includes('official video') || normTitle.includes('official music video')) {
+          score += 180;
         }
 
         if (targetDuration > 0) {
           const dur = getDurationSec(item);
           const diff = Math.abs(dur - targetDuration);
-          if (diff <= 3) score += 100;
-          else if (diff <= 10) score += 50;
-          else if (diff > 35) score -= 200;
+          if (diff <= 3) score += 150;
+          else if (diff <= 10) score += 80;
+          else if (diff > 35) score -= 250;
         }
 
         return { item, score };

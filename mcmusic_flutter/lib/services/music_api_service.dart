@@ -311,6 +311,14 @@ class MusicApiService {
     return null;
   }
 
+  static String extractCoreTitle(String title) {
+    return title
+        .replaceAll(RegExp(r'\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s*-\s*(acoustic|live|remix|version|official).*', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   static int _scoreCandidate(
     String videoTitle,
     String title,
@@ -319,12 +327,33 @@ class MusicApiService {
     int? expectedDurationSeconds,
   ]) {
     final lower = videoTitle.toLowerCase();
+    final normVideo = _normalizeQuery(videoTitle);
+    final coreTitle = extractCoreTitle(title);
+    final normCoreTitle = _normalizeQuery(coreTitle);
     final cleanTitle = title.toLowerCase();
-    final cleanArtist = artist.toLowerCase();
+    final normArtist = _normalizeQuery(artist);
+    final firstArtist = normArtist.split(' ').first;
     int score = 1000;
 
-    if (lower.contains(cleanTitle)) score += 60;
-    if (lower.contains(cleanArtist)) score += 40;
+    // 1. STRICT CORE TITLE REQUIREMENT: Disqualify completely if candidate doesn't even contain the core song title!
+    if (normVideo.contains(normCoreTitle)) {
+      score += 650;
+    } else {
+      final coreTokens = normCoreTitle.split(' ').where((w) => w.length > 1).toList();
+      final matchedCount = coreTokens.where((tok) => normVideo.contains(tok)).length;
+      if (coreTokens.isNotEmpty && matchedCount == coreTokens.length) {
+        score += 450;
+      } else {
+        score -= 2000; // WRONG SONG (e.g. No Brainer instead of I'm the One)!
+      }
+    }
+
+    // 2. Artist match bonus
+    if (normVideo.contains(normArtist)) {
+      score += 150;
+    } else if (normVideo.contains(firstArtist)) {
+      score += 80;
+    }
 
     final isAcousticRequested = cleanTitle.contains('acoustic');
     final isRemixRequested = cleanTitle.contains('remix');
@@ -336,6 +365,10 @@ class MusicApiService {
     if (isAcousticRequested) {
       if (lower.contains('acoustic')) {
         score += 750;
+        // Prefer clean studio acoustic release (zero intro dialogue/monologue) over live session videos
+        if (lower.contains('topic') || lower.contains('official audio') || !lower.contains('live')) {
+          score += 300;
+        }
       } else {
         score -= 900;
       }
@@ -360,7 +393,6 @@ class MusicApiService {
         score -= 900;
       }
     } else if (!isAcousticRequested) {
-      // Acoustic performances on YouTube are frequently titled "Acoustic Live" or "Live Sessions"
       if (lower.contains('live') || lower.contains('concert') || lower.contains('konser')) {
         score -= 850;
       }
@@ -388,22 +420,21 @@ class MusicApiService {
       }
     }
 
-    if (lower.contains('official audio') ||
-        lower.contains('official track') ||
-        lower.contains('official music video') ||
-        lower.contains('official video') ||
-        lower.contains('provided to youtube by')) {
-      score += 250;
+    // Prioritize official clean studio audio (topic track or official audio) to eliminate skits/intro talking
+    if (lower.contains('- topic') || lower.contains('official audio') || lower.contains('provided to youtube by')) {
+      score += 350;
+    } else if (lower.contains('official video') || lower.contains('official music video')) {
+      score += 180;
     }
 
     if (videoDurationSeconds != null && expectedDurationSeconds != null && expectedDurationSeconds > 0) {
       final diff = (videoDurationSeconds - expectedDurationSeconds).abs();
       if (diff <= 3) {
-        score += 100;
+        score += 150;
       } else if (diff <= 10) {
-        score += 50;
+        score += 80;
       } else if (diff > 35) {
-        score -= 200;
+        score -= 250;
       }
     }
     return score;

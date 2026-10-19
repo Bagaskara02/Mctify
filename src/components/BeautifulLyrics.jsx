@@ -255,7 +255,8 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  const effectiveTime = Math.max(0, smoothTime);
+  // Acoustic output latency calibration: Physical speaker audio lags behind video timestamp by ~350ms
+  const effectiveTime = Math.max(0, smoothTime - 0.35);
   const lines = lyricsData?.lines || [];
 
   // Determine active line index

@@ -93,7 +93,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
     if (widget.player.isPlaying) {
       final dt = (now - _lastKnownTimestampMs) / 1000.0;
-      final clampedDt = dt.clamp(0.0, 0.45);
+      final clampedDt = dt.clamp(0.0, 0.25);
       final interpolated = _lastKnownPlayerSec + clampedDt;
       if ((interpolated - _currentEffectiveSec).abs() > 0.01) {
         setState(() {
@@ -160,7 +160,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final effectiveSec = _currentEffectiveSec;
+    // Acoustic output calibration: Physical speaker/earphone audio lags behind internal player timestamp by ~450ms.
+    // Calibrating by -0.45s keeps the visual sweep and active line in 100% lockstep with the vocals heard by the user.
+    const double audioLatencyOffsetSec = 0.45;
+    final effectiveSec = math.max(0.0, _currentEffectiveSec - audioLatencyOffsetSec);
 
     // Determine current active lyric line
     int currentActive = -1;
