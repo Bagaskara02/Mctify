@@ -716,6 +716,13 @@ export default function App() {
   };
 
   const handleAddToQueue = (track) => {
+    if (!track) return;
+    if (!currentTrack) {
+      handlePlayTrack(track);
+      setSmartToast(`Memutar: ${track.title}`);
+      setTimeout(() => setSmartToast(null), 3000);
+      return;
+    }
     setQueue(prev => [...prev, track]);
     setSmartToast(`Ditambahkan ke antrean: ${track.title}`);
     setTimeout(() => setSmartToast(null), 3000);

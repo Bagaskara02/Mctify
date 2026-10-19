@@ -61,7 +61,13 @@ export default async function handler(req, res) {
 
     const yt = await getYT();
     const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
-    const unwantedKeywords = ['brooklyn session', 'session', 'live', 'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan', 'cover'];
+    const unwantedKeywords = [
+      'brooklyn session', 'session', 'live', 'concert', 'konser', 'tour',
+      'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan',
+      'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
+      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
+      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
+    ];
     const activeUnwanted = unwantedKeywords.filter(kw => !q.toLowerCase().includes(kw));
 
     const getDurationSec = (item) => {
@@ -77,24 +83,24 @@ export default async function handler(req, res) {
       return items.map(item => {
         const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
         const normTitle = titleStr.toLowerCase();
-        let score = 100;
+        let score = 1000;
 
         for (const kw of activeUnwanted) {
           if (normTitle.includes(kw)) {
-            score -= 90;
+            score -= 850;
           }
         }
 
-        if (normTitle.includes('official audio') || normTitle.includes('official') || normTitle.includes('original')) {
-          score += 25;
+        if (normTitle.includes('official audio') || normTitle.includes('official track') || normTitle.includes('official music video') || normTitle.includes('official video') || normTitle.includes('provided to youtube by')) {
+          score += 250;
         }
 
         if (targetDuration > 0) {
           const dur = getDurationSec(item);
           const diff = Math.abs(dur - targetDuration);
-          if (diff <= 3) score += 60;
-          else if (diff <= 10) score += 30;
-          else if (diff > 35) score -= 50;
+          if (diff <= 3) score += 100;
+          else if (diff <= 10) score += 50;
+          else if (diff > 35) score -= 200;
         }
 
         return { item, score };

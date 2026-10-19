@@ -106,6 +106,125 @@ export const POPULAR_ARTIST_CLUSTERS = [
   }
 ];
 
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function normalizeSearchText(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/[ü]/g, 'u')
+    .replace(/['’´`]/g, '')
+    .replace(/[\(\)\[\]\-–—.,\/#!$%\^&\*;:{}=\_`~?]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function calculateSearchRelevance(track, rawQuery) {
+  const qNorm = normalizeSearchText(rawQuery);
+  const qTokens = qNorm.split(' ').filter(t => t.length > 0);
+  if (qTokens.length === 0) return 0;
+
+  const tTitle = normalizeSearchText(track.title);
+  const tArtist = normalizeSearchText(track.artist);
+  const tAlbum = normalizeSearchText(track.album || '');
+  const combined = `${tTitle} ${tArtist}`;
+  const trackWords = combined.split(' ').filter(w => w.length > 0);
+
+  let score = 1000;
+
+  let matchedTokens = 0;
+  for (const qTok of qTokens) {
+    let bestDist = 999;
+    let exactFound = false;
+
+    for (const w of trackWords) {
+      if (w === qTok) {
+        exactFound = true;
+        break;
+      }
+      if (w.includes(qTok) || qTok.includes(w)) {
+        if (qTok.length >= 3 && w.length >= 3) {
+          exactFound = true;
+          break;
+        }
+      }
+      if (qTok.length >= 4 && w.length >= 4) {
+        const d = levenshtein(qTok, w);
+        if (d < bestDist) bestDist = d;
+      }
+    }
+
+    if (exactFound) {
+      matchedTokens += 1.0;
+      score += 260;
+    } else if (bestDist <= 1) {
+      matchedTokens += 0.9;
+      score += 190;
+    } else if (bestDist <= 2 && qTok.length >= 6) {
+      matchedTokens += 0.6;
+      score += 110;
+    }
+  }
+
+  const matchRatio = matchedTokens / qTokens.length;
+  score += Math.round(matchRatio * 700);
+
+  if (tTitle.includes(qNorm) || combined.includes(qNorm)) {
+    score += 450;
+  }
+  if (tTitle === qNorm) {
+    score += 600;
+  }
+
+  // HEAVY PENALTIES FOR NON-ORIGINAL VERSIONS (Remix, Live, Concert, Cover, Karaoke, Tribute, Slowed)
+  const junkTerms = [
+    'remix', 'live', 'concert', 'konser', 'tour', 'cover', 'karaoke',
+    'instrumental', 'tribute', 'parodi', 'parody', 'sped up', 'speed up', 'slowed',
+    'reverb', 'nightcore', 'reaction', 'tutorial', 'originally performed',
+    'in the style of', 'backing track', 'guitar cover', 'piano cover', 'acoustic cover'
+  ];
+
+  for (const term of junkTerms) {
+    if (!qNorm.includes(term)) {
+      if (tTitle.includes(term)) score -= 850;
+      if (tAlbum.includes(term)) score -= 450;
+      if (tArtist.includes(term)) score -= 950;
+    } else {
+      score += 300;
+    }
+  }
+
+  // STUDIO ORIGINAL BONUS
+  if (!tTitle.includes('remix') && !tTitle.includes('live') && !tTitle.includes('cover') && !tTitle.includes('karaoke')) {
+    score += 250;
+  }
+  if (tTitle.includes('official') || tTitle.includes('original')) {
+    score += 200;
+  }
+
+  return score;
+}
+
 export const musicApi = {
   /**
    * Resolve Full Song YouTube Video ID & Duration
@@ -149,7 +268,7 @@ export const musicApi = {
   },
 
   /**
-   * Search both Songs and Artists across YouTube Music and iTunes
+   * Search both Songs and Artists across YouTube Music, iTunes, and Deezer
    */
   async searchAll(query) {
     if (!query || !query.trim()) return { songs: [], artists: [] };
@@ -161,14 +280,32 @@ export const musicApi = {
         .then(r => r.ok ? r.json() : { songs: [], artists: [] })
         .catch(() => ({ songs: [], artists: [] }));
 
-      // 2. iTunes API with country=ID (Indonesia)
-      const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=ID&entity=song&limit=15`)
+      // 2. iTunes Global Search (Worldwide hits indexing)
+      const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=25`)
         .then(r => r.ok ? r.json() : { results: [] })
         .catch(() => ({ results: [] }));
 
-      const [ytData, itunesData] = await Promise.all([ytPromise, itunesPromise]);
+      // 3. Deezer Global Music Catalog (90M+ tracks)
+      const deezerPromise = fetch(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=20`)
+        .then(r => r.ok ? r.json() : { data: [] })
+        .catch(() => ({ data: [] }));
+
+      const [ytData, itunesData, deezerData] = await Promise.all([ytPromise, itunesPromise, deezerPromise]);
 
       const itunesTracks = (itunesData.results || []).map(item => this.formatTrack(item));
+
+      const deezerTracks = (deezerData.data || []).map(item => ({
+        id: `dz_${item.id}`,
+        title: item.title || '',
+        artist: item.artist?.name || '',
+        album: item.album?.title || 'Single',
+        artwork: getHighResArtworkUrl(item.album?.cover_big || item.album?.cover_medium || DEFAULT_ARTWORK),
+        originalArtwork: item.album?.cover_medium || DEFAULT_ARTWORK,
+        duration: item.duration || 180,
+        genre: 'Pop',
+        audioUrl: '',
+      }));
+
       const ytSongs = (ytData.songs || []).map(s => ({
         id: s.videoId || s.id,
         videoId: s.videoId || s.id,
@@ -181,22 +318,27 @@ export const musicApi = {
         audioUrl: '',
       }));
 
-      // Combine songs prioritizing YouTube full songs
+      // Deduplicate and rank all candidates prioritizing studio original tracks
       const seen = new Set();
-      const combinedSongs = [];
+      const combinedPool = [...itunesTracks, ...deezerTracks, ...ytSongs];
+      const uniqueSongs = [];
 
-      for (const s of [...ytSongs, ...itunesTracks]) {
-        const cleanTitle = (s.title || '').toLowerCase().trim();
-        const cleanArtist = (s.artist || '').toLowerCase().trim();
-        const key = `${cleanTitle}-${cleanArtist}`;
+      for (const s of combinedPool) {
+        if (!s || !s.title) continue;
+        const cleanTitle = normalizeSearchText(s.title);
+        const cleanArtist = normalizeSearchText(s.artist);
+        const key = `${cleanTitle}___${cleanArtist}`;
         if (!seen.has(key)) {
           seen.add(key);
-          combinedSongs.push(s);
+          uniqueSongs.push(s);
         }
       }
 
+      // Sort by Studio Original Relevance: Famous original songs on top!
+      uniqueSongs.sort((a, b) => calculateSearchRelevance(b, q) - calculateSearchRelevance(a, q));
+
       return {
-        songs: combinedSongs,
+        songs: uniqueSongs,
         artists: ytData.artists || [],
       };
     } catch (e) {
@@ -236,7 +378,7 @@ export const musicApi = {
   },
 
   /**
-   * Search tracks by keyword (uses combined searchAll)
+   * Search tracks by keyword (uses combined searchAll with studio original ranking)
    */
   async searchTracks(query, limit = 25) {
     if (!query || !query.trim()) return [];
@@ -251,13 +393,14 @@ export const musicApi = {
     }
 
     try {
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query.trim())}&country=ID&entity=song&limit=${limit}`;
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query.trim())}&entity=song&limit=${limit}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Search request failed');
 
       const data = await res.json();
-      return (data.results || [])
-        .map(item => this.formatTrack(item));
+      const list = (data.results || []).map(item => this.formatTrack(item));
+      list.sort((a, b) => calculateSearchRelevance(b, query) - calculateSearchRelevance(a, query));
+      return list;
     } catch (e) {
       console.error('Music search error:', e);
       return [];
@@ -287,17 +430,19 @@ export const musicApi = {
 
     // 1. Support share message text with embedded URL (e.g. "Check out this song: https://youtu.be/...")
     const urlMatch = clean.match(/https?:\/\/[^\s]+/i);
-    const target = urlMatch ? urlMatch[0] : clean;
+    let target = urlMatch ? urlMatch[0] : clean;
+    target = target.replace(/[\.,!?;:)\>\]"']+$/, '');
 
     try {
       const url = new URL(target.startsWith('http') ? target : `https://${target}`);
       let videoId = url.searchParams.get('v');
       if (!videoId) {
         if (url.hostname.includes('youtu.be')) {
-          videoId = url.pathname.slice(1).split('/')[0];
-        } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/')) {
-          const parts = url.pathname.split('/');
-          videoId = parts[parts.length - 1] || parts[2];
+          const parts = url.pathname.split('/').filter(Boolean);
+          videoId = parts[0];
+        } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/') || url.pathname.includes('/v/')) {
+          const parts = url.pathname.split('/').filter(Boolean);
+          videoId = parts[parts.length - 1];
         }
       }
       if (videoId) {
@@ -367,7 +512,7 @@ export const musicApi = {
         console.warn('YouTube oEmbed resolve error:', e);
       }
 
-      // Direct fallback
+      // Direct fallback - We have videoId, so NEVER fail
       return {
         id: `yt_${videoId}`,
         title: `YouTube Video (${videoId})`,
@@ -398,6 +543,26 @@ export const musicApi = {
           duration: match.duration || 210,
           genre: 'YouTube Import',
           releaseYear: new Date().getFullYear().toString(),
+          isYouTubeImport: true,
+        };
+      }
+
+      // Catalog fallback (iTunes/Deezer -> YouTube match)
+      const tracks = await this.searchTracks(clean, 2);
+      if (tracks && tracks.length > 0) {
+        const top = tracks[0];
+        const topMatch = await this.resolveYouTubeMatch(top.title, top.artist, top.duration);
+        if (topMatch && topMatch.videoId) {
+          return {
+            ...top,
+            videoId: topMatch.videoId,
+            duration: topMatch.duration || top.duration,
+            artwork: topMatch.thumbnail || top.artwork,
+            isYouTubeImport: true,
+          };
+        }
+        return {
+          ...top,
           isYouTubeImport: true,
         };
       }

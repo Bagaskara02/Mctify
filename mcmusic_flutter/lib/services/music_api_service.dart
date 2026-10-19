@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -321,44 +322,47 @@ class MusicApiService {
     final lower = videoTitle.toLowerCase();
     final cleanTitle = title.toLowerCase();
     final cleanArtist = artist.toLowerCase();
-    int score = 100;
+    int score = 1000;
 
-    if (lower.contains(cleanTitle)) score += 40;
-    if (lower.contains(cleanArtist)) score += 30;
+    if (lower.contains(cleanTitle)) score += 60;
+    if (lower.contains(cleanArtist)) score += 40;
 
     final unwanted = [
-      'brooklyn session', 'session', 'live', 'acoustic', 'remix',
-      '10 years', 'tribute', 'karaoke', 'terjemahan', 'cover',
-      'reaction', 'slowed', 'reverb', 'instrumental', 'guitar cover'
+      'brooklyn session', 'session', 'live', 'concert', 'konser', 'tour',
+      'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan',
+      'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
+      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
+      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
     ];
     for (final term in unwanted) {
       if (lower.contains(term) && !cleanTitle.contains(term)) {
-        score -= 90;
+        score -= 850;
       }
     }
 
     // Explicit bonus if requested version is matched
     for (final term in ['brooklyn session', 'acoustic', 'remix', 'live', 'session']) {
       if (cleanTitle.contains(term) && lower.contains(term)) {
-        score += 45;
+        score += 80;
       }
     }
 
-    if (lower.contains('official audio') || lower.contains('official track') || lower.contains('audio')) {
-      score += 25;
-    }
-    if (lower.contains('official video') || lower.contains('music video')) {
-      score += 15;
+    if (lower.contains('official audio') ||
+        lower.contains('official track') ||
+        lower.contains('official music video') ||
+        lower.contains('official video') ||
+        lower.contains('provided to youtube by')) {
+      score += 250;
     }
 
     if (videoDurationSeconds != null && expectedDurationSeconds != null && expectedDurationSeconds > 0) {
       final diff = (videoDurationSeconds - expectedDurationSeconds).abs();
-      if (diff <= 6) {
-        score += 35;
-      } else if (diff <= 18) {
-        score += 20;
-      } else if (diff > 45) {
-        score -= 40;
+      if (diff <= 3) {
+        score += 100;
+      } else if (diff <= 10) {
+        score += 50;
+      } else if (diff > 35) {
+        score -= 200;
       }
     }
     return score;
@@ -585,7 +589,129 @@ class MusicApiService {
     return list;
   }
 
-  // Search tracks across query (Parallel, fast ~300ms, highly accurate)
+  static int _levenshtein(String a, String b) {
+    if (a == b) return 0;
+    if (a.isEmpty) return b.length;
+    if (b.isEmpty) return a.length;
+    final row = List<int>.generate(b.length + 1, (i) => i);
+    for (int i = 1; i <= a.length; i++) {
+      int prev = row[0];
+      row[0] = i;
+      for (int j = 1; j <= b.length; j++) {
+        final current = row[j];
+        if (a[i - 1] == b[j - 1]) {
+          row[j] = prev;
+        } else {
+          int m = prev;
+          if (row[j - 1] < m) m = row[j - 1];
+          if (current < m) m = current;
+          row[j] = 1 + m;
+        }
+        prev = current;
+      }
+    }
+    return row[b.length];
+  }
+
+  static String _normalizeQuery(String s) {
+    return s
+        .toLowerCase()
+        .replaceAll('ü', 'u')
+        .replaceAll(RegExp(r"['’´`]"), '')
+        .replaceAll(RegExp(r'[\(\)\[\]\-–—.,\/#!$%\^&\*;:{}=\_`~?]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static int _calculateSearchRelevance(Track track, String rawQuery) {
+    final qNorm = _normalizeQuery(rawQuery);
+    final qTokens = qNorm.split(' ').where((t) => t.isNotEmpty).toList();
+    if (qTokens.isEmpty) return 0;
+
+    final tTitle = _normalizeQuery(track.title);
+    final tArtist = _normalizeQuery(track.artist);
+    final tAlbum = _normalizeQuery(track.album);
+    final combined = '$tTitle $tArtist';
+    final trackWords = combined.split(' ').where((w) => w.isNotEmpty).toList();
+
+    int score = 1000;
+
+    double matchedTokens = 0;
+    for (final qTok in qTokens) {
+      int bestDist = 999;
+      bool exactFound = false;
+
+      for (final w in trackWords) {
+        if (w == qTok) {
+          exactFound = true;
+          break;
+        }
+        if (w.contains(qTok) || qTok.contains(w)) {
+          if (qTok.length >= 3 && w.length >= 3) {
+            exactFound = true;
+            break;
+          }
+        }
+        // Typo tolerance (e.g. biebier -> bieber, know -> now)
+        if (qTok.length >= 4 && w.length >= 4) {
+          final d = _levenshtein(qTok, w);
+          if (d < bestDist) bestDist = d;
+        }
+      }
+
+      if (exactFound) {
+        matchedTokens += 1.0;
+        score += 260;
+      } else if (bestDist <= 1) {
+        matchedTokens += 0.9;
+        score += 190;
+      } else if (bestDist <= 2 && qTok.length >= 6) {
+        matchedTokens += 0.6;
+        score += 110;
+      }
+    }
+
+    final matchRatio = matchedTokens / qTokens.length;
+    score += (matchRatio * 700).round();
+
+    // Exact phrase match bonus
+    if (tTitle.contains(qNorm) || combined.contains(qNorm)) {
+      score += 450;
+    }
+    if (tTitle == qNorm) {
+      score += 600;
+    }
+
+    // HEAVY PENALTIES FOR NON-ORIGINAL TRACKS (Remix, Live, Concert, Cover, Karaoke, Tribute, Slowed)
+    const junkTerms = [
+      'remix', 'live', 'concert', 'konser', 'tour', 'cover', 'karaoke',
+      'instrumental', 'tribute', 'parodi', 'parody', 'sped up', 'slowed',
+      'reverb', 'nightcore', 'reaction', 'tutorial', 'originally performed',
+      'in the style of', 'backing track', 'guitar cover', 'piano cover', 'acoustic cover'
+    ];
+
+    for (final term in junkTerms) {
+      if (!qNorm.contains(term)) {
+        if (tTitle.contains(term)) score -= 850;
+        if (tAlbum.contains(term)) score -= 450;
+        if (tArtist.contains(term)) score -= 950;
+      } else {
+        score += 300;
+      }
+    }
+
+    // STUDIO ORIGINAL BONUS
+    if (!tTitle.contains('remix') && !tTitle.contains('live') && !tTitle.contains('cover') && !tTitle.contains('karaoke')) {
+      score += 250;
+    }
+    if (tTitle.contains('official') || tTitle.contains('original')) {
+      score += 200;
+    }
+
+    return score;
+  }
+
+  // Search tracks across query (Parallel iTunes + Deezer with Studio Original Priority)
   Future<List<Track>> searchTracks(String query) async {
     final cleanQ = query.trim().toLowerCase();
     if (cleanQ.isEmpty) return [];
@@ -601,23 +727,11 @@ class MusicApiService {
 
     final rawPool = <Track>[...responses[0], ...responses[1]];
 
-    // 2. Score and deduplicate candidates by exact matching and relevance
-    int scoreTrack(Track t) {
-      final title = t.title.toLowerCase().trim();
-      final artist = t.artist.toLowerCase().trim();
-      if (title == cleanQ) return 1000;
-      if (title.startsWith(cleanQ)) return 800;
-      if (artist == cleanQ) return 700;
-      if (artist.startsWith(cleanQ)) return 600;
-      if (title.contains(cleanQ)) return 400;
-      if (artist.contains(cleanQ)) return 300;
-      return 100;
-    }
-
-    rawPool.sort((a, b) => scoreTrack(b).compareTo(scoreTrack(a)));
+    // 2. Score and deduplicate candidates by studio original relevance and typo tolerance
+    rawPool.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
 
     for (final t in rawPool) {
-      final key = '${t.title.toLowerCase().trim()}___${t.artist.toLowerCase().trim()}';
+      final key = '${_normalizeQuery(t.title)}___${_normalizeQuery(t.artist)}';
       if (!seenKeys.contains(key)) {
         seenKeys.add(key);
         results.add(t);
@@ -629,11 +743,12 @@ class MusicApiService {
       final yt = YoutubeExplode();
       try {
         final ytResults = await yt.search.search(query).timeout(const Duration(seconds: 3));
+        final ytTracks = <Track>[];
         for (final v in ytResults.take(10)) {
-          final key = '${v.title.toLowerCase().trim()}___${v.author.toLowerCase().trim()}';
+          final key = '${_normalizeQuery(v.title)}___${_normalizeQuery(v.author)}';
           if (!seenKeys.contains(key)) {
             seenKeys.add(key);
-            results.add(Track(
+            ytTracks.add(Track(
               id: 'yt_${v.id.value}',
               videoId: v.id.value,
               title: v.title,
@@ -647,11 +762,16 @@ class MusicApiService {
             ));
           }
         }
+        ytTracks.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
+        results.addAll(ytTracks);
       } catch (_) {
       } finally {
         yt.close();
       }
     }
+
+    // Re-sort total results ensuring highest studio relevance is strictly on top
+    results.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
 
     // 4. Offline fallback only if all network sources fail completely
     if (results.isEmpty) {
@@ -672,7 +792,10 @@ class MusicApiService {
     // 1. Support share message text with embedded URL (e.g. "Dengarkan di YouTube: https://youtu.be/...")
     final urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
     final urlMatch = urlRegex.firstMatch(clean);
-    final target = urlMatch != null ? urlMatch.group(0)! : clean;
+    String target = urlMatch != null ? urlMatch.group(0)! : clean;
+
+    // Strip trailing punctuation from messaging apps (e.g. . , ! ? ) > ] " ')
+    target = target.replaceAll(RegExp(r'''[\.,!?;:)>\]"']+$'''), '');
 
     try {
       final uri = Uri.parse(target.startsWith('http') ? target : 'https://$target');
@@ -681,7 +804,7 @@ class MusicApiService {
         if (uri.host.contains('youtu.be')) {
           final segments = uri.pathSegments;
           if (segments.isNotEmpty) videoId = segments.first;
-        } else if (uri.path.contains('/shorts/') || uri.path.contains('/embed/') || uri.path.contains('/live/')) {
+        } else if (uri.path.contains('/shorts/') || uri.path.contains('/embed/') || uri.path.contains('/live/') || uri.path.contains('/v/')) {
           final segments = uri.pathSegments;
           if (segments.isNotEmpty) videoId = segments.last;
         }
@@ -709,11 +832,53 @@ class MusicApiService {
     if (clean.isEmpty) return null;
 
     final videoId = extractYouTubeId(clean);
-    final yt = YoutubeExplode();
 
-    try {
-      if (videoId != null) {
-        final video = await yt.videos.get(videoId).timeout(const Duration(seconds: 5));
+    // ==========================================
+    // CASE A: DIRECT YOUTUBE LINK OR VIDEO ID
+    // ==========================================
+    if (videoId != null) {
+      // 1. Official YouTube oEmbed API (<150ms latency, zero bot-detection / throttling risk)
+      try {
+        final oembedUrl = Uri.parse('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json');
+        final oembedRes = await http.get(oembedUrl).timeout(const Duration(seconds: 4));
+        if (oembedRes.statusCode == 200) {
+          final data = jsonDecode(oembedRes.body);
+          String rawTitle = (data['title'] ?? 'YouTube Music').toString();
+          String artist = (data['author_name'] ?? 'YouTube').toString();
+          String title = rawTitle;
+
+          if (rawTitle.contains(' - ')) {
+            final parts = rawTitle.split(' - ');
+            artist = parts[0].trim();
+            title = parts.sublist(1).join(' - ').trim();
+          }
+
+          title = title
+              .replaceAll(RegExp(r'\((Official (Music )?Video|Official Audio|Lyric(s)? Video)\)', caseSensitive: false), '')
+              .replaceAll(RegExp(r'\[(Official (Music )?Video|Official Audio|Lyric(s)? Video)\]', caseSensitive: false), '')
+              .trim();
+
+          return Track(
+            id: 'yt_$videoId',
+            title: title.isNotEmpty ? title : 'YouTube Track',
+            artist: artist.isNotEmpty ? artist : 'YouTube',
+            album: 'YouTube Import',
+            artwork: 'https://i.ytimg.com/vi/$videoId/hq720.jpg',
+            audioUrl: '',
+            videoId: videoId,
+            duration: 210,
+            streamCount: 'YouTube',
+            isExplicit: false,
+          );
+        }
+      } catch (e) {
+        debugPrint('YouTube oEmbed resolve note: $e');
+      }
+
+      // 2. YoutubeExplode metadata lookup with 8-second timeout
+      final yt = YoutubeExplode();
+      try {
+        final video = await yt.videos.get(videoId).timeout(const Duration(seconds: 8));
         String title = video.title;
         String artist = video.author;
 
@@ -733,16 +898,66 @@ class MusicApiService {
           title: title,
           artist: artist,
           album: 'YouTube Import',
-          artwork: video.thumbnails.highResUrl.isNotEmpty ? video.thumbnails.highResUrl : defaultArtwork,
+          artwork: video.thumbnails.highResUrl.isNotEmpty ? video.thumbnails.highResUrl : 'https://i.ytimg.com/vi/$videoId/hq720.jpg',
           audioUrl: '',
           videoId: video.id.value,
           duration: video.duration?.inSeconds ?? 210,
           streamCount: 'YouTube',
           isExplicit: false,
         );
+      } catch (e) {
+        debugPrint('YoutubeExplode video get note: $e');
+      } finally {
+        yt.close();
       }
 
-      final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 4));
+      // 3. Fail-safe fallback: We have a valid videoId, so NEVER fail or show error!
+      return Track(
+        id: 'yt_$videoId',
+        title: 'YouTube Track ($videoId)',
+        artist: 'YouTube',
+        album: 'YouTube Import',
+        artwork: 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
+        audioUrl: '',
+        videoId: videoId,
+        duration: 210,
+        streamCount: 'YouTube',
+        isExplicit: false,
+      );
+    }
+
+    // ==========================================
+    // CASE B: SEARCH QUERY (SONG TITLE / ARTIST)
+    // ==========================================
+    // 1. First, search verified music catalog (iTunes/Deezer) for clean title & artist
+    try {
+      final catalogTracks = await searchTracks(clean);
+      if (catalogTracks.isNotEmpty) {
+        final top = catalogTracks.first;
+        final vid = await resolveVideoId(top.title, top.artist, top.duration);
+        if (vid != null && vid.isNotEmpty) {
+          return Track(
+            id: 'yt_$vid',
+            title: top.title,
+            artist: top.artist,
+            album: top.album,
+            artwork: top.artwork,
+            audioUrl: '',
+            videoId: vid,
+            duration: top.duration,
+            streamCount: 'YouTube Import',
+            isExplicit: top.isExplicit,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Search catalog fallback note: $e');
+    }
+
+    // 2. YoutubeExplode search fallback with 8-second timeout
+    final yt = YoutubeExplode();
+    try {
+      final searchResults = await yt.search.search(clean).timeout(const Duration(seconds: 8));
       if (searchResults.isNotEmpty) {
         final v = searchResults.first;
         String title = v.title;
@@ -752,6 +967,11 @@ class MusicApiService {
           artist = parts[0].trim();
           title = parts.sublist(1).join(' - ').trim();
         }
+
+        title = title
+            .replaceAll(RegExp(r'\((Official (Music )?Video|Official Audio|Lyric(s)? Video)\)', caseSensitive: false), '')
+            .replaceAll(RegExp(r'\[(Official (Music )?Video|Official Audio|Lyric(s)? Video)\]', caseSensitive: false), '')
+            .trim();
 
         return Track(
           id: 'yt_${v.id.value}',
@@ -767,10 +987,35 @@ class MusicApiService {
         );
       }
     } catch (e) {
-      debugPrint('resolveYouTubeImport error: $e');
+      debugPrint('resolveYouTubeImport search note: $e');
     } finally {
       yt.close();
     }
+
+    // 3. Vercel backend search fallback
+    try {
+      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?q=${Uri.encodeComponent(clean)}');
+      final res = await http.get(url).timeout(const Duration(seconds: 5));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data != null && data['videoId'] != null) {
+          final vid = data['videoId'].toString();
+          return Track(
+            id: 'yt_$vid',
+            title: (data['title'] ?? clean).toString(),
+            artist: (data['artist'] ?? 'YouTube').toString(),
+            album: 'YouTube Search',
+            artwork: (data['thumbnail'] ?? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg').toString(),
+            audioUrl: '',
+            videoId: vid,
+            duration: (data['duration'] as num?)?.toInt() ?? 210,
+            streamCount: 'YouTube',
+            isExplicit: false,
+          );
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 

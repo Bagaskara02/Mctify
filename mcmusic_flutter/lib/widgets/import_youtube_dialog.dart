@@ -50,7 +50,70 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
   bool _isLoading = false;
   String? _errorMessage;
   Track? _resolvedTrack;
+  String? _actionStatus; // 'played' | 'next' | 'queue' | 'liked'
   List<Playlist> _playlists = [];
+
+  void _handlePlayNow() {
+    if (_resolvedTrack == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _actionStatus = 'played');
+    widget.player.playTrack(_resolvedTrack!);
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (mounted) Navigator.pop(context);
+    });
+  }
+
+  void _handlePlayNext() {
+    if (_resolvedTrack == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _actionStatus = 'next');
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    widget.player.addToNext(_resolvedTrack!);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('"${_resolvedTrack!.title}" akan diputar setelah lagu ini'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    Future.delayed(const Duration(milliseconds: 650), () {
+      if (mounted) Navigator.pop(context);
+    });
+  }
+
+  void _handleAddToQueue() {
+    if (_resolvedTrack == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _actionStatus = 'queue');
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    widget.player.addToQueue(_resolvedTrack!);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('"${_resolvedTrack!.title}" dimasukkan ke antrean'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    Future.delayed(const Duration(milliseconds: 650), () {
+      if (mounted) Navigator.pop(context);
+    });
+  }
+
+  Future<void> _handleToggleLike() async {
+    if (_resolvedTrack == null) return;
+    HapticFeedback.selectionClick();
+    await _storageService.toggleLikeTrack(_resolvedTrack!);
+    if (mounted) {
+      setState(() => _actionStatus = 'liked');
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('"${_resolvedTrack!.title}" disimpan ke favorit!'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -139,6 +202,7 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
       _isLoading = true;
       _errorMessage = null;
       _resolvedTrack = null;
+      _actionStatus = null;
     });
 
     try {
@@ -375,80 +439,132 @@ class _ImportYouTubeDialogContentState extends State<_ImportYouTubeDialogContent
                   const Divider(color: Colors.white10, height: 1),
                   const SizedBox(height: 8),
 
-                  // Actions row
+                  // 1. Primary Playback Buttons (Putar Sekarang & Setelah Ini)
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryAzure,
+                            backgroundColor: _actionStatus == 'played' ? const Color(0xFF10B981) : AppTheme.primaryAzure,
                             foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          icon: const Icon(Icons.play_arrow, size: 18),
-                          label: const Text('Putar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            widget.player.playTrack(_resolvedTrack!);
-                          },
+                          icon: Icon(
+                            _actionStatus == 'played' ? Icons.check_circle : Icons.play_arrow_rounded,
+                            size: 20,
+                            color: Colors.black,
+                          ),
+                          label: Text(
+                            _actionStatus == 'played' ? 'Sedang Diputar' : 'Putar Sekarang',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          onPressed: _handlePlayNow,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _actionStatus == 'next' ? AppTheme.primaryAzure : Colors.white,
+                            side: BorderSide(
+                              color: _actionStatus == 'next' ? AppTheme.primaryAzure : Colors.white24,
+                              width: 1.2,
+                            ),
+                            backgroundColor: _actionStatus == 'next' ? AppTheme.primaryAzure.withValues(alpha: 0.12) : const Color(0xFF242424),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: Icon(
+                            _actionStatus == 'next' ? Icons.check : Icons.playlist_play_rounded,
+                            color: AppTheme.primaryAzure,
+                            size: 20,
+                          ),
+                          label: Text(
+                            _actionStatus == 'next' ? 'Setelah Ini' : 'Putar Berikutnya',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                          onPressed: _handlePlayNext,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 2. Dedicated Full-Width "Masukkan ke Antrean" Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _actionStatus == 'queue' ? const Color(0xFF10B981).withValues(alpha: 0.2) : const Color(0xFF242A38),
+                        foregroundColor: _actionStatus == 'queue' ? const Color(0xFF34D399) : Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        side: BorderSide(
+                          color: _actionStatus == 'queue' ? const Color(0xFF10B981) : AppTheme.primaryAzure.withValues(alpha: 0.35),
+                          width: 1.2,
+                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: Icon(
+                        _actionStatus == 'queue' ? Icons.check_circle_rounded : Icons.queue_music_rounded,
+                        size: 20,
+                        color: _actionStatus == 'queue' ? const Color(0xFF34D399) : AppTheme.primaryAzure,
+                      ),
+                      label: Text(
+                        _actionStatus == 'queue' ? '✓ Dimasukkan ke Antrean' : 'Masukkan ke Antrean',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: _actionStatus == 'queue' ? const Color(0xFF34D399) : Colors.white,
+                        ),
+                      ),
+                      onPressed: _handleAddToQueue,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 3. Secondary Actions (Tambah ke Playlist & Sukai Lagu)
+                  Row(
+                    children: [
                       Expanded(
                         child: OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white24),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            side: const BorderSide(color: Colors.white12),
+                            backgroundColor: const Color(0xFF1E1E24),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          icon: const Icon(Icons.playlist_play, color: AppTheme.primaryAzure, size: 18),
-                          label: const Text('Setelah Ini', style: TextStyle(fontSize: 11)),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            widget.player.addToNext(_resolvedTrack!);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('"${_resolvedTrack!.title}" akan diputar setelah ini'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
+                          icon: const Icon(Icons.playlist_add_rounded, color: AppTheme.primaryAzure, size: 18),
+                          label: const Text('Ke Playlist', style: TextStyle(fontSize: 12)),
+                          onPressed: () => _showPlaylistPicker(_resolvedTrack!),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.playlist_add, color: Colors.white70),
-                        tooltip: 'Tambah ke Antrean',
-                        onPressed: () {
-                          Navigator.pop(context);
-                          widget.player.addToQueue(_resolvedTrack!);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('"${_resolvedTrack!.title}" ditambahkan ke antrean'),
-                              behavior: SnackBarBehavior.floating,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _actionStatus == 'liked' ? AppTheme.primaryAzure : Colors.white,
+                            side: BorderSide(
+                              color: _actionStatus == 'liked' ? AppTheme.primaryAzure : Colors.white12,
                             ),
-                          );
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.playlist_add_check, color: AppTheme.primaryAzure),
-                        tooltip: 'Tambah ke Playlist',
-                        onPressed: () => _showPlaylistPicker(_resolvedTrack!),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.favorite_border, color: AppTheme.primaryAzure),
-                        tooltip: 'Sukai Lagu',
-                        onPressed: () async {
-                          await _storageService.toggleLikeTrack(_resolvedTrack!);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Lagu disimpan ke favorit!'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          }
-                        },
+                            backgroundColor: const Color(0xFF1E1E24),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: Icon(
+                            _actionStatus == 'liked' ? Icons.favorite : Icons.favorite_border_rounded,
+                            color: _actionStatus == 'liked' ? AppTheme.primaryAzure : Colors.white70,
+                            size: 18,
+                          ),
+                          label: Text(
+                            _actionStatus == 'liked' ? 'Tersimpan' : 'Sukai Lagu',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: _handleToggleLike,
+                        ),
                       ),
                     ],
                   ),

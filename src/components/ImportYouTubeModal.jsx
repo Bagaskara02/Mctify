@@ -33,7 +33,8 @@ export function extractYouTubeInfo(rawUrl) {
     const cleaned = rawUrl.trim();
     // Support share messages containing embedded URLs (e.g. "Dengarkan: https://youtu.be/...")
     const urlMatch = cleaned.match(/https?:\/\/[^\s]+/i);
-    const target = urlMatch ? urlMatch[0] : cleaned;
+    let target = urlMatch ? urlMatch[0] : cleaned;
+    target = target.replace(/[\.,!?;:)\>\]"']+$/, '');
 
     const url = new URL(target.startsWith('http') ? target : `https://${target}`);
     const listId = url.searchParams.get('list');
@@ -41,8 +42,9 @@ export function extractYouTubeInfo(rawUrl) {
 
     if (!videoId) {
       if (url.hostname.includes('youtu.be')) {
-        videoId = url.pathname.slice(1).split('/')[0];
-      } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/')) {
+        const parts = url.pathname.split('/').filter(Boolean);
+        videoId = parts[0];
+      } else if (url.pathname.includes('/shorts/') || url.pathname.includes('/embed/') || url.pathname.includes('/live/') || url.pathname.includes('/v/')) {
         const parts = url.pathname.split('/').filter(Boolean);
         videoId = parts[parts.length - 1];
       }
@@ -298,35 +300,46 @@ export default function ImportYouTubeModal({
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
-                <button
-                  type="button"
-                  onClick={handlePlayNow}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black font-bold text-xs transition-colors"
-                >
-                  <Play className="w-3.5 h-3.5 fill-black" />
-                  <span>{addedStatus === 'played' ? 'Sedang Diputar' : 'Putar Sekarang'}</span>
-                </button>
+              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handlePlayNow(); }}
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-full font-bold text-xs transition-all ${
+                      addedStatus === 'played'
+                        ? 'bg-emerald-500 text-black shadow-lg scale-[0.98]'
+                        : 'bg-[#3B82F6] hover:bg-[#2563EB] text-black shadow-md'
+                    }`}
+                  >
+                    <Play className="w-3.5 h-3.5 fill-black" />
+                    <span>{addedStatus === 'played' ? 'Sedang Diputar' : 'Putar Sekarang'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handlePlayNext(); }}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full font-semibold text-xs transition-all ${
+                      addedStatus === 'next'
+                        ? 'bg-[#3B82F6]/20 border border-[#3B82F6] text-[#3B82F6]'
+                        : 'bg-white/10 hover:bg-white/15 text-white'
+                    }`}
+                  >
+                    <ListMusic className="w-3.5 h-3.5 text-[#3B82F6]" />
+                    <span>{addedStatus === 'next' ? 'Diputar Berikutnya' : 'Setelah Ini'}</span>
+                  </button>
+                </div>
 
                 <button
                   type="button"
-                  onClick={handlePlayNext}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors"
+                  onClick={(e) => { e.stopPropagation(); handleAddQueue(); }}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full font-bold text-xs transition-all ${
+                    addedStatus === 'queue'
+                      ? 'bg-emerald-500/20 border border-emerald-500 text-emerald-400 shadow-md scale-[0.99]'
+                      : 'bg-white/10 hover:bg-white/15 border border-white/10 hover:border-[#3B82F6]/40 text-white'
+                  }`}
                 >
-                  <ListMusic className="w-3.5 h-3.5 text-[#3B82F6]" />
-                  <span>{addedStatus === 'next' ? 'Diputar Berikutnya' : 'Setelah Ini'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleAddQueue}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors col-span-2 sm:col-span-1"
-                >
-                  <ListPlus className="w-3.5 h-3.5" />
-                  <span>{addedStatus === 'queue' ? 'Di Antrean' : 'Ke Antrean'}</span>
+                  <ListPlus className={`w-4 h-4 ${addedStatus === 'queue' ? 'text-emerald-400' : 'text-[#3B82F6]'}`} />
+                  <span>{addedStatus === 'queue' ? '✓ Dimasukkan ke Antrean' : 'Masukkan ke Antrean'}</span>
                 </button>
               </div>
 
