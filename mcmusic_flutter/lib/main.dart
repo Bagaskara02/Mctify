@@ -138,12 +138,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             Positioned(
               bottom: 0,
               right: 0,
-              width: 4,
-              height: 4,
+              width: 64,
+              height: 64,
               child: IgnorePointer(
-                child: ytp.YoutubePlayer(
-                  controller: _player.ytController!,
-                  keepAlive: true,
+                child: Opacity(
+                  opacity: 0.001,
+                  child: ytp.YoutubePlayer(
+                    controller: _player.ytController!,
+                    keepAlive: true,
+                  ),
                 ),
               ),
             ),

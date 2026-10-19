@@ -5,6 +5,7 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +19,8 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var isAudioPlaying = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val keepAliveRunnable = object : Runnable {
         override fun run() {
@@ -36,10 +39,27 @@ class MainActivity : AudioServiceActivity() {
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private val CHANNEL = "com.mcmusic.app/equalizer"
+    private val WAKELOCK_CHANNEL = "com.mcmusic.app/wakelock"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         initAudioEffects()
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WAKELOCK_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "acquireLocks" -> {
+                    isAudioPlaying = true
+                    acquirePlaybackLocks()
+                    result.success(true)
+                }
+                "releaseLocks" -> {
+                    isAudioPlaying = false
+                    releasePlaybackLocks()
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -238,6 +258,11 @@ class MainActivity : AudioServiceActivity() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "McMusic::PlaybackWakeLock")
+            wakeLock?.setReferenceCounted(false)
+
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "McMusic::PlaybackWifiLock")
+            wifiLock?.setReferenceCounted(false)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -265,12 +290,42 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun acquirePlaybackLocks() {
+        try {
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+            }
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
+            }
+            window.decorView?.let { keepWebViewsAlive(it) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun releasePlaybackLocks() {
+        try {
+            if (!isAudioPlaying) {
+                if (wakeLock?.isHeld == true) {
+                    wakeLock?.release()
+                }
+                if (wifiLock?.isHeld == true) {
+                    wifiLock?.release()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun keepWebViewsAlive(view: View) {
         if (view is WebView) {
             try {
                 view.onResume()
                 view.resumeTimers()
                 view.dispatchWindowVisibilityChanged(View.VISIBLE)
+                view.settings.mediaPlaybackRequiresUserGesture = false
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -283,8 +338,8 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onPause() {
         try {
-            if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+            if (isAudioPlaying || wakeLock?.isHeld != true) {
+                acquirePlaybackLocks()
             }
             window.decorView?.let { keepWebViewsAlive(it) }
             mainHandler.removeCallbacks(keepAliveRunnable)
@@ -302,8 +357,8 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onStop() {
         try {
-            if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+            if (isAudioPlaying || wakeLock?.isHeld != true) {
+                acquirePlaybackLocks()
             }
             window.decorView?.let { keepWebViewsAlive(it) }
             mainHandler.removeCallbacks(keepAliveRunnable)
@@ -322,9 +377,9 @@ class MainActivity : AudioServiceActivity() {
     override fun onResume() {
         super.onResume()
         try {
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
+            if (!isAudioPlaying) {
+                mainHandler.removeCallbacks(keepAliveRunnable)
+                releasePlaybackLocks()
             }
             window.decorView?.let { keepWebViewsAlive(it) }
         } catch (e: Exception) {
@@ -347,8 +402,12 @@ class MainActivity : AudioServiceActivity() {
         }
         try {
             mainHandler.removeCallbacks(keepAliveRunnable)
+            isAudioPlaying = false
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
+            }
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
             }
         } catch (e: Exception) {
             e.printStackTrace()
