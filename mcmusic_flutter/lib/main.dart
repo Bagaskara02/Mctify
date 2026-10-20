@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'services/audio_player_manager.dart';
 import 'services/equalizer_service.dart';
@@ -23,8 +24,8 @@ void main() async {
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.mcmusic.app.channel.audio',
         androidNotificationChannelName: 'McMusic Playback',
-        androidNotificationOngoing: true,
-        androidStopForegroundOnPause: true,
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
         androidNotificationIcon: 'mipmap/ic_launcher',
       ),
     );
@@ -78,6 +79,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _player.addListener(_onPlayerStateChanged);
     // Cold start pre-warm: ensure persisted equalizer settings are restored immediately
     EqualizerService.instance;
+    _checkBatteryOptimizations();
+  }
+
+  Future<void> _checkBatteryOptimizations() async {
+    try {
+      const channel = MethodChannel('com.mcmusic.app/wakelock');
+      final isIgnoring = await channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      if (isIgnoring == false) {
+        await channel.invokeMethod('requestIgnoreBatteryOptimizations');
+      }
+    } catch (_) {}
   }
 
   void _onPlayerStateChanged() async {
@@ -138,11 +150,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             Positioned(
               bottom: 0,
               right: 0,
-              width: 64,
-              height: 64,
+              width: 2,
+              height: 2,
               child: IgnorePointer(
                 child: Opacity(
-                  opacity: 0.001,
+                  opacity: 0.05,
                   child: ytp.YoutubePlayer(
                     controller: _player.ytController!,
                     keepAlive: true,

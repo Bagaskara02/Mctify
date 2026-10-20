@@ -117,9 +117,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _initialStartStallCount = 0;
     _lastWatchdogPosition = _position;
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_isPlaying && !_userRequestedPause && _isUsingYoutubeIframe && _ytController != null) {
+      if (!_userRequestedPause && _isUsingYoutubeIframe && _ytController != null && _currentTrack != null) {
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
+
+        // If player is paused by OS/Chromium in background, wake it up!
+        if (!_isPlaying) {
+          _isPlaying = true;
+          _acquireNativeLocks();
+          _ytController?.playVideo();
+        }
 
         // 1. Detect if audio playback never started (stuck at 0:00 for > 6 seconds)
         if (_position == Duration.zero) {
@@ -127,8 +134,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           if (_initialStartStallCount >= 2) {
             _ytController?.playVideo();
           }
-          if (_initialStartStallCount >= 4) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 8s. Triggering recovery...');
+          if (_initialStartStallCount >= 5) {
+            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 10s. Triggering recovery...');
             _initialStartStallCount = 0;
             _handlePlaybackFailure(_currentTrack, 'Playback stuck at 0:00');
             return;
@@ -145,8 +152,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             _acquireNativeLocks();
             _ytController?.playVideo();
           }
-          if (_watchdogStallCount >= 5) {
-            // Stalled for 10 seconds: inject direct JS play trigger
+          if (_watchdogStallCount >= 4) {
+            // Stalled for 8 seconds: inject direct JS play trigger
             try {
               _ytController?.webViewController.runJavaScript(
                 'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
@@ -345,8 +352,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         } else if (value.playerState == ytp.PlayerState.paused) {
           if (_userRequestedPause) {
             _isPlaying = false;
-          } else if (!_userRequestedPause && _isPlaying && _currentTrack != null) {
-            // Unsolicited pause while playing (e.g. OS screen off or blur event): immediately resume with 0 delay!
+          } else if (!_userRequestedPause && _currentTrack != null) {
+            // Unsolicited pause while user expects playback (e.g. OS screen off or blur event): immediately resume with 0 delay!
+            _isPlaying = true;
             _acquireNativeLocks();
             _setJsUserRequestedPause(false);
             _injectBackgroundPlaybackScripts();
@@ -354,7 +362,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           }
         } else if (value.playerState == ytp.PlayerState.cued || value.playerState == ytp.PlayerState.unStarted) {
           // Video loaded/cued while screen is off / app in background: immediately force play!
-          if (!_userRequestedPause && _isPlaying && _currentTrack != null) {
+          if (!_userRequestedPause && _currentTrack != null) {
+            _isPlaying = true;
             _acquireNativeLocks();
             _setJsUserRequestedPause(false);
             _injectBackgroundPlaybackScripts();
@@ -427,26 +436,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // 2. Try direct audio streaming via native ExoPlayer (AudioPlayer)
-      debugPrint('[AudioPlayerManager] Recovery: attempting native ExoPlayer audio stream...');
-      final directUrl = await _apiService.resolveFullAudioStream(
-        track.title,
-        track.artist,
-        _audioQuality,
-        track.duration,
-        _failedVideoIds,
-      );
-
-      if (directUrl != null && directUrl.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Recovery: ExoPlayer stream succeeded for "${track.title}"');
+      // 2. Try direct audio streaming via native ExoPlayer IF non-googlevideo direct URL exists
+      if (track.audioUrl.isNotEmpty &&
+          !MusicApiService.isPreviewUrl(track.audioUrl) &&
+          !track.audioUrl.contains('googlevideo.com')) {
+        debugPrint('[AudioPlayerManager] Recovery: direct audio stream found for "${track.title}"');
         _isUsingYoutubeIframe = false;
-        _currentTrack = track.copyWith(audioUrl: directUrl);
         _isPlaying = true;
         _userRequestedPause = false;
         try {
           _ytController?.pauseVideo();
         } catch (_) {}
-        await _player.play(UrlSource(directUrl));
+        await _player.play(UrlSource(track.audioUrl));
         _acquireNativeLocks();
         _startWatchdog();
         _syncMediaHandler();
@@ -834,15 +835,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _startWatchdog();
     notifyListeners(); // Synchronous notification for 0ms lag!
 
-    // Stop previous audio engines immediately
-    try {
-      await _player.stop();
-    } catch (_) {}
-    try {
-      _ytController?.pauseVideo();
-    } catch (_) {}
-    _isUsingYoutubeIframe = false;
-
     // Record play in storage
     _storageService.recordPlay(track);
 
@@ -853,6 +845,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           !MusicApiService.isPreviewUrl(track.audioUrl) &&
           !track.audioUrl.contains('googlevideo.com')) {
         debugPrint('[AudioPlayerManager] Playing direct audio stream via ExoPlayer');
+        try {
+          _ytController?.pauseVideo();
+        } catch (_) {}
+        _isUsingYoutubeIframe = false;
         await _player.play(UrlSource(track.audioUrl));
         if (_playbackSpeed != 1.0) {
           try {
@@ -860,7 +856,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           } catch (_) {}
         }
         _isPlaying = true;
-        _isUsingYoutubeIframe = false;
         _userRequestedPause = false;
         _acquireNativeLocks();
         _startWatchdog();
@@ -885,7 +880,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _isUsingYoutubeIframe = true;
         _isPlaying = true;
         _userRequestedPause = false;
-        await _player.stop();
+        try {
+          await _player.stop();
+        } catch (_) {}
         _ytController!.loadVideoById(videoId: videoId);
         _ytController!.playVideo();
         if (_playbackSpeed != 1.0) {
@@ -903,36 +900,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step C: Fallback to direct ExoPlayer audio stream
-      debugPrint('[AudioPlayerManager] No videoId found for "${track.title}". Attempting ExoPlayer direct stream...');
-      final directStreamUrl = await _apiService.resolveFullAudioStream(
-        track.title,
-        track.artist,
-        _audioQuality,
-        track.duration,
-        _failedVideoIds,
-      );
-
-      if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
-        debugPrint('[AudioPlayerManager] Playing direct stream via ExoPlayer fallback');
-        _isUsingYoutubeIframe = false;
-        _currentTrack = track.copyWith(audioUrl: directStreamUrl);
-        _isPlaying = true;
-        _userRequestedPause = false;
-        try {
-          _ytController?.pauseVideo();
-        } catch (_) {}
-        await _player.play(UrlSource(directStreamUrl));
-        _acquireNativeLocks();
-        _startWatchdog();
-        _syncMediaHandler();
-        notifyListeners();
-        _prefetchNextTrackStream();
-        return;
-      }
-
-      // Step D: If completely unplayable, auto-advance
-      debugPrint('[AudioPlayerManager] Track "${track.title}" unresolvable. Auto-advancing...');
+      // Step C: Fallback to next track if videoId could not be resolved
+      debugPrint('[AudioPlayerManager] No videoId found for "${track.title}". Auto-advancing...');
       _syncMediaHandler();
       notifyListeners();
       if (_queue.length > 1) {

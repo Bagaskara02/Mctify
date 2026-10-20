@@ -1,15 +1,18 @@
 package com.mcmusic.app.mcmusic_flutter
 
 import android.content.Context
+import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -29,7 +32,7 @@ class MainActivity : AudioServiceActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            mainHandler.postDelayed(this, 500)
+            mainHandler.postDelayed(this, 2000)
         }
     }
 
@@ -56,6 +59,41 @@ class MainActivity : AudioServiceActivity() {
                     isAudioPlaying = false
                     releasePlaybackLocks()
                     result.success(true)
+                }
+                "isIgnoringBatteryOptimizations" -> {
+                    try {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        val isIgnoring = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            pm.isIgnoringBatteryOptimizations(packageName)
+                        } else {
+                            true
+                        }
+                        result.success(isIgnoring)
+                    } catch (e: Exception) {
+                        result.success(true)
+                    }
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:$packageName")
+                                }
+                                startActivity(intent)
+                            }
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            result.error("ERROR", e2.message, null)
+                        }
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -326,6 +364,8 @@ class MainActivity : AudioServiceActivity() {
                 view.resumeTimers()
                 view.dispatchWindowVisibilityChanged(View.VISIBLE)
                 view.settings.mediaPlaybackRequiresUserGesture = false
+                view.settings.domStorageEnabled = true
+                view.settings.javaScriptCanOpenWindowsAutomatically = true
             } catch (e: Exception) {
                 e.printStackTrace()
             }
