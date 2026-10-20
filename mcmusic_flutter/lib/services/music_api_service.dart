@@ -111,7 +111,12 @@ class MusicApiService {
   }
 
   /// Resolves YouTube video ID for full-length song streaming (3 - 5+ minutes)
-  Future<String?> resolveVideoId(String title, String artist, [int? expectedDuration]) async {
+  Future<String?> resolveVideoId(
+    String title,
+    String artist, [
+    int? expectedDuration,
+    Set<String>? excludeVideoIds,
+  ]) async {
     final sanitizedTitle = title
         .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
         .replaceAll('◐', '')
@@ -123,7 +128,10 @@ class MusicApiService {
         .trim();
     final cleanKey = 'vid_${sanitizedTitle.toLowerCase()}_${firstArtist.toLowerCase()}';
     if (_streamCache.containsKey(cleanKey)) {
-      return _streamCache[cleanKey];
+      final cached = _streamCache[cleanKey];
+      if (cached != null && (excludeVideoIds == null || !excludeVideoIds.contains(cached))) {
+        return cached;
+      }
     }
 
     // 1. Primary: McMusic Vercel Backend API (powered by youtubei.js YouTube Music)
@@ -140,7 +148,10 @@ class MusicApiService {
             resDur == null ||
             (resDur - expectedDuration).abs() <= 20;
 
-        if (vid != null && vid.isNotEmpty && isDurAcceptable) {
+        if (vid != null &&
+            vid.isNotEmpty &&
+            isDurAcceptable &&
+            (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
           _streamCache[cleanKey] = vid;
           return vid;
         }
@@ -161,16 +172,19 @@ class MusicApiService {
       }
 
       if (pool.isNotEmpty) {
-        final scored = pool.map((v) {
-          final dur = v.duration?.inSeconds;
-          final score = _scoreCandidate(v.title, v.author, sanitizedTitle, firstArtist, dur, expectedDuration);
-          return MapEntry(v.id.value, score);
-        }).toList();
+        final filtered = pool.where((v) => excludeVideoIds == null || !excludeVideoIds.contains(v.id.value)).toList();
+        if (filtered.isNotEmpty) {
+          final scored = filtered.map((v) {
+            final dur = v.duration?.inSeconds;
+            final score = _scoreCandidate(v.title, v.author, sanitizedTitle, firstArtist, dur, expectedDuration);
+            return MapEntry(v.id.value, score);
+          }).toList();
 
-        scored.sort((a, b) => b.value.compareTo(a.value));
-        final bestId = scored.first.key;
-        _streamCache[cleanKey] = bestId;
-        return bestId;
+          scored.sort((a, b) => b.value.compareTo(a.value));
+          final bestId = scored.first.key;
+          _streamCache[cleanKey] = bestId;
+          return bestId;
+        }
       }
     } catch (e) {
       debugPrint('resolveVideoId YoutubeExplode error: $e');
@@ -204,11 +218,13 @@ class MusicApiService {
       ).timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200) {
-        final match = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').firstMatch(res.body);
-        final vid = match?.group(1);
-        if (vid != null) {
-          _streamCache[cleanKey] = vid;
-          return vid;
+        final matches = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').allMatches(res.body);
+        for (final m in matches) {
+          final vid = m.group(1);
+          if (vid != null && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
+            _streamCache[cleanKey] = vid;
+            return vid;
+          }
         }
       }
     } catch (e) {
@@ -218,6 +234,22 @@ class MusicApiService {
     return null;
   }
 
+  void invalidateVideoId(String title, String artist, String failedVideoId) {
+    final sanitizedTitle = title
+        .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+        .replaceAll('◐', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final firstArtist = artist
+        .split(',')[0]
+        .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
+        .trim();
+    final cleanKey = 'vid_${sanitizedTitle.toLowerCase()}_${firstArtist.toLowerCase()}';
+    if (_streamCache[cleanKey] == failedVideoId) {
+      _streamCache.remove(cleanKey);
+    }
+  }
+
   /// Resolves direct, full-length YouTube audio stream based on chosen bitrate.
   /// Prioritizes MP4 (AAC) audio streams for native 100% Android MediaPlayer compatibility.
   Future<String?> resolveFullAudioStream(
@@ -225,46 +257,54 @@ class MusicApiService {
     String artist, [
     AudioQuality quality = AudioQuality.high,
     int? expectedDurationSeconds,
+    Set<String>? excludeVideoIds,
   ]) async {
     final cleanKey = '$title $artist ${quality.name}'.toLowerCase().trim();
     if (_streamCache.containsKey(cleanKey)) {
       return _streamCache[cleanKey];
     }
 
+    final excluded = Set<String>.from(excludeVideoIds ?? const {});
     final yt = YoutubeExplode();
     try {
-      final bestVideoId = await resolveVideoId(title, artist, expectedDurationSeconds);
+      for (int attempt = 0; attempt < 3; attempt++) {
+        final bestVideoId = await resolveVideoId(title, artist, expectedDurationSeconds, excluded);
+        if (bestVideoId == null || bestVideoId.isEmpty) break;
 
-      if (bestVideoId != null) {
-        final manifest = await yt.videos.streamsClient.getManifest(bestVideoId);
-        final allStreams = manifest.audioOnly.toList();
-        if (allStreams.isNotEmpty) {
-          // CRITICAL: Prefer MP4 (AAC) streams. Android native MediaPlayer plays MP4/AAC reliably
-          // across all devices, whereas WebM/Opus frequently fails with MEDIA_ERROR_UNKNOWN.
-          final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
-          final candidateStreams = mp4Streams.isNotEmpty ? mp4Streams : allStreams;
+        try {
+          final manifest = await yt.videos.streamsClient.getManifest(bestVideoId);
+          final allStreams = manifest.audioOnly.toList();
+          if (allStreams.isNotEmpty) {
+            // CRITICAL: Prefer MP4 (AAC) streams. Android native MediaPlayer plays MP4/AAC reliably
+            // across all devices, whereas WebM/Opus frequently fails with MEDIA_ERROR_UNKNOWN.
+            final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+            final candidateStreams = mp4Streams.isNotEmpty ? mp4Streams : allStreams;
 
-          candidateStreams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+            candidateStreams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
 
-          AudioStreamInfo chosenStream;
-          switch (quality) {
-            case AudioQuality.dataSaver:
-              chosenStream = candidateStreams.first;
-              break;
-            case AudioQuality.standard:
-              chosenStream = candidateStreams.firstWhere(
-                (s) => s.bitrate.kiloBitsPerSecond <= 140,
-                orElse: () => candidateStreams.last,
-              );
-              break;
-            case AudioQuality.high:
-              chosenStream = candidateStreams.last;
-              break;
+            AudioStreamInfo chosenStream;
+            switch (quality) {
+              case AudioQuality.dataSaver:
+                chosenStream = candidateStreams.first;
+                break;
+              case AudioQuality.standard:
+                chosenStream = candidateStreams.firstWhere(
+                  (s) => s.bitrate.kiloBitsPerSecond <= 140,
+                  orElse: () => candidateStreams.last,
+                );
+                break;
+              case AudioQuality.high:
+                chosenStream = candidateStreams.last;
+                break;
+            }
+
+            final streamUrl = chosenStream.url.toString();
+            _streamCache[cleanKey] = streamUrl;
+            return streamUrl;
           }
-
-          final streamUrl = chosenStream.url.toString();
-          _streamCache[cleanKey] = streamUrl;
-          return streamUrl;
+        } catch (e) {
+          debugPrint('Stream manifest for $bestVideoId failed: $e, trying next candidate');
+          excluded.add(bestVideoId);
         }
       }
     } catch (e) {
@@ -668,7 +708,7 @@ class MusicApiService {
             final pop = (850000 - (i * 25000)).clamp(200000, 850000);
             list.add(Track(
               id: 'yt_$vid',
-              videoId: vid,
+              videoId: '', // NOTE: Leave empty so playTrack uses resolveVideoId with duration & embed verification!
               title: title,
               artist: artist,
               album: (s['album'] ?? 'Single').toString(),
