@@ -137,19 +137,35 @@ class MusicApiService {
     // 1. Primary: McMusic Vercel Backend API (powered by youtubei.js YouTube Music)
     // Instant ~120ms response, strictly returns official studio album audio tracks (Topic tracks), 0 skits.
     try {
-      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?q=${Uri.encodeComponent('$title $artist')}&duration=${expectedDuration ?? 0}');
+      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?title=${Uri.encodeComponent(title)}&artist=${Uri.encodeComponent(artist)}&duration=${expectedDuration ?? 0}&q=${Uri.encodeComponent('$title $artist')}');
       final res = await http.get(url).timeout(const Duration(milliseconds: 3500));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final vid = data['videoId'] as String?;
+        final resTitle = (data['title'] as String? ?? '').toLowerCase();
+        final resArtist = (data['artist'] as String? ?? '').toLowerCase();
         final resDur = (data['duration'] as num?)?.toInt();
         final isDurAcceptable = expectedDuration == null ||
             expectedDuration == 0 ||
             resDur == null ||
             (resDur - expectedDuration).abs() <= 20;
 
+        // Anti-Karaoke / Anti-Instrumental / Anti-Cover filter on backend results:
+        final cleanQ = '$title $artist'.toLowerCase();
+        final isUnwanted = (resTitle.contains('karaoke') ||
+                resTitle.contains('instrumental') ||
+                resTitle.contains('made popular by') ||
+                resTitle.contains('backing track') ||
+                resTitle.contains('tribute') ||
+                resTitle.contains('parodi') ||
+                resTitle.contains('parody') ||
+                resArtist.contains('karaoke')) &&
+            !cleanQ.contains('karaoke') &&
+            !cleanQ.contains('instrumental');
+
         if (vid != null &&
             vid.isNotEmpty &&
+            !isUnwanted &&
             isDurAcceptable &&
             (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
           _streamCache[cleanKey] = vid;
@@ -418,7 +434,8 @@ class MusicApiService {
       '10 years', 'tribute', 'karaoke', 'terjemahan',
       'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
       'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
-      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
+      'originally performed', 'made popular by', 'in the style of', 'parodi', 'parody', 'mashup',
+      'backing track', 'acapella'
     ];
     if (!isAcousticRequested && !isSessionRequested) {
       unwanted.addAll(['brooklyn session', 'session']);
@@ -426,7 +443,7 @@ class MusicApiService {
 
     for (final term in unwanted) {
       if (combined.contains(term) && !cleanTitle.contains(term)) {
-        score -= 850;
+        score -= 4000;
       }
     }
 
@@ -890,15 +907,15 @@ class MusicApiService {
     const junkTerms = [
       'cover', 'karaoke', 'instrumental', 'tribute', 'parodi', 'parody',
       'sped up', 'slowed', 'reverb', 'nightcore', 'reaction', 'tutorial',
-      'originally performed', 'in the style of', 'backing track',
-      'guitar cover', 'piano cover', 'acoustic cover'
+      'originally performed', 'made popular by', 'in the style of', 'backing track',
+      'guitar cover', 'piano cover', 'acoustic cover', 'acapella'
     ];
 
     for (final term in junkTerms) {
       if (!qNorm.contains(term)) {
-        if (tTitle.contains(term)) score -= 850;
-        if (tAlbum.contains(term)) score -= 450;
-        if (tArtist.contains(term)) score -= 950;
+        if (tTitle.contains(term)) score -= 3000;
+        if (tAlbum.contains(term)) score -= 1500;
+        if (tArtist.contains(term)) score -= 3000;
       } else {
         score += 300;
       }

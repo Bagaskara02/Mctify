@@ -52,8 +52,10 @@ export default async function handler(req, res) {
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const q = url.searchParams.get('q') || req.query?.q;
-    if (!q) {
+    const q = url.searchParams.get('q') || req.query?.q || '';
+    const rawTitle = url.searchParams.get('title') || req.query?.title || '';
+    const rawArtist = url.searchParams.get('artist') || req.query?.artist || '';
+    if (!q && !rawTitle) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ error: 'Missing query' }));
@@ -61,7 +63,8 @@ export default async function handler(req, res) {
 
     const yt = await getYT();
     const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
-    const qLower = q.toLowerCase();
+    const searchQuery = q || `${rawTitle} ${rawArtist}`.trim();
+    const qLower = searchQuery.toLowerCase();
 
     const extractCoreTitle = (str) => {
       return str
@@ -69,19 +72,23 @@ export default async function handler(req, res) {
         .replace(/\s*-\s*(acoustic|live|remix|version|official).*/gi, '')
         .trim();
     };
-    const coreQ = extractCoreTitle(qLower);
 
-    const isAcousticRequested = qLower.includes('acoustic');
+    const targetTitle = rawTitle ? extractCoreTitle(rawTitle.toLowerCase()) : extractCoreTitle(qLower);
+    const targetArtist = rawArtist
+      ? rawArtist.toLowerCase().split(',')[0].split('ft.')[0].split('feat.')[0].trim()
+      : '';
+
+    const isAcousticRequested = qLower.includes('acoustic') || (rawTitle && rawTitle.toLowerCase().includes('acoustic'));
     const isRemixRequested = qLower.includes('remix');
     const isLiveRequested = qLower.includes('live') || qLower.includes('concert') || qLower.includes('konser');
     const isSessionRequested = qLower.includes('session');
     const isStrippedRequested = qLower.includes('stripped') || qLower.includes('piano');
 
     const unwantedKeywords = [
-      '10 years', 'tribute', 'karaoke', 'terjemahan',
+      'karaoke', 'instrumental', 'made popular by', 'tribute', 'terjemahan',
       'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
-      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
-      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup'
+      'slowed', 'reverb', 'sped up', 'speed up', 'backing track',
+      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup', 'acapella'
     ];
     if (!isAcousticRequested && !isSessionRequested) {
       unwantedKeywords.push('brooklyn session', 'session');
@@ -106,31 +113,49 @@ export default async function handler(req, res) {
         const combined = `${normTitle} ${authorStr}`;
         let score = 1000;
 
-        // 1. Core title check: Disqualify completely if candidate doesn't even contain the core title!
-        if (coreQ && normTitle.includes(coreQ)) {
-          score += 650;
-        } else if (coreQ) {
-          const coreTokens = coreQ.split(' ').filter(w => w.length > 2);
+        // 1. Core title check:
+        if (targetTitle && normTitle.includes(targetTitle)) {
+          score += 800;
+        } else if (targetTitle) {
+          const coreTokens = targetTitle.split(' ').filter(w => w.length > 2);
           const matched = coreTokens.filter(tok => normTitle.includes(tok)).length;
           if (coreTokens.length > 0 && matched === coreTokens.length) {
-            score += 450;
+            score += 500;
           } else {
-            score -= 2000; // WRONG SONG!
+            score -= 3000; // WRONG SONG!
+          }
+        }
+
+        // 2. Artist check:
+        if (targetArtist) {
+          if (authorStr.includes(targetArtist) || targetArtist.includes(authorStr)) {
+            score += 800;
+          } else if (combined.includes(targetArtist)) {
+            score += 300;
+          } else {
+            score -= 1000;
+          }
+        }
+
+        // 3. Reject unwanted junk (Karaoke, instrumental, covers, tributes, parody)
+        for (const kw of activeUnwanted) {
+          if (combined.includes(kw)) {
+            score -= 4000;
           }
         }
 
         // Two-way symmetric version matching
         if (isAcousticRequested) {
           if (combined.includes('acoustic')) {
-            score += 750;
+            score += 900;
             if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || !combined.includes('live')) {
               score += 350;
             }
           } else {
-            score -= 900;
+            score -= 1500;
           }
         } else {
-          if (combined.includes('acoustic')) score -= 850;
+          if (combined.includes('acoustic')) score -= 1000;
         }
 
         if (isRemixRequested) {
@@ -151,12 +176,6 @@ export default async function handler(req, res) {
           if (combined.includes('session') || combined.includes('stripped')) score += 750;
         } else if (!isAcousticRequested && combined.includes('session')) {
           score -= 600;
-        }
-
-        for (const kw of activeUnwanted) {
-          if (combined.includes(kw)) {
-            score -= 850;
-          }
         }
 
         // Heavy boost for clean studio audio (Topic track, Official Audio)
@@ -193,7 +212,7 @@ export default async function handler(req, res) {
     };
 
     // Search YouTube Music first
-    const search = await yt.music.search(q, { type: 'song' });
+    const search = await yt.music.search(searchQuery, { type: 'song' });
     const songs = search.songs?.contents || search.results || [];
 
     let best = null;

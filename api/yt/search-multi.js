@@ -61,7 +61,29 @@ export default async function handler(req, res) {
     const rawSongs = songResults.songs?.contents || songResults.results || [];
     const rawArtists = artistResults.artists?.contents || artistResults.results || [];
 
-    const songs = rawSongs.map(s => {
+    const qLower = q.toLowerCase();
+    const isKaraokeReq = qLower.includes('karaoke');
+    const isInstrumentalReq = qLower.includes('instrumental');
+    const isCoverReq = qLower.includes('cover');
+
+    const filteredSongs = rawSongs.filter(s => {
+      const titleStr = (typeof s.title === 'string' ? s.title : (s.title?.text || '')).toLowerCase();
+      const artistStr = (s.artists?.[0]?.name || s.author?.name || '').toLowerCase();
+      const combined = `${titleStr} ${artistStr}`;
+
+      if (!isKaraokeReq && (combined.includes('karaoke') || combined.includes('made popular by') || combined.includes('backing track'))) {
+        return false;
+      }
+      if (!isInstrumentalReq && combined.includes('instrumental')) {
+        return false;
+      }
+      if (!isCoverReq && (combined.includes('guitar cover') || combined.includes('piano cover') || combined.includes('drum cover'))) {
+        return false;
+      }
+      return true;
+    });
+
+    const songs = filteredSongs.map(s => {
       let durationSec = 180;
       if (s.duration?.seconds) {
         durationSec = s.duration.seconds;

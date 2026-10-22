@@ -118,9 +118,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _lastWatchdogPosition = _position;
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!_userRequestedPause && _isUsingYoutubeIframe && _ytController != null && _currentTrack != null) {
-        _setJsUserRequestedPause(false);
-        _injectBackgroundPlaybackScripts();
-
         // If player is paused by OS/Chromium in background, wake it up!
         if (!_isPlaying) {
           _isPlaying = true;
@@ -212,6 +209,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       await controller.runJavaScript('''
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
+          if (window.__bgScriptsInjected) return;
+          window.__bgScriptsInjected = true;
 
           // 1. Hook HTMLMediaElement.prototype.pause so OS screen-off pause calls are ignored
           if (!window.__pausePatched) {
