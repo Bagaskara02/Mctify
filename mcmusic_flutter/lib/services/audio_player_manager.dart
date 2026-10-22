@@ -28,6 +28,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _isShuffle = false;
   bool _isRepeat = false;
   bool _isUsingYoutubeIframe = false;
+  bool _isAppBackgrounded = false;
   bool _isLoadingRecommendations = false;
   bool _hasPrefetchedNextTrack = false;
   Timer? _backgroundWatchdogTimer;
@@ -157,9 +158,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               );
             } catch (_) {}
           }
-          if (_watchdogStallCount >= 8) {
-            // Stalled for 16 seconds without progress: trigger recovery!
-            debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 16s. Triggering recovery...');
+          // Only trigger recovery if in FOREGROUND where position is guaranteed to tick:
+          // In background with screen off, audio plays smoothly but JS position reporting is throttled by OS.
+          if (!_isAppBackgrounded && _watchdogStallCount >= 8) {
+            debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 16s in foreground. Triggering recovery...');
             _watchdogStallCount = 0;
             _handlePlaybackFailure(_currentTrack, 'Playback stalled for 16s');
             return;
@@ -183,6 +185,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
+      _isAppBackgrounded = true;
       if (!_userRequestedPause && _currentTrack != null && _isPlaying) {
         _acquireNativeLocks();
         if (_isUsingYoutubeIframe && _ytController != null) {
@@ -190,6 +193,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _injectBackgroundPlaybackScripts();
           _ytController?.playVideo();
         }
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      _isAppBackgrounded = false;
+      if (!_userRequestedPause && _currentTrack != null && _isPlaying) {
+        _acquireNativeLocks();
+        _ytController?.playVideo();
       }
     }
   }
@@ -209,8 +218,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       await controller.runJavaScript('''
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
-          if (window.__bgScriptsInjected) return;
-          window.__bgScriptsInjected = true;
 
           // 1. Hook HTMLMediaElement.prototype.pause so OS screen-off pause calls are ignored
           if (!window.__pausePatched) {
@@ -266,26 +273,32 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           }
 
           // 3. Spoof visibility properties so YouTube player engine believes screen is ALWAYS on
-          try {
-            Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-            Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-            Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
-          } catch(e) {}
+          if (!window.__visibilityPatched) {
+            window.__visibilityPatched = true;
+            try {
+              Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+              Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+              Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+            } catch(e) {}
+          }
 
-          // 4. Block OS screen off / window blur events
-          var blockEvents = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide', 'freeze', 'unload'];
-          blockEvents.forEach(function(evt) {
-            window.addEventListener(evt, function(e) {
-              if (!window.__userRequestedPause) {
-                e.stopImmediatePropagation();
-              }
-            }, true);
-            document.addEventListener(evt, function(e) {
-              if (!window.__userRequestedPause) {
-                e.stopImmediatePropagation();
-              }
-            }, true);
-          });
+          // 4. Block OS screen off / window blur events (attach ONCE only to prevent memory leak)
+          if (!window.__eventsBlocked) {
+            window.__eventsBlocked = true;
+            var blockEvents = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide', 'freeze', 'unload'];
+            blockEvents.forEach(function(evt) {
+              window.addEventListener(evt, function(e) {
+                if (!window.__userRequestedPause) {
+                  e.stopImmediatePropagation();
+                }
+              }, true);
+              document.addEventListener(evt, function(e) {
+                if (!window.__userRequestedPause) {
+                  e.stopImmediatePropagation();
+                }
+              }, true);
+            });
+          }
 
           // 5. Inaudible Web Audio oscillator keep-alive to keep audio pipeline active
           try {
