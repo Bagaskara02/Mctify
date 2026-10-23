@@ -64,6 +64,66 @@ function musicBackendPlugin() {
         }
       });
 
+      // 0.5. Direct YouTube Audio Streaming Endpoint (supports setSinkId output switching)
+      server.middlewares.use('/api/yt/stream', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          const id = url.searchParams.get('id');
+          if (!id) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: 'Missing video id' }));
+          }
+
+          if (!ytPromise) {
+            const { Innertube, Platform } = await import('youtubei.js');
+            Platform.shim.eval = (script) => {
+              const code = typeof script === 'string' ? script : script?.output;
+              return new Function(code + '\nreturn exportedVars;')();
+            };
+            ytPromise = Innertube.create();
+          }
+          const yt = await ytPromise;
+
+          const info = await yt.music.getInfo(id).catch(() => yt.getInfo(id));
+          const format = info.chooseFormat({ type: 'audio', quality: 'best' });
+          if (!format) {
+            res.statusCode = 404;
+            return res.end(JSON.stringify({ error: 'Format not found' }));
+          }
+
+          const streamUrl = await format.decipher(yt.session.player);
+          const forwardHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          };
+          if (req.headers.range) {
+            forwardHeaders['Range'] = req.headers.range;
+          }
+
+          const streamRes = await fetch(streamUrl, { headers: forwardHeaders });
+          res.statusCode = streamRes.status;
+          res.setHeader('Content-Type', streamRes.headers.get('content-type') || 'audio/mp4');
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          if (streamRes.headers.get('content-range')) res.setHeader('Content-Range', streamRes.headers.get('content-range'));
+          if (streamRes.headers.get('content-length')) res.setHeader('Content-Length', streamRes.headers.get('content-length'));
+
+          const reader = streamRes.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+          return res.end();
+        } catch (e) {
+          console.error('Stream API Error:', e);
+          if (!res.headersSent) {
+            res.statusCode = 500;
+            return res.end(JSON.stringify({ error: e.message }));
+          }
+          return res.end();
+        }
+      });
+
       // 1. YouTube Search & Full-Song Resolver Endpoint
       server.middlewares.use('/api/yt/search', async (req, res) => {
         try {

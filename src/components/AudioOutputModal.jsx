@@ -28,15 +28,31 @@ export default function AudioOutputModal({ isOpen, onClose, audioRef, audioConte
     });
   }, []);
 
-  const handleSelect = async (deviceId, label) => {
+  const handleSelect = async (item) => {
+    // If real device IDs are not yet unlocked, prompt Windows device selector / permission
+    const isPlaceholder = !hasDeviceLabels || 
+      item.deviceId.includes('_default') || 
+      item.deviceId.includes('usb_') || 
+      item.deviceId.includes('hdmi_');
+
+    if (isPlaceholder) {
+      setIsRequesting(true);
+      await audioOutputService.requestDeviceAccess(
+        audioRef?.current,
+        audioContext
+      );
+      setIsRequesting(false);
+      return;
+    }
+
     await audioOutputService.setOutputDevice(
-      deviceId, 
+      item.deviceId, 
       audioRef?.current, 
       audioContext,
-      label
+      item.label
     );
-    setSelectedId(deviceId);
-    setSelectedLabel(label);
+    setSelectedId(item.deviceId);
+    setSelectedLabel(item.label);
   };
 
   const handleRequestAccess = async () => {
@@ -174,7 +190,7 @@ export default function AudioOutputModal({ isOpen, onClose, audioRef, audioConte
             return (
               <div
                 key={item.deviceId + index}
-                onClick={() => handleSelect(item.deviceId, item.label)}
+                onClick={() => handleSelect(item)}
                 className={`group relative flex items-center p-2.5 rounded-md cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-white/[0.12] text-white'

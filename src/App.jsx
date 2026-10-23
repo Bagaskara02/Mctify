@@ -25,6 +25,7 @@ import ArtistView from './components/ArtistView';
 import { storageService } from './services/storageService';
 import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
+import { audioOutputService } from './services/audioOutputService';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -77,6 +78,7 @@ export default function App() {
   // Dynamic Personalized Feed State
   const [personalizedFeed, setPersonalizedFeed] = useState(null);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [useIframeFallback, setUseIframeFallback] = useState(false);
 
   // Smart Autoplay Toast Notification
   const [smartToast, setSmartToast] = useState(null);
@@ -114,10 +116,23 @@ export default function App() {
     // Initial state: currentTrack starts null, right sidebar starts closed
     refreshPersonalizedFeed();
 
-    // Connect native audio preview to studio Equalizer DSP
+    // Connect native audio to studio Equalizer DSP & Sound Output Device router
     if (audioRef.current) {
       webAudioEqualizer.connectMediaElement(audioRef.current);
     }
+
+    const unsubAudioSink = audioOutputService.subscribe((devs, deviceId) => {
+      if (audioRef.current && typeof audioRef.current.setSinkId === 'function') {
+        audioRef.current.setSinkId(deviceId).catch(() => {});
+      }
+      if (webAudioEqualizer.audioCtx && typeof webAudioEqualizer.audioCtx.setSinkId === 'function') {
+        webAudioEqualizer.audioCtx.setSinkId(deviceId).catch(() => {});
+      }
+    });
+
+    return () => {
+      unsubAudioSink();
+    };
   }, []);
 
   // Fetch Synchronized Lyrics whenever currentTrack changes
@@ -191,23 +206,36 @@ export default function App() {
     setIsPlaying(true);
 
     if (track.videoId) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
+      setUseIframeFallback(false);
       const hdTrack = {
         ...track,
         artwork: getHighResArtworkUrl(track.artwork),
       };
       setCurrentTrack(hdTrack);
       setDuration(track.duration || 210);
+
+      // Stream direct audio through native HTML5 audio element
+      // This enables REAL hardware sound output switching (Headphones, Speakers, USB, HDMI) via setSinkId!
+      if (audioRef.current) {
+        audioRef.current.src = `/api/yt/stream?id=${track.videoId}`;
+        audioRef.current.currentTime = 0;
+        audioRef.current.volume = isMuted ? 0 : volume;
+        audioRef.current.playbackRate = playbackRate;
+        const currentSink = audioOutputService.getDeviceId();
+        if (currentSink && typeof audioRef.current.setSinkId === 'function') {
+          audioRef.current.setSinkId(currentSink).catch(() => {});
+        }
+        audioRef.current.play().catch((err) => {
+          console.warn('[App] Direct stream playback fallback to iframe:', err);
+          setUseIframeFallback(true);
+        });
+      }
     } else {
-      // Clear native audio preview immediately so it never plays or triggers ended
+      // Clear native audio preview immediately
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = '';
       }
-      // Set currentTrack with videoId: null so YouTube player stops old audio immediately
       setCurrentTrack({ ...track, videoId: null, artwork: getHighResArtworkUrl(track.artwork) });
 
       try {
@@ -221,8 +249,23 @@ export default function App() {
           };
           setCurrentTrack(fullTrack);
           setDuration(yt.duration || track.duration);
-          // Also update queue with resolved videoId so next/prev has full song
           setQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
+
+          setUseIframeFallback(false);
+          if (audioRef.current) {
+            audioRef.current.src = `/api/yt/stream?id=${yt.videoId}`;
+            audioRef.current.currentTime = 0;
+            audioRef.current.volume = isMuted ? 0 : volume;
+            audioRef.current.playbackRate = playbackRate;
+            const currentSink = audioOutputService.getDeviceId();
+            if (currentSink && typeof audioRef.current.setSinkId === 'function') {
+              audioRef.current.setSinkId(currentSink).catch(() => {});
+            }
+            audioRef.current.play().catch((err) => {
+              console.warn('[App] Direct stream playback fallback to iframe:', err);
+              setUseIframeFallback(true);
+            });
+          }
         } else if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
           audioRef.current.currentTime = 0;
@@ -294,7 +337,7 @@ export default function App() {
       if (audioRef.current) audioRef.current.pause();
     } else {
       setIsPlaying(true);
-      if (!currentTrack.videoId && currentTrack.audioUrl && audioRef.current) {
+      if (audioRef.current && audioRef.current.src) {
         audioRef.current.play().catch(console.warn);
       }
     }
@@ -452,7 +495,7 @@ export default function App() {
     if (Number.isFinite(newTime)) {
       setCurrentTime(newTime);
       setSeekTime(newTime);
-      if (audioRef.current && !currentTrack?.videoId) {
+      if (audioRef.current && audioRef.current.src) {
         audioRef.current.currentTime = newTime;
       }
       setTimeout(() => setSeekTime(null), 100);
@@ -820,56 +863,67 @@ export default function App() {
         onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
       />
 
-      {/* YouTube Full-Length Audio/Video Player Engine */}
-      <YouTubePlayer
-        videoId={currentTrack?.videoId}
-        isPlaying={isPlaying}
-        volume={volume}
-        isMuted={isMuted}
-        playbackRate={playbackRate}
-        seekTime={seekTime}
-        onTimeUpdate={(current, dur) => {
-          setCurrentTime(current);
-          if (dur && Number.isFinite(dur) && dur > 0) {
-            setDuration(dur);
-            // Safety auto-advance if playback is within 0.6s of end
-            if (dur > 5 && current >= dur - 0.6 && isPlaying) {
-              handleEnded();
+      {/* Fallback YouTube Iframe Engine (used only if direct stream fallback is needed) */}
+      {useIframeFallback && (
+        <YouTubePlayer
+          videoId={currentTrack?.videoId}
+          isPlaying={isPlaying}
+          volume={volume}
+          isMuted={isMuted}
+          playbackRate={playbackRate}
+          seekTime={seekTime}
+          onTimeUpdate={(current, dur) => {
+            setCurrentTime(current);
+            if (dur && Number.isFinite(dur) && dur > 0) {
+              setDuration(dur);
+              // Safety auto-advance if playback is within 0.6s of end
+              if (dur > 5 && current >= dur - 0.6 && isPlaying) {
+                handleEnded();
+              }
             }
-          }
-        }}
-        onEnded={handleEnded}
-        onError={(err) => {
-          console.warn('YouTube playback error, attempting preview fallback', err);
-          if (currentTrack?.audioUrl && audioRef.current) {
-            audioRef.current.src = currentTrack.audioUrl;
-            audioRef.current.play().catch(console.warn);
-          }
-        }}
-      />
+          }}
+          onEnded={handleEnded}
+          onError={(err) => {
+            console.warn('YouTube playback error, attempting preview fallback', err);
+            if (currentTrack?.audioUrl && audioRef.current) {
+              audioRef.current.src = currentTrack.audioUrl;
+              audioRef.current.play().catch(console.warn);
+            }
+          }}
+        />
+      )}
 
-      {/* Fallback Native Audio Element for Preview */}
+      {/* Primary Native Audio Stream Element (Powers setSinkId & Real Windows Hardware Output Switching) */}
       <audio
         ref={audioRef}
         crossOrigin="anonymous"
-        preload="metadata"
+        preload="auto"
         onTimeUpdate={() => {
-          if (!currentTrack?.videoId && audioRef.current) {
+          if (audioRef.current) {
             const cur = audioRef.current.currentTime;
             const dur = audioRef.current.duration;
             setCurrentTime(cur);
-            // Safety auto-advance if preview audio reaches end
+            if (dur && Number.isFinite(dur) && dur > 0) {
+              setDuration(dur);
+            }
             if (dur && cur >= dur - 0.5 && isPlaying) {
               handleEnded();
             }
           }
         }}
         onLoadedMetadata={() => {
-          if (!currentTrack?.videoId && audioRef.current) {
-            setDuration(currentTrack?.duration || audioRef.current.duration || 180);
+          if (audioRef.current) {
+            const dur = audioRef.current.duration;
+            if (dur && Number.isFinite(dur) && dur > 0) {
+              setDuration(dur);
+            }
           }
         }}
         onEnded={handleEnded}
+        onError={() => {
+          console.warn('[App] Direct stream error, falling back to YouTube iframe engine');
+          setUseIframeFallback(true);
+        }}
       />
 
       {/* Upper Area: 3 Detached Islands (Sidebar + Main Content + Right Sidebar) */}
