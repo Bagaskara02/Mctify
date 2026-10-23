@@ -208,6 +208,33 @@ export default function BeautifulLyrics({
   const [palette, setPalette] = useState({ primary: '#2563EB', secondary: '#3B82F6', tertiary: '#1D4ED8' });
   const [userScrolled, setUserScrolled] = useState(false);
 
+  // User lyric timing sync calibration (persisted in localStorage)
+  const [syncOffsetSec, setSyncOffsetSec] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mcmusic_lyrics_sync_offset');
+      return saved !== null ? parseFloat(saved) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const updateSyncOffset = (delta) => {
+    setSyncOffsetSec((prev) => {
+      const next = Math.round((prev + delta) * 10) / 10;
+      try {
+        localStorage.setItem('mcmusic_lyrics_sync_offset', next.toString());
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  const resetSyncOffset = () => {
+    setSyncOffsetSec(0);
+    try {
+      localStorage.setItem('mcmusic_lyrics_sync_offset', '0');
+    } catch (_) {}
+  };
+
   // 60 FPS sub-millisecond smooth interpolation ticker
   const [smoothTime, setSmoothTime] = useState(currentTime);
   const lastReportedTimeRef = useRef(currentTime);
@@ -255,8 +282,9 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  // Acoustic output latency calibration: Physical speaker audio lags behind video timestamp by ~350ms
-  const effectiveTime = Math.max(0, smoothTime - 0.35);
+  // Acoustic output latency calibration: Calibrated so lyrics don't rush ahead of vocals
+  // Base offset: 0.65s (delayed by an extra 300ms so lyric doesn't highlight too early) + user offset
+  const effectiveTime = Math.max(0, smoothTime - (0.65 + syncOffsetSec));
   const lines = lyricsData?.lines || [];
 
   // Determine active line index
@@ -323,8 +351,33 @@ export default function BeautifulLyrics({
         <div className="absolute inset-0 bg-black/65 backdrop-blur-[75px]" />
       </div>
 
-      {/* Floating Minimal Controls (Top Right: Fullscreen & Close ONLY) */}
+      {/* Floating Minimal Controls (Top Right: Timing Calibrator, Fullscreen & Close) */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-8 z-30 flex items-center gap-2">
+        {/* Real-time Lyrics Timing Calibrator */}
+        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg">
+          <button
+            onClick={() => updateSyncOffset(-0.2)}
+            className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
+            title="Percepat lirik 0.2s (jika lirik telat)"
+          >
+            -0.2s
+          </button>
+          <button
+            onClick={resetSyncOffset}
+            className="px-2 py-0.5 hover:text-white font-mono text-[11px] transition-colors"
+            title="Klik untuk reset sinkronisasi ke 0s"
+          >
+            Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
+          </button>
+          <button
+            onClick={() => updateSyncOffset(0.2)}
+            className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
+            title="Perlambat lirik 0.2s (jika lirik kecepetan)"
+          >
+            +0.2s
+          </button>
+        </div>
+
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
           className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white backdrop-blur-md transition-all active:scale-95"

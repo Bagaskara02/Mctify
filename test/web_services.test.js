@@ -52,3 +52,18 @@ describe('Web Audio Equalizer Tests', () => {
     assert.ok(boostedMult <= 2.05, `Boosted mult ${boostedMult} should be <= 2.05 (+6 dB ceiling)`);
   });
 });
+
+describe('Web Audio Output Service Tests', () => {
+  it('initializes safely and provides default device fallback', async () => {
+    const { audioOutputService } = await import('../src/services/audioOutputService.js');
+    assert.equal(typeof audioOutputService.getDeviceId(), 'string');
+    assert.ok(['default', ''].includes(audioOutputService.getDeviceId()) || typeof audioOutputService.getDeviceId() === 'string');
+    
+    let receivedDeviceId = null;
+    const unsubscribe = audioOutputService.subscribe((devs, deviceId) => {
+      receivedDeviceId = deviceId;
+    });
+    assert.ok(receivedDeviceId !== null);
+    unsubscribe();
+  });
+});

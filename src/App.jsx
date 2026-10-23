@@ -10,6 +10,7 @@ import ImportYouTubeModal from './components/ImportYouTubeModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
 import AudioQualityModal from './components/AudioQualityModal';
+import AudioOutputModal from './components/AudioOutputModal';
 import SleepTimerModal from './components/SleepTimerModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
@@ -62,6 +63,7 @@ export default function App() {
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
+  const [isAudioOutputOpen, setIsAudioOutputOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
   const sleepTimerIntervalRef = useRef(null);
@@ -1098,6 +1100,7 @@ export default function App() {
           isRightSidebarOpen={isRightSidebarOpen}
           isEqualizerOpen={isEqualizerOpen}
           isAudioQualityOpen={isAudioQualityOpen}
+          isAudioOutputOpen={isAudioOutputOpen}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={() => handleNext(false)}
@@ -1112,6 +1115,7 @@ export default function App() {
           onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
           onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
           onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
+          onToggleAudioOutput={() => setIsAudioOutputOpen(!isAudioOutputOpen)}
           onTrackContextMenu={handleTrackContextMenu}
         />
       </div>
@@ -1229,6 +1233,14 @@ export default function App() {
       <AudioQualityModal
         isOpen={isAudioQualityOpen}
         onClose={() => setIsAudioQualityOpen(false)}
+      />
+
+      {/* --- AUDIO OUTPUT DEVICE MODAL --- */}
+      <AudioOutputModal
+        isOpen={isAudioOutputOpen}
+        onClose={() => setIsAudioOutputOpen(false)}
+        audioRef={audioRef}
+        audioContext={webAudioEqualizer.audioContext}
       />
 
       {/* --- SLEEP TIMER MODAL --- */}

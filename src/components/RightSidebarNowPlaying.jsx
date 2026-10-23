@@ -28,10 +28,11 @@ export default function RightSidebarNowPlaying({
 
   // Extract current active line for the "Pratinjau lirik" widget
   const lines = lyricsData?.lines || [];
+  const effectiveTime = Math.max(0, currentTime - 0.65);
   let activeIndex = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].time <= currentTime) {
-      if (i === lines.length - 1 || lines[i + 1].time > currentTime) {
+    if (lines[i].time <= effectiveTime) {
+      if (i === lines.length - 1 || lines[i + 1].time > effectiveTime) {
         activeIndex = i;
         break;
       }

@@ -17,7 +17,8 @@ import {
   MoreHorizontal,
   Sliders,
   Gauge,
-  Moon
+  Moon,
+  Headphones
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
@@ -49,6 +50,7 @@ export default function PlayerBar({
   isRightSidebarOpen,
   isEqualizerOpen,
   isAudioQualityOpen,
+  isAudioOutputOpen,
   onPlayPause,
   onPrev,
   onNext,
@@ -63,6 +65,7 @@ export default function PlayerBar({
   onToggleRightSidebar,
   onToggleEqualizer,
   onToggleAudioQuality,
+  onToggleAudioOutput,
   onTrackContextMenu,
 }) {
   const progressBarRef = useRef(null);
@@ -439,6 +442,19 @@ export default function PlayerBar({
           title="Equalizer & Efek Suara"
         >
           <Sliders className="w-4 h-4" />
+        </button>
+
+        {/* Audio Output Device Trigger */}
+        <button
+          onClick={onToggleAudioOutput}
+          className={`p-2 rounded-full transition-all active:scale-95 ${
+            isAudioOutputOpen
+              ? 'text-[#3B82F6]'
+              : 'text-[#b3b3b3] hover:text-white'
+          }`}
+          title="Output Audio (Ganti Speaker / Headphone)"
+        >
+          <Headphones className="w-4 h-4" />
         </button>
 
         {/* Queue Drawer Trigger */}

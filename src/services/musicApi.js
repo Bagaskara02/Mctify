@@ -210,6 +210,23 @@ function calculateSearchRelevance(track, rawQuery) {
   const matchRatio = matchedTokens / qTokens.length;
   score += Math.round(matchRatio * 700);
 
+  // YouTube Music search engine rank bonus (preserves deep neural / lyrics ranking)
+  if (typeof track.ytRank === 'number') {
+    if (track.ytRank === 0) score += 950;
+    else if (track.ytRank === 1) score += 700;
+    else if (track.ytRank === 2) score += 500;
+    else if (track.ytRank < 5) score += 300;
+    else if (track.ytRank < 10) score += 150;
+  }
+
+  // Lyrics Search Detection:
+  // When a user types 3+ words (e.g. "hidup berjalan seperti bajingan" or "cause you're a sky full of stars"),
+  // and direct title match is low (<0.4), but YouTube Music returned it in top results:
+  if (qTokens.length >= 3 && matchRatio < 0.4 && typeof track.ytRank === 'number' && track.ytRank < 3) {
+    track.isLyricMatch = true;
+    score += 1200; // Strong boost to put lyric match on top!
+  }
+
   // 1. Prefix match bonus (Spotify-like instant hit suggestion on short prefixes like "im the ")
   if (tTitle.startsWith(qNorm)) {
     score += 550;
@@ -371,7 +388,7 @@ export const musicApi = {
         audioUrl: '',
       }));
 
-      const ytSongs = (ytData.songs || []).map(s => ({
+      const ytSongs = (ytData.songs || []).map((s, idx) => ({
         id: s.videoId || s.id,
         videoId: s.videoId || s.id,
         title: s.title,
@@ -381,25 +398,38 @@ export const musicApi = {
         duration: s.duration || 180,
         genre: 'Pop',
         audioUrl: '',
+        ytRank: idx,
       }));
 
-      // Deduplicate and rank all candidates prioritizing studio original tracks
-      const seen = new Set();
-      const combinedPool = [...itunesTracks, ...deezerTracks, ...ytSongs];
-      const uniqueSongs = [];
+      // Deduplicate and rank all candidates prioritizing verified studio original tracks
+      const map = new Map();
 
-      for (const s of combinedPool) {
+      // Prioritize ytSongs first to retain clean videoId & YouTube Music rank
+      for (const s of ytSongs) {
         if (!s || !s.title) continue;
-        const cleanTitle = normalizeSearchText(s.title);
-        const cleanArtist = normalizeSearchText(s.artist);
-        const key = `${cleanTitle}___${cleanArtist}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueSongs.push(s);
+        const key = `${normalizeSearchText(s.title)}___${normalizeSearchText(s.artist)}`;
+        map.set(key, s);
+      }
+
+      for (const s of [...itunesTracks, ...deezerTracks]) {
+        if (!s || !s.title) continue;
+        const key = `${normalizeSearchText(s.title)}___${normalizeSearchText(s.artist)}`;
+        if (map.has(key)) {
+          const existing = map.get(key);
+          if (!existing.album || existing.album === 'Single') {
+            existing.album = s.album;
+          }
+          if (s.artwork && !existing.artwork) {
+            existing.artwork = s.artwork;
+          }
+        } else {
+          map.set(key, s);
         }
       }
 
-      // Sort by Studio Original Relevance: Famous original songs on top!
+      const uniqueSongs = Array.from(map.values());
+
+      // Sort by Studio Original Relevance: Famous original songs and lyric matches on top!
       uniqueSongs.sort((a, b) => calculateSearchRelevance(b, q) - calculateSearchRelevance(a, q));
 
       return {

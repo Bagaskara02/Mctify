@@ -65,6 +65,7 @@ export default async function handler(req, res) {
     const isKaraokeReq = qLower.includes('karaoke');
     const isInstrumentalReq = qLower.includes('instrumental');
     const isCoverReq = qLower.includes('cover');
+    const isVideoReq = qLower.includes('video') || qLower.includes('mv');
 
     const filteredSongs = rawSongs.filter(s => {
       const titleStr = (typeof s.title === 'string' ? s.title : (s.title?.text || '')).toLowerCase();
@@ -78,6 +79,12 @@ export default async function handler(req, res) {
         return false;
       }
       if (!isCoverReq && (combined.includes('guitar cover') || combined.includes('piano cover') || combined.includes('drum cover'))) {
+        return false;
+      }
+      if (!isVideoReq && (combined.includes('music video') || combined.includes('official music video') || combined.includes('video klip'))) {
+        return false;
+      }
+      if (combined.includes('parodi') || combined.includes('parody')) {
         return false;
       }
       return true;

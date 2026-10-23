@@ -114,16 +114,20 @@ export default async function handler(req, res) {
         let score = 1000;
 
         // 1. Core title check:
-        if (targetTitle && normTitle.includes(targetTitle)) {
-          score += 800;
-        } else if (targetTitle) {
-          const coreTokens = targetTitle.split(' ').filter(w => w.length > 2);
-          const matched = coreTokens.filter(tok => normTitle.includes(tok)).length;
-          if (coreTokens.length > 0 && matched === coreTokens.length) {
-            score += 500;
+        if (rawTitle && targetTitle) {
+          if (normTitle.includes(targetTitle)) {
+            score += 800;
           } else {
-            score -= 3000; // WRONG SONG!
+            const coreTokens = targetTitle.split(' ').filter(w => w.length > 2);
+            const matched = coreTokens.filter(tok => normTitle.includes(tok)).length;
+            if (coreTokens.length > 0 && matched === coreTokens.length) {
+              score += 500;
+            } else {
+              score -= 3000; // WRONG SONG for specific title resolution!
+            }
           }
+        } else if (targetTitle && normTitle.includes(targetTitle)) {
+          score += 600;
         }
 
         // 2. Artist check:
@@ -132,7 +136,7 @@ export default async function handler(req, res) {
             score += 800;
           } else if (combined.includes(targetArtist)) {
             score += 300;
-          } else {
+          } else if (rawArtist) {
             score -= 1000;
           }
         }
@@ -178,12 +182,12 @@ export default async function handler(req, res) {
           score -= 600;
         }
 
-        // Heavy boost for clean studio audio (Topic track, Official Audio)
-        if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || combined.includes('provided to youtube by')) {
-          score += 650;
+        // Heavy boost for clean studio original audio (Topic track, Official Audio, Album Audio)
+        if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || combined.includes('provided to youtube by') || combined.includes('original track')) {
+          score += 1500;
         }
 
-        // Heavy penalty for Music Videos (skits, pool dialogue, film intros desync lyrics & ruin listening!)
+        // Heavy penalty for Music Videos (skits, dialogue, car sounds, movie scenes that ruin audio listening)
         const isMv = combined.includes('music video') ||
           combined.includes('official video') ||
           combined.includes('official music video') ||
@@ -193,7 +197,7 @@ export default async function handler(req, res) {
           /\b(mv|official mv)\b/i.test(normTitle);
 
         if (isMv) {
-          score -= 750;
+          score -= 2500;
         }
 
         // Duration matching

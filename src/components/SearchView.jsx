@@ -29,7 +29,7 @@ export default function SearchView({
   onTrackContextMenu,
   onOpenImportYouTube,
 }) {
-  const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Lagu' | 'Artis' | 'Cari Lirik 🎙️' | 'Playlist'
+  const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Lagu' | 'Artis' | 'Playlist'
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -57,7 +57,7 @@ export default function SearchView({
     { name: 'Dance & EDM', color: 'from-[#00a3ff] to-[#004780]' },
   ];
 
-  // Perform multi-search with debounce and lyrics detection
+  // Perform multi-search with automatic title, artist, and full lyrics indexing
   useEffect(() => {
     if (!searchQuery || !searchQuery.trim()) {
       setSongs([]);
@@ -69,22 +69,16 @@ export default function SearchView({
     setIsLoading(true);
     const timeout = setTimeout(async () => {
       try {
-        if (activeTab === 'Cari Lirik 🎙️') {
+        const data = await musicApi.searchAll(searchQuery);
+        const rawSongs = data.songs || [];
+        if (rawSongs.length === 0 && searchQuery.trim().split(' ').length >= 3) {
+          // Auto lyrics search fallback
           const lyricSongs = await musicApi.searchTracksByLyrics(searchQuery);
           setSongs(lyricSongs || []);
-          setArtists([]);
         } else {
-          const data = await musicApi.searchAll(searchQuery);
-          const rawSongs = data.songs || [];
-          if (rawSongs.length === 0 && searchQuery.trim().split(' ').length >= 3) {
-            // Auto lyrics search fallback when regular search returns 0 results
-            const lyricSongs = await musicApi.searchTracksByLyrics(searchQuery);
-            setSongs(lyricSongs || []);
-          } else {
-            setSongs(rawSongs);
-          }
-          setArtists(data.artists || []);
+          setSongs(rawSongs);
         }
+        setArtists(data.artists || []);
       } catch (err) {
         console.warn('Search failed:', err);
       } finally {
@@ -109,7 +103,7 @@ export default function SearchView({
       {/* Filter Tabs matching Spotify Screenshot media_1791353069505.png */}
       <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 scrollbar-none">
         <div className="flex items-center gap-2">
-          {['Semua', 'Lagu', 'Artis', 'Cari Lirik 🎙️', 'Playlist'].map((tab) => (
+          {['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -270,6 +264,12 @@ export default function SearchView({
                           <span className="px-2 py-0.5 rounded-full bg-white/10 text-white font-bold text-[10px]">
                             Lagu
                           </span>
+                          {topSong.isLyricMatch && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#3B82F6]/20 text-[#60A5FA] border border-[#3B82F6]/30 text-[10px] font-bold flex items-center gap-1">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Cocok dengan lirik
+                            </span>
+                          )}
                         </p>
                       </div>
 
