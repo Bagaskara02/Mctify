@@ -7,6 +7,9 @@ class AudioOutputService {
     this.selectedDeviceId = typeof window !== 'undefined' 
       ? localStorage.getItem('mcmusic_audio_output_id') || 'default'
       : 'default';
+    this.selectedDeviceLabel = typeof window !== 'undefined'
+      ? localStorage.getItem('mcmusic_audio_output_label') || ''
+      : '';
     this.devices = [];
     this.subscribers = new Set();
     this.isSupported = typeof navigator !== 'undefined' && 
@@ -17,20 +20,20 @@ class AudioOutputService {
         this.refreshDevices();
       });
       // Initial fetch
-      setTimeout(() => this.refreshDevices(), 500);
+      setTimeout(() => this.refreshDevices(), 300);
     }
   }
 
   subscribe(callback) {
     this.subscribers.add(callback);
-    callback(this.devices, this.selectedDeviceId);
+    callback(this.devices, this.selectedDeviceId, this.selectedDeviceLabel);
     return () => this.subscribers.delete(callback);
   }
 
   notify() {
     for (const cb of this.subscribers) {
       try {
-        cb(this.devices, this.selectedDeviceId);
+        cb(this.devices, this.selectedDeviceId, this.selectedDeviceLabel);
       } catch (_) {}
     }
   }
@@ -49,12 +52,48 @@ class AudioOutputService {
     }
   }
 
+  /**
+   * Request Windows audio device access to reveal real hardware labels
+   */
+  async requestDeviceAccess(mediaElement = null, audioContext = null) {
+    if (!this.isSupported) return false;
+
+    // 1. Try Windows / Chrome native selectAudioOutput first
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.selectAudioOutput) {
+      try {
+        const device = await navigator.mediaDevices.selectAudioOutput();
+        if (device && device.deviceId) {
+          await this.setOutputDevice(device.deviceId, mediaElement, audioContext, device.label);
+          await this.refreshDevices();
+          return true;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return false;
+      }
+    }
+
+    // 2. Unlock device names by briefly requesting audio permission
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Immediately stop microphone track to keep privacy pristine
+        stream.getTracks().forEach((track) => track.stop());
+        await this.refreshDevices();
+        return true;
+      } catch (err) {
+        console.warn('[AudioOutputService] getUserMedia permission note:', err);
+      }
+    }
+
+    return false;
+  }
+
   async selectSystemDevice(mediaElement = null, audioContext = null) {
     if (typeof navigator !== 'undefined' && navigator.mediaDevices?.selectAudioOutput) {
       try {
         const device = await navigator.mediaDevices.selectAudioOutput();
         if (device && device.deviceId) {
-          await this.setOutputDevice(device.deviceId, mediaElement, audioContext);
+          await this.setOutputDevice(device.deviceId, mediaElement, audioContext, device.label);
           await this.refreshDevices();
           return device;
         }
@@ -67,10 +106,22 @@ class AudioOutputService {
     return null;
   }
 
-  async setOutputDevice(deviceId, mediaElement = null, audioContext = null) {
+  async setOutputDevice(deviceId, mediaElement = null, audioContext = null, label = '') {
     this.selectedDeviceId = deviceId || 'default';
+    if (label) {
+      this.selectedDeviceLabel = label;
+    } else if (deviceId === 'default') {
+      this.selectedDeviceLabel = 'Speakers / Output Default Sistem';
+    } else {
+      const match = this.devices.find((d) => d.deviceId === deviceId);
+      if (match?.label) {
+        this.selectedDeviceLabel = match.label;
+      }
+    }
+
     try {
       localStorage.setItem('mcmusic_audio_output_id', this.selectedDeviceId);
+      localStorage.setItem('mcmusic_audio_output_label', this.selectedDeviceLabel);
     } catch (_) {}
 
     // Apply to media element if supported
@@ -96,6 +147,10 @@ class AudioOutputService {
 
   getDeviceId() {
     return this.selectedDeviceId;
+  }
+
+  getDeviceLabel() {
+    return this.selectedDeviceLabel;
   }
 }
 
