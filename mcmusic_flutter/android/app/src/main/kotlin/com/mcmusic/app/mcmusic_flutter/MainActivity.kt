@@ -25,17 +25,20 @@ class MainActivity : AudioServiceActivity() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var isAudioPlaying = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val cachedWebViews = mutableListOf<WebView>()
+
     private val keepAliveRunnable = object : Runnable {
         override fun run() {
             try {
                 if (isAudioPlaying) {
-                    window.decorView?.let { keepWebViewsAlive(it) }
+                    keepWebViewsAlive()
                 }
             } catch (e: Throwable) {
                 e.printStackTrace()
             }
             if (isAudioPlaying) {
-                mainHandler.postDelayed(this, 1000)
+                // Heartbeat every 20 seconds instead of 1 second to eliminate CPU drain and heat
+                mainHandler.postDelayed(this, 20000)
             }
         }
     }
@@ -306,7 +309,8 @@ class MainActivity : AudioServiceActivity() {
             wakeLock?.setReferenceCounted(false)
 
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "McMusic::PlaybackWifiLock")
+            // Standard WIFI_MODE_FULL allows normal 802.11 power saving between audio packets, preventing battery drain & Wi-Fi chip heating
+            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL, "McMusic::PlaybackWifiLock")
             wifiLock?.setReferenceCounted(false)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -335,6 +339,31 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun findWebViews(view: View) {
+        if (view is WebView) {
+            if (!cachedWebViews.contains(view)) cachedWebViews.add(view)
+        } else if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findWebViews(view.getChildAt(i))
+            }
+        }
+    }
+
+    private fun keepWebViewsAlive() {
+        if (cachedWebViews.isEmpty()) {
+            window.decorView?.let { findWebViews(it) }
+        }
+        for (wv in cachedWebViews) {
+            try {
+                wv.onResume()
+                wv.resumeTimers()
+                wv.settings.mediaPlaybackRequiresUserGesture = false
+            } catch (e: Throwable) {
+                cachedWebViews.clear()
+            }
+        }
+    }
+
     private fun acquirePlaybackLocks() {
         try {
             if (wakeLock?.isHeld != true) {
@@ -343,9 +372,9 @@ class MainActivity : AudioServiceActivity() {
             if (wifiLock?.isHeld != true) {
                 wifiLock?.acquire()
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
+            keepWebViewsAlive()
             mainHandler.removeCallbacks(keepAliveRunnable)
-            mainHandler.post(keepAliveRunnable)
+            mainHandler.postDelayed(keepAliveRunnable, 20000)
         } catch (e: Throwable) {
             e.printStackTrace()
         }
@@ -367,42 +396,16 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun keepWebViewsAlive(view: View) {
-        if (view is WebView) {
-            try {
-                view.onResume()
-                view.resumeTimers()
-                view.dispatchWindowVisibilityChanged(View.VISIBLE)
-                view.settings.mediaPlaybackRequiresUserGesture = false
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            }
-        } else if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                keepWebViewsAlive(view.getChildAt(i))
-            }
-        }
-    }
-
     override fun onPause() {
         try {
             if (isAudioPlaying || wakeLock?.isHeld != true) {
                 acquirePlaybackLocks()
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            if (isAudioPlaying) {
-                mainHandler.post(keepAliveRunnable)
-            }
+            keepWebViewsAlive()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onPause()
-        try {
-            window.decorView?.let { keepWebViewsAlive(it) }
-        } catch (e: Throwable) {
-            e.printStackTrace()
-        }
     }
 
     override fun onStop() {
@@ -410,20 +413,11 @@ class MainActivity : AudioServiceActivity() {
             if (isAudioPlaying || wakeLock?.isHeld != true) {
                 acquirePlaybackLocks()
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            if (isAudioPlaying) {
-                mainHandler.post(keepAliveRunnable)
-            }
+            keepWebViewsAlive()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onStop()
-        try {
-            window.decorView?.let { keepWebViewsAlive(it) }
-        } catch (e: Throwable) {
-            e.printStackTrace()
-        }
     }
 
     override fun onResume() {
@@ -433,7 +427,7 @@ class MainActivity : AudioServiceActivity() {
                 mainHandler.removeCallbacks(keepAliveRunnable)
                 releasePlaybackLocks()
             }
-            window.decorView?.let { keepWebViewsAlive(it) }
+            keepWebViewsAlive()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
