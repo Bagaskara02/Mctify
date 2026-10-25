@@ -117,7 +117,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _watchdogStallCount = 0;
     _initialStartStallCount = 0;
     _lastWatchdogPosition = _position;
-    _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!_userRequestedPause && _isUsingYoutubeIframe && _ytController != null && _currentTrack != null) {
         // If player is paused by OS/Chromium in background, wake it up!
         if (!_isPlaying) {
@@ -126,14 +126,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _ytController?.playVideo();
         }
 
-        // 1. Detect if audio playback never started (stuck at 0:00 for > 8 seconds)
+        // 1. Detect if audio playback never started (stuck at 0:00 for > 6 seconds)
         if (_position == Duration.zero) {
           _initialStartStallCount++;
           if (_initialStartStallCount >= 2) {
             _ytController?.playVideo();
           }
-          if (_initialStartStallCount >= 4) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 16s. Triggering recovery...');
+          if (_initialStartStallCount >= 5) {
+            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 10s. Triggering recovery...');
             _initialStartStallCount = 0;
             _handlePlaybackFailure(_currentTrack, 'Playback stuck at 0:00');
             return;
@@ -150,12 +150,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         } else if (_position == _lastWatchdogPosition && _position > Duration.zero) {
           _watchdogStallCount++;
           if (_watchdogStallCount >= 2) {
-            // Stalled for 8 seconds: enforce playback kick
+            // Stalled for 4 seconds: enforce playback kick
             _acquireNativeLocks();
             _ytController?.playVideo();
           }
-          if (_watchdogStallCount >= 3) {
-            // Stalled for 12 seconds: inject direct JS play trigger
+          if (_watchdogStallCount >= 4) {
+            // Stalled for 8 seconds: inject direct JS play trigger
             try {
               _ytController?.webViewController.runJavaScript(
                 'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
@@ -164,10 +164,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           }
           // Only trigger recovery if in FOREGROUND where position is guaranteed to tick:
           // In background with screen off, audio plays smoothly but JS position reporting is throttled by OS.
-          if (!_isAppBackgrounded && _watchdogStallCount >= 5) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 20s in foreground. Triggering recovery...');
+          if (!_isAppBackgrounded && _watchdogStallCount >= 8) {
+            debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 16s in foreground. Triggering recovery...');
             _watchdogStallCount = 0;
-            _handlePlaybackFailure(_currentTrack, 'Playback stalled for 20s');
+            _handlePlaybackFailure(_currentTrack, 'Playback stalled for 16s');
             return;
           }
         } else {
@@ -304,13 +304,30 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             });
           }
 
-          // 5. Force lowest video quality ("tiny" / 144p) to disable HD decoding & eliminate CPU heating / battery drain
+          // 5. Inaudible Web Audio oscillator keep-alive to keep audio pipeline active
+          try {
+            if (!window.__keepAliveAudioCtx) {
+              var AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                var actx = new AudioCtx();
+                var osc = actx.createOscillator();
+                var gain = actx.createGain();
+                gain.gain.value = 0.00001;
+                osc.connect(gain);
+                gain.connect(actx.destination);
+                osc.start();
+                window.__keepAliveAudioCtx = actx;
+              }
+            } else if (window.__keepAliveAudioCtx.state === 'suspended') {
+              window.__keepAliveAudioCtx.resume();
+            }
+          } catch(e) {}
+
+          // 6. Ensure player volume is at maximum
           try {
             if (typeof player !== 'undefined' && player) {
               if (typeof player.unMute === 'function') player.unMute();
               if (typeof player.setVolume === 'function') player.setVolume(100);
-              if (typeof player.setPlaybackQuality === 'function') player.setPlaybackQuality('tiny');
-              if (typeof player.setPlaybackQualityRange === 'function') player.setPlaybackQualityRange('tiny', 'tiny');
             }
           } catch(e) {}
         })();
