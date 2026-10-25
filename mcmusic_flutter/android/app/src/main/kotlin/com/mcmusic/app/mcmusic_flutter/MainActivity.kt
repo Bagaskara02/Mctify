@@ -198,12 +198,15 @@ class MainActivity : AudioServiceActivity() {
             initAudioEffects()
             equalizer?.enabled = enabled
             if (!enabled) {
-                loudnessEnhancer?.enabled = false
                 bassBoost?.enabled = false
                 virtualizer?.enabled = false
+                // Keep loudness enhancer active so car speaker volume never drops suddenly
+                val hasGain = (loudnessEnhancer?.targetGain?.toInt() ?: 0) > 0
+                loudnessEnhancer?.enabled = hasGain
             } else {
                 bassBoost?.enabled = (bassBoost?.roundedStrength?.toInt() ?: 0) > 0
                 virtualizer?.enabled = (virtualizer?.roundedStrength?.toInt() ?: 0) > 0
+                loudnessEnhancer?.enabled = (loudnessEnhancer?.targetGain?.toInt() ?: 0) > 0
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -214,8 +217,8 @@ class MainActivity : AudioServiceActivity() {
         try {
             initAudioEffects()
             loudnessEnhancer?.let { le ->
-                // Clamp within safe limits (0 to 400 mB = 0 to +4.0 dB max) to prevent speaker clipping
-                val safeGain = gainMb.coerceIn(0, 400)
+                // Allow up to 1200 mB (+12.0 dB) for punchy and clear car & Bluetooth audio
+                val safeGain = gainMb.coerceIn(0, 1200)
                 le.setTargetGain(safeGain)
                 le.enabled = enabled && safeGain > 0
             }

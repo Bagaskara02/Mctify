@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
+import '../services/equalizer_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
 
@@ -69,6 +71,49 @@ class _CarModeViewState extends State<CarModeView> {
                         tooltip: 'Keluar dari Mode Mobil',
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Car Volume Booster Switch
+                  ListenableBuilder(
+                    listenable: EqualizerService.instance,
+                    builder: (context, _) {
+                      final eq = EqualizerService.instance;
+                      final isBoosted = eq.loudnessGain >= 0.8;
+                      return GestureDetector(
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          if (isBoosted) {
+                            eq.setLoudnessGain(0.40);
+                          } else {
+                            eq.setLoudnessGain(1.0);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isBoosted ? AppTheme.primaryAzure.withValues(alpha: 0.2) : Colors.white10,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isBoosted ? AppTheme.primaryAzure : Colors.white24),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.bolt, color: isBoosted ? AppTheme.primaryAzure : Colors.white70, size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                isBoosted ? 'Booster Suara Mobil: +10 dB (Maksimal)' : 'Booster Suara Mobil: Standar',
+                                style: TextStyle(
+                                  color: isBoosted ? AppTheme.primaryAzure : Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const Spacer(flex: 1),
 

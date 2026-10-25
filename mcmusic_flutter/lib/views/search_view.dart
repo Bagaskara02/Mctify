@@ -144,32 +144,12 @@ class _SearchViewState extends State<SearchView> {
     setState(() => _isLoading = true);
 
     final currentToken = ++_searchToken;
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+    _debounceTimer = Timer(const Duration(milliseconds: 180), () async {
       try {
-        if (_selectedTab == 'Cari Lirik 🎙️') {
-          final lyricTracks = await _api.searchTracksByLyrics(trimmed);
-          if (mounted && currentToken == _searchToken) {
-            setState(() {
-              _searchResults = lyricTracks;
-              _artistResults = [];
-              _isLoading = false;
-            });
-          }
-          return;
-        }
-
         final tracksFuture = _api.searchTracks(trimmed);
         final artistsFuture = _api.searchArtists(trimmed);
-        var tracks = await tracksFuture;
+        final tracks = await tracksFuture;
         final artists = await artistsFuture;
-
-        // Auto fallback to lyrics search if no tracks found and query has 3 or more words
-        if (tracks.isEmpty && trimmed.split(RegExp(r'\s+')).length >= 3) {
-          final lyricTracks = await _api.searchTracksByLyrics(trimmed);
-          if (lyricTracks.isNotEmpty) {
-            tracks = lyricTracks;
-          }
-        }
 
         if (mounted && currentToken == _searchToken) {
           setState(() {
@@ -310,7 +290,7 @@ class _SearchViewState extends State<SearchView> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: ['Semua', 'Lagu', 'Cari Lirik 🎙️', 'Artis', 'Playlist'].map((tab) {
+                  children: ['Semua', 'Lagu', 'Artis', 'Playlist'].map((tab) {
                     final isSelected = _selectedTab == tab;
                     return Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -521,21 +501,13 @@ class _SearchViewState extends State<SearchView> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: AppTheme.textMuted, fontSize: 14),
               ),
+              const SizedBox(height: 12),
+              const Text(
+                'Ketik penggalan lirik atau judul lagu untuk menemukan musik asli.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
               const SizedBox(height: 16),
-              if (_selectedTab != 'Cari Lirik 🎙️')
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() => _selectedTab = 'Cari Lirik 🎙️');
-                    _onSearch(_searchController.text);
-                  },
-                  icon: const Icon(Icons.mic, size: 18),
-                  label: const Text('Cari Berdasarkan Lirik 🎙️'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryAzure,
-                    foregroundColor: Colors.black,
-                  ),
-                ),
-              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: () => showImportYouTubeDialog(context: context, player: widget.player),
                 icon: const Icon(Icons.link, size: 18, color: AppTheme.primaryAzure),
@@ -620,6 +592,18 @@ class _SearchViewState extends State<SearchView> {
                       const SizedBox(height: 2),
                       Row(
                         children: [
+                          if (track.streamCount == 'Cocok Lirik' || track.album.startsWith('Lirik:')) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              margin: const EdgeInsets.only(right: 5),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryAzure.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(3),
+                                border: Border.all(color: AppTheme.primaryAzure.withValues(alpha: 0.4), width: 0.8),
+                              ),
+                              child: const Text('🎙️ Cocok Lirik', style: TextStyle(color: AppTheme.primaryAzure, fontSize: 9, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
                           if (track.isExplicit) ...[
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),

@@ -143,7 +143,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         }
 
         // 2. Detect if audio playback is stalled mid-song while screen is off
-        if (_position == _lastWatchdogPosition && _position > Duration.zero) {
+        final isBuffering = _ytController?.value.playerState == ytp.PlayerState.buffering;
+        if (isBuffering) {
+          // Normal network buffering while driving: allow buffer to fill smoothly without jittery kicks
+          _watchdogStallCount = 0;
+        } else if (_position == _lastWatchdogPosition && _position > Duration.zero) {
           _watchdogStallCount++;
           if (_watchdogStallCount >= 2) {
             // Stalled for 4 seconds: enforce playback kick

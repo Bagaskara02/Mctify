@@ -20,7 +20,7 @@ class EqualizerService extends ChangeNotifier {
   List<double> _currentBands = [0.0, 0.0, 0.0, 0.0, 0.0];
   double _bassBoost = 0.0;
   double _virtualizer = 0.0;
-  double _loudnessGain = 0.0;
+  double _loudnessGain = 0.70; // Default +7.0 dB boost for car & Bluetooth audio
 
   bool get isEnabled => _isEnabled;
   String get selectedPresetName => _selectedPresetName;
@@ -63,7 +63,7 @@ class EqualizerService extends ChangeNotifier {
         await _channel.invokeMethod('setVirtualizer', {'strength': _isEnabled ? _virtualizer : 0.0});
         await _channel.invokeMethod('setLoudnessGain', {
           'gain': (_loudnessGain * 1000).round(),
-          'enabled': _isEnabled,
+          'enabled': _loudnessGain > 0,
         });
       }
     } catch (_) {}
@@ -82,7 +82,7 @@ class EqualizerService extends ChangeNotifier {
       }
       _bassBoost = prefs.getDouble(_keyBassBoost) ?? 0.0;
       _virtualizer = prefs.getDouble(_keyVirtualizer) ?? 0.0;
-      _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.0;
+      _loudnessGain = prefs.getDouble(_keyLoudnessGain) ?? 0.70;
       notifyListeners();
       _applyNativeSettings();
     } catch (_) {} finally {
@@ -158,10 +158,10 @@ class EqualizerService extends ChangeNotifier {
     _loudnessGain = value.clamp(0.0, 1.0);
     notifyListeners();
     try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && _isEnabled) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         await _channel.invokeMethod('setLoudnessGain', {
           'gain': (_loudnessGain * 1000).round(),
-          'enabled': _isEnabled,
+          'enabled': _loudnessGain > 0,
         });
       }
     } catch (_) {}

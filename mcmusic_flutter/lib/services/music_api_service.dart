@@ -9,10 +9,15 @@ import '../models/audio_quality.dart';
 class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
+  static final Map<String, List<Track>> _searchCache = {};
 
   /// Invalidate stream URL cache (called when user switches audio quality)
   static void clearStreamCache() {
     _streamCache.clear();
+  }
+
+  static void clearSearchCache() {
+    _searchCache.clear();
   }
 
   static bool isPreviewUrl(String url) {
@@ -416,9 +421,15 @@ class MusicApiService {
       } else {
         score -= 900;
       }
-    } else if (!isAcousticRequested) {
-      if (combined.contains('live') || combined.contains('concert') || combined.contains('konser')) {
-        score -= 850;
+    } else {
+      if (combined.contains('live') ||
+          combined.contains('concert') ||
+          combined.contains('konser') ||
+          combined.contains('fancam') ||
+          combined.contains('live at') ||
+          combined.contains('world tour') ||
+          combined.contains('live session')) {
+        score -= 3500; // STRICT ANTI-LIVE PENALTY: Never allow concert/live video to defeat studio master!
       }
     }
 
@@ -427,7 +438,7 @@ class MusicApiService {
         score += 750;
       }
     } else if (!isAcousticRequested && combined.contains('session')) {
-      score -= 600;
+      score -= 1500;
     }
 
     final unwanted = [
@@ -447,9 +458,9 @@ class MusicApiService {
       }
     }
 
-    // HEAVY BOOST FOR CLEAN STUDIO AUDIO (Topic track or Official Audio)
+    // HEAVY BOOST FOR CLEAN STUDIO AUDIO (Topic track, Official Studio Release, or Official Audio)
     if (lowerAuthor.contains('- topic') || lowerTitle.contains('- topic') || combined.contains('official audio') || combined.contains('provided to youtube by')) {
-      score += 650;
+      score += 1500;
     }
 
     // HEAVY PENALTY FOR MUSIC VIDEOS (Cinematic skits, pool dialogue, film intros desync lyrics & ruin listening!)
@@ -716,16 +727,50 @@ class MusicApiService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final songs = (data['songs'] as List? ?? []);
+        final qNorm = query.toLowerCase();
+        final isLiveWanted = qNorm.contains('live') || qNorm.contains('concert') || qNorm.contains('konser');
+        final isKaraokeWanted = qNorm.contains('karaoke') || qNorm.contains('instrumental');
+
         for (int i = 0; i < songs.length; i++) {
           final s = songs[i];
           final title = (s['title'] ?? '').toString();
           final artist = (s['artist'] ?? '').toString();
           final vid = (s['videoId'] ?? s['id'] ?? '').toString();
           if (title.isNotEmpty) {
+            final lowerTitle = title.toLowerCase();
+            final lowerArtist = artist.toLowerCase();
+
+            // Strict Anti-Live / Anti-Concert Filter
+            if (!isLiveWanted) {
+              if (lowerTitle.contains('live') ||
+                  lowerTitle.contains('concert') ||
+                  lowerTitle.contains('konser') ||
+                  lowerTitle.contains('fancam') ||
+                  lowerTitle.contains('session') ||
+                  lowerTitle.contains('festival') ||
+                  lowerTitle.contains('world tour')) {
+                continue;
+              }
+            }
+
+            // Strict Anti-Karaoke / Anti-Instrumental / Anti-Cover Filter
+            if (!isKaraokeWanted) {
+              if (lowerTitle.contains('karaoke') ||
+                  lowerTitle.contains('instrumental') ||
+                  lowerTitle.contains('backing track') ||
+                  lowerTitle.contains('piano cover') ||
+                  lowerTitle.contains('guitar cover') ||
+                  lowerTitle.contains('tribute') ||
+                  lowerArtist.contains('karaoke') ||
+                  lowerArtist.contains('tribute')) {
+                continue;
+              }
+            }
+
             final pop = (850000 - (i * 25000)).clamp(200000, 850000);
             list.add(Track(
               id: 'yt_$vid',
-              videoId: '', // NOTE: Leave empty so playTrack uses resolveVideoId with duration & embed verification!
+              videoId: vid, // CRITICAL: preserve verified YouTube Music studio audio videoId!
               title: title,
               artist: artist,
               album: (s['album'] ?? 'Single').toString(),
@@ -925,37 +970,49 @@ class MusicApiService {
       score -= 850;
     }
     if (!isLiveRequested && !isAcousticRequested && !qNorm.contains('live') &&
-        (tTitle.contains('live') || tTitle.contains('concert') || tTitle.contains('konser'))) {
-      score -= 850;
+        (tTitle.contains('live') || tTitle.contains('concert') || tTitle.contains('konser') || tTitle.contains('fancam') || tAlbum.contains('live') || tAlbum.contains('concert'))) {
+      score -= 3500; // STRICT ANTI-LIVE FILTER: Original studio track is always prioritized
     }
 
-    // STUDIO ORIGINAL BONUS
-    if (!tTitle.contains('remix') && !tTitle.contains('live') && !tTitle.contains('cover') && !tTitle.contains('karaoke')) {
-      score += 250;
+    // STUDIO ORIGINAL BONUS (Official Studio Master)
+    if (!tTitle.contains('remix') && !tTitle.contains('live') && !tTitle.contains('cover') && !tTitle.contains('karaoke') && !tTitle.contains('instrumental')) {
+      score += 600;
     }
     if (tTitle.contains('official') || tTitle.contains('original')) {
-      score += 200;
+      score += 300;
     }
 
     return score;
   }
 
-  // Search tracks across query (Parallel Deezer + iTunes + YouTube Music with Popularity & Studio Original Priority)
+  // Search tracks across query (Parallel Deezer + iTunes + YouTube Music + Unified Lyric Search)
   Future<List<Track>> searchTracks(String query) async {
     final cleanQ = query.trim().toLowerCase();
     if (cleanQ.isEmpty) return [];
 
+    if (_searchCache.containsKey(cleanQ)) {
+      return _searchCache[cleanQ]!;
+    }
+
     final List<Track> results = [];
     final Set<String> seenKeys = <String>{};
+    final isLongQuery = cleanQ.split(RegExp(r'\s+')).length >= 3;
 
-    // 1. Run Deezer, iTunes & YouTube Music in parallel for instant response (<400ms)
-    final responses = await Future.wait([
+    // 1. Run Deezer, iTunes, YouTube Music (and Unified Lyric Search if 3+ words) in parallel (<350ms)
+    final searchFutures = <Future<List<Track>>>[
       _searchDeezer(query),
       _searchItunes(query),
       _searchYoutubeMusic(query),
-    ]);
+    ];
+    if (isLongQuery) {
+      searchFutures.add(searchTracksByLyrics(query));
+    }
 
-    final rawPool = <Track>[...responses[0], ...responses[1], ...responses[2]];
+    final responses = await Future.wait(searchFutures);
+    final rawPool = <Track>[];
+    for (final r in responses) {
+      rawPool.addAll(r);
+    }
 
     // 2. Score and deduplicate candidates by studio original relevance and typo tolerance
     rawPool.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
@@ -968,13 +1025,27 @@ class MusicApiService {
       }
     }
 
-    // 3. Multi-source fallback: Direct YouTube Search for Indie, Covers & Niche Tracks
-    if (results.length < 5) {
+    // 3. Fallback: If no tracks found yet, try lyric search explicitly
+    if (results.isEmpty && !isLongQuery) {
+      final lyricTracks = await searchTracksByLyrics(query);
+      for (final t in lyricTracks) {
+        final key = '${_normalizeQuery(t.title)}___${_normalizeQuery(t.artist)}';
+        if (!seenKeys.contains(key)) {
+          seenKeys.add(key);
+          results.add(t);
+        }
+      }
+    }
+
+    // 4. Secondary fallback: Direct YouTube Search for ultra-niche or Indie tracks
+    if (results.length < 3) {
       final yt = YoutubeExplode();
       try {
-        final ytResults = await yt.search.search(query).timeout(const Duration(seconds: 3));
+        final ytResults = await yt.search.search(query).timeout(const Duration(milliseconds: 2500));
         final ytTracks = <Track>[];
-        for (final v in ytResults.take(10)) {
+        for (final v in ytResults.take(8)) {
+          final titleLower = v.title.toLowerCase();
+          if (titleLower.contains('live') || titleLower.contains('concert') || titleLower.contains('karaoke')) continue;
           final key = '${_normalizeQuery(v.title)}___${_normalizeQuery(v.author)}';
           if (!seenKeys.contains(key)) {
             seenKeys.add(key);
@@ -1003,13 +1074,19 @@ class MusicApiService {
     // Re-sort total results ensuring highest studio relevance is strictly on top
     results.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
 
-    // 4. Offline fallback only if all network sources fail completely
+    // 5. Offline fallback only if all network sources fail completely
     if (results.isEmpty) {
       for (final t in officialTopTracks) {
         if (t.title.toLowerCase().contains(cleanQ) || t.artist.toLowerCase().contains(cleanQ)) {
           results.add(t);
         }
       }
+    }
+
+    // Cache the search results in memory for instant reuse
+    _searchCache[cleanQ] = results;
+    if (_searchCache.length > 80) {
+      _searchCache.remove(_searchCache.keys.first);
     }
 
     return results;
@@ -1256,67 +1333,98 @@ class MusicApiService {
     final List<Track> list = [];
     final Set<String> seen = {};
 
-    final yt = YoutubeExplode();
-    try {
-      final ytResults = await yt.search.search('$clean lyric').timeout(const Duration(seconds: 4));
-      for (final v in ytResults.take(12)) {
-        String title = v.title;
-        String artist = v.author;
-        if (title.contains(' - ')) {
-          final parts = title.split(' - ');
-          artist = parts[0].trim();
-          title = parts.sublist(1).join(' - ').trim();
+    // 1. YouTube Music Full Lyric Indexing Search via Vercel Backend
+    final ytMusicFuture = () async {
+      try {
+        final url = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent(clean)}');
+        final res = await http.get(url).timeout(const Duration(milliseconds: 3200));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final songs = (data['songs'] as List? ?? []);
+          return songs;
         }
-        final key = '${title.toLowerCase().trim()}_${artist.toLowerCase().trim()}';
-        if (!seen.contains(key)) {
-          seen.add(key);
-          list.add(Track(
-            id: 'yt_${v.id.value}',
-            title: title,
-            artist: artist,
-            album: 'Lirik: "$clean"',
-            artwork: v.thumbnails.highResUrl.isNotEmpty ? v.thumbnails.highResUrl : defaultArtwork,
-            audioUrl: '',
-            videoId: v.id.value,
-            duration: v.duration?.inSeconds ?? 210,
-            streamCount: 'Cocok Lirik',
-            isExplicit: false,
-          ));
+      } catch (_) {}
+      return [];
+    }();
+
+    // 2. LRCLIB Worldwide Lyric Database Search
+    final lrclibFuture = () async {
+      try {
+        final url = Uri.parse('https://lrclib.net/api/search?q=${Uri.encodeComponent(clean)}');
+        final res = await http.get(url).timeout(const Duration(milliseconds: 2500));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data is List) return data;
         }
+      } catch (_) {}
+      return [];
+    }();
+
+    final results = await Future.wait([ytMusicFuture, lrclibFuture]);
+    final ytSongs = results[0];
+    final lrcList = results[1];
+
+    // Priority A: YouTube Music Studio Album Songs (Authentic master track from lyrics)
+    for (int i = 0; i < ytSongs.length; i++) {
+      final s = ytSongs[i];
+      final title = (s['title'] ?? '').toString();
+      final artist = (s['artist'] ?? '').toString();
+      final vid = (s['videoId'] ?? s['id'] ?? '').toString();
+
+      final lowerTitle = title.toLowerCase();
+      // Anti-Live / Anti-Concert / Anti-Karaoke filter
+      if (lowerTitle.contains('live') ||
+          lowerTitle.contains('concert') ||
+          lowerTitle.contains('konser') ||
+          lowerTitle.contains('fancam') ||
+          lowerTitle.contains('karaoke') ||
+          lowerTitle.contains('instrumental')) {
+        continue;
       }
-    } catch (_) {
-    } finally {
-      yt.close();
+
+      final key = '${title.toLowerCase().trim()}___${artist.toLowerCase().trim()}';
+      if (title.isNotEmpty && !seen.contains(key)) {
+        seen.add(key);
+        list.add(Track(
+          id: 'yt_$vid',
+          videoId: vid,
+          title: title,
+          artist: artist,
+          album: (s['album'] ?? 'Lirik: "$clean"').toString(),
+          artwork: (s['artwork'] ?? defaultArtwork).toString(),
+          audioUrl: '',
+          duration: (s['duration'] as num?)?.toInt() ?? 180,
+          streamCount: 'Cocok Lirik',
+          isExplicit: false,
+          popularity: 900000 - (i * 20000),
+        ));
+      }
     }
 
-    try {
-      final url = Uri.parse('https://lrclib.net/api/search?q=${Uri.encodeComponent(clean)}');
-      final res = await http.get(url).timeout(const Duration(seconds: 3));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (data is List) {
-          for (final item in data.take(6)) {
-            final tName = item['trackName'] ?? '';
-            final aName = item['artistName'] ?? '';
-            final key = '${tName.toString().toLowerCase().trim()}_${aName.toString().toLowerCase().trim()}';
-            if (tName.toString().isNotEmpty && !seen.contains(key)) {
-              seen.add(key);
-              list.add(Track(
-                id: 'lrc_${item['id']}',
-                title: tName.toString(),
-                artist: aName.toString(),
-                album: (item['albumName'] ?? 'Lirik').toString(),
-                artwork: defaultArtwork,
-                audioUrl: '',
-                duration: item['duration'] != null ? (item['duration'] as num).round() : 180,
-                streamCount: 'Cocok Lirik',
-                isExplicit: false,
-              ));
-            }
-          }
-        }
+    // Priority B: LRCLIB Verified Lyric Database Hits
+    for (final item in lrcList.take(6)) {
+      final tName = (item['trackName'] ?? '').toString().trim();
+      final aName = (item['artistName'] ?? '').toString().trim();
+      final lowerTitle = tName.toLowerCase();
+      if (lowerTitle.contains('live') || lowerTitle.contains('concert') || lowerTitle.contains('karaoke')) continue;
+
+      final key = '${tName.toLowerCase()}___${aName.toLowerCase()}';
+      if (tName.isNotEmpty && !seen.contains(key)) {
+        seen.add(key);
+        list.add(Track(
+          id: 'lrc_${item['id']}',
+          title: tName,
+          artist: aName,
+          album: (item['albumName'] ?? 'Lirik: "$clean"').toString(),
+          artwork: defaultArtwork,
+          audioUrl: '',
+          duration: item['duration'] != null ? (item['duration'] as num).round() : 180,
+          streamCount: 'Cocok Lirik',
+          isExplicit: false,
+          popularity: 850000,
+        ));
       }
-    } catch (_) {}
+    }
 
     return list;
   }

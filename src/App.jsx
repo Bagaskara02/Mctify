@@ -10,7 +10,6 @@ import ImportYouTubeModal from './components/ImportYouTubeModal';
 import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
 import AudioQualityModal from './components/AudioQualityModal';
-import AudioOutputModal from './components/AudioOutputModal';
 import SleepTimerModal from './components/SleepTimerModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
@@ -25,7 +24,6 @@ import ArtistView from './components/ArtistView';
 import { storageService } from './services/storageService';
 import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
-import { audioOutputService } from './services/audioOutputService';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -64,7 +62,6 @@ export default function App() {
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
-  const [isAudioOutputOpen, setIsAudioOutputOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
   const sleepTimerIntervalRef = useRef(null);
@@ -120,19 +117,6 @@ export default function App() {
     if (audioRef.current) {
       webAudioEqualizer.connectMediaElement(audioRef.current);
     }
-
-    const unsubAudioSink = audioOutputService.subscribe((devs, deviceId) => {
-      if (audioRef.current && typeof audioRef.current.setSinkId === 'function') {
-        audioRef.current.setSinkId(deviceId).catch(() => {});
-      }
-      if (webAudioEqualizer.audioCtx && typeof webAudioEqualizer.audioCtx.setSinkId === 'function') {
-        webAudioEqualizer.audioCtx.setSinkId(deviceId).catch(() => {});
-      }
-    });
-
-    return () => {
-      unsubAudioSink();
-    };
   }, []);
 
   // Fetch Synchronized Lyrics whenever currentTrack changes
@@ -221,10 +205,6 @@ export default function App() {
         audioRef.current.currentTime = 0;
         audioRef.current.volume = isMuted ? 0 : volume;
         audioRef.current.playbackRate = playbackRate;
-        const currentSink = audioOutputService.getDeviceId();
-        if (currentSink && typeof audioRef.current.setSinkId === 'function') {
-          audioRef.current.setSinkId(currentSink).catch(() => {});
-        }
         audioRef.current.play().catch((err) => {
           console.warn('[App] Direct stream playback fallback to iframe:', err);
           setUseIframeFallback(true);
@@ -257,10 +237,6 @@ export default function App() {
             audioRef.current.currentTime = 0;
             audioRef.current.volume = isMuted ? 0 : volume;
             audioRef.current.playbackRate = playbackRate;
-            const currentSink = audioOutputService.getDeviceId();
-            if (currentSink && typeof audioRef.current.setSinkId === 'function') {
-              audioRef.current.setSinkId(currentSink).catch(() => {});
-            }
             audioRef.current.play().catch((err) => {
               console.warn('[App] Direct stream playback fallback to iframe:', err);
               setUseIframeFallback(true);
@@ -1154,7 +1130,6 @@ export default function App() {
           isRightSidebarOpen={isRightSidebarOpen}
           isEqualizerOpen={isEqualizerOpen}
           isAudioQualityOpen={isAudioQualityOpen}
-          isAudioOutputOpen={isAudioOutputOpen}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={() => handleNext(false)}
@@ -1169,7 +1144,6 @@ export default function App() {
           onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
           onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
           onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
-          onToggleAudioOutput={() => setIsAudioOutputOpen(!isAudioOutputOpen)}
           onTrackContextMenu={handleTrackContextMenu}
         />
       </div>
@@ -1287,14 +1261,6 @@ export default function App() {
       <AudioQualityModal
         isOpen={isAudioQualityOpen}
         onClose={() => setIsAudioQualityOpen(false)}
-      />
-
-      {/* --- AUDIO OUTPUT DEVICE MODAL --- */}
-      <AudioOutputModal
-        isOpen={isAudioOutputOpen}
-        onClose={() => setIsAudioOutputOpen(false)}
-        audioRef={audioRef}
-        audioContext={webAudioEqualizer.audioContext}
       />
 
       {/* --- SLEEP TIMER MODAL --- */}
