@@ -1,1 +1,6 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+#include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+
+PODS_PODFILE_DIR_PATH=${SRCROOT}/.
+PODS_ROOT=${SRCROOT}/Pods

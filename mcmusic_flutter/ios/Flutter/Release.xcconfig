@@ -1,7 +1,11 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+#include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
 
+PODS_PODFILE_DIR_PATH=${SRCROOT}/.
+PODS_ROOT=${SRCROOT}/Pods
 CODE_SIGNING_ALLOWED=NO
 CODE_SIGNING_REQUIRED=NO
 CODE_SIGN_IDENTITY=
 EXPANDED_CODE_SIGN_IDENTITY=
-
+ENABLE_USER_SCRIPT_SANDBOXING=NO
