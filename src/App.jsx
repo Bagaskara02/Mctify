@@ -281,7 +281,7 @@ export default function App() {
 
     // 3. Asynchronously fetch popular artist & genre tracks
     try {
-      const radioTracks = await musicApi.getArtistGenreRadio(track);
+      const radioTracks = await musicApi.getArtistGenreRadio(track, 18, [track]);
       if (radioTracks && radioTracks.length > 0) {
         setQueue((prevQueue) => {
           const current = prevQueue.find(t => t.id === track.id) || track;

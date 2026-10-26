@@ -733,27 +733,13 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         'ringtone', 'sped up', 'slowed', 'reverb', 'remake', 'tutorial', 'acapella'
       ];
 
-      // Identify peer hitmakers based on artist genre cluster
+      // Identify peer hitmakers dynamically based on artist, genre, and queue
       final artLower = track.artist.toLowerCase();
-      List<String> peerArtists = ['Bernadya', 'Sal Priadi', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Hindia'];
-      if (artLower.contains('hindia') || artLower.contains('feast') || artLower.contains('nadin') ||
-          artLower.contains('sal priadi') || artLower.contains('pamungkas') || artLower.contains('fourtwnty')) {
-        peerArtists = ['Bernadya', 'Sal Priadi', 'Hindia', 'Nadin Amizah', 'Juicy Luicy', 'Kunto Aji'];
-      } else if (artLower.contains('mahalini') || artLower.contains('tulus') || artLower.contains('juicy luicy') ||
-                 artLower.contains('tiara') || artLower.contains('lyodra') || artLower.contains('yura')) {
-        peerArtists = ['Bernadya', 'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra'];
-      } else if (artLower.contains('sheila') || artLower.contains('dewa') || artLower.contains('noah') ||
-                 artLower.contains('peterpan') || artLower.contains('padi') || artLower.contains('ungu')) {
-        peerArtists = ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu'];
-      } else if (artLower.contains('weeknd') || artLower.contains('bruno') || artLower.contains('taylor') ||
-                 artLower.contains('billie') || artLower.contains('olivia') || artLower.contains('coldplay')) {
-        peerArtists = ['The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish', 'Olivia Rodrigo', 'Coldplay'];
-      } else if (artLower.contains('newjeans') || artLower.contains('bts') || artLower.contains('blackpink') ||
-                 artLower.contains('aespa') || artLower.contains('twice')) {
-        peerArtists = ['NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM', 'TWICE'];
-      }
-
-      // Filter out current artist from peers
+      final peerArtists = _apiService.getSimilarArtists(
+        track.artist,
+        genre: track.genre,
+        playlistArtists: _queue.map((t) => t.artist).toList(),
+      );
       final activePeers = peerArtists.where((p) => !artLower.contains(p.toLowerCase())).take(3).toList();
 
       // Query user's liked and frequently played tracks first
@@ -1080,7 +1066,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _isLoadingRecommendations = true;
 
     try {
-      // 1. Gather distinct artists from the current playlist / queue
+      // 1. Gather distinct artists and genres from the current playlist / queue
       final playlistArtists = <String>{};
       for (final t in _queue) {
         final artist = t.artist.split(',')[0].trim();
@@ -1091,7 +1077,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         if (curArtist.isNotEmpty) playlistArtists.add(curArtist);
       }
 
-      final sampleArtists = playlistArtists.take(3).toList();
+      final primaryArtist = _currentTrack?.artist ?? (playlistArtists.isNotEmpty ? playlistArtists.first : '');
+      final peerArtists = _apiService.getSimilarArtists(
+        primaryArtist,
+        genre: _currentTrack?.genre,
+        playlistArtists: playlistArtists.toList(),
+      );
+
+      final sampleArtists = {
+        ...playlistArtists.take(2),
+        ...peerArtists.take(2),
+      }.toList();
+
       final existingIds = _queue.map((t) => t.id).toSet();
       final existingTitles = _queue.map((t) => t.title.toLowerCase().trim()).toSet();
       final newRecommendations = <Track>[];
@@ -1126,26 +1123,29 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               existingIds.add(t.id);
               existingTitles.add(cleanTitle);
               newRecommendations.add(t);
+              if (newRecommendations.length >= 15) break;
             }
           }
         } catch (_) {}
       }
 
-      // 4. Supplement with popular hitmaker peers if few
+      // 4. Supplement with additional peer hitmakers from same genre if few
       if (newRecommendations.length < 5) {
-        final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus'];
-        for (final peer in peers.take(2)) {
-          final results = await _apiService.searchTracks(peer);
-          for (final t in results) {
-            final cleanTitle = t.title.toLowerCase().trim();
-            if (!existingIds.contains(t.id) &&
-                !existingTitles.contains(cleanTitle) &&
-                !_isExcludedTrack(cleanTitle)) {
-              existingIds.add(t.id);
-              existingTitles.add(cleanTitle);
-              newRecommendations.add(t);
+        for (final peer in peerArtists.skip(2).take(2)) {
+          try {
+            final results = await _apiService.searchTracks(peer);
+            for (final t in results) {
+              final cleanTitle = t.title.toLowerCase().trim();
+              if (!existingIds.contains(t.id) &&
+                  !existingTitles.contains(cleanTitle) &&
+                  !_isExcludedTrack(cleanTitle)) {
+                existingIds.add(t.id);
+                existingTitles.add(cleanTitle);
+                newRecommendations.add(t);
+                if (newRecommendations.length >= 15) break;
+              }
             }
-          }
+          } catch (_) {}
         }
       }
 

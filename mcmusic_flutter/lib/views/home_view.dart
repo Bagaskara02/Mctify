@@ -63,7 +63,7 @@ class _HomeViewState extends State<HomeView> {
     final artistsToFeature = <String>{};
     if (topArtist != null && topArtist.isNotEmpty) artistsToFeature.add(topArtist);
     if (lastArtist != null && lastArtist.isNotEmpty) artistsToFeature.add(lastArtist);
-    artistsToFeature.addAll(['Bernadya', 'Sal Priadi', 'The Weeknd', 'Bruno Mars', 'Coldplay']);
+    artistsToFeature.addAll(['The Weeknd', 'Bruno Mars', 'Coldplay', 'Sheila On 7', 'Mahalini', 'Linkin Park']);
 
     int colorIdx = 0;
     for (final artist in artistsToFeature.take(5)) {

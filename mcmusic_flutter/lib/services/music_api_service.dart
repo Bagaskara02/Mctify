@@ -664,6 +664,7 @@ class MusicApiService {
           final artist = item['artistName'] ?? '';
           if (title.isNotEmpty) {
             final tid = (item['trackId'] ?? '').toString();
+            final genre = (item['primaryGenreName'] as String?) ?? 'Pop';
             String art = item['artworkUrl100'] ?? defaultArtwork;
             art = art.replaceAll('100x100bb', '600x600bb');
             list.add(Track(
@@ -676,6 +677,7 @@ class MusicApiService {
               duration: item['trackTimeMillis'] != null ? (item['trackTimeMillis'] / 1000).round() : 180,
               streamCount: '${(100 + list.length * 15)}.000.000',
               isExplicit: item['trackExplicitness'] == 'explicit',
+              genre: genre,
             ));
           }
         }
@@ -1481,12 +1483,237 @@ class MusicApiService {
     };
   }
 
-  // Fetch Trending / Starter Tracks dynamically from popular hitmaker charts
+  static final List<Map<String, dynamic>> artistGenreClusters = [
+    {
+      'name': 'Indonesian Pop & Ballad Hits',
+      'genreKeywords': ['pop', 'indo pop', 'indonesian pop', 'ballad'],
+      'keywords': [
+        'mahalini', 'tulus', 'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya',
+        'yura yunita', 'rizky febian', 'raisa', 'afgan', 'judika', 'fabio asher',
+        'budi doremi', 'keisya levronka', 'jaz', 'andmesh', 'cakra khan', 'arash buana',
+        'idgitaf', 'glenn fredly', 'marcell', 'rio febrian', 'sammy simorangkir', 'feby putri'
+      ],
+      'peers': [
+        'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra',
+        'Yura Yunita', 'Rizky Febian', 'Raisa', 'Afgan', 'Judika'
+      ]
+    },
+    {
+      'name': 'Indonesian Indie, Folk & Alternative Hits',
+      'genreKeywords': ['indie', 'alternative', 'folk', 'indie pop', 'acoustic'],
+      'keywords': [
+        'hindia', 'feast', '.feast', 'nadin amizah', 'sal priadi', 'kunto aji',
+        'pamungkas', 'danilla', 'fourtwnty', 'barasuara', 'reality club',
+        'efek rumah kaca', 'sore', 'the adams', 'morad', 'fiersa besari',
+        'bilal indrajaya', 'bernadya', 'perunggu', 'jason ranti', 'soegi bornean'
+      ],
+      'peers': [
+        'Hindia', '.Feast', 'Nadin Amizah', 'Sal Priadi', 'Kunto Aji',
+        'Pamungkas', 'Fourtwnty', 'Reality Club', 'Barasuara', 'The Adams'
+      ]
+    },
+    {
+      'name': 'Indonesian Pop Rock & Legend Band Hits',
+      'genreKeywords': ['rock', 'pop rock', 'legend', 'band indonesia', 'classic rock'],
+      'keywords': [
+        'sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', "d'masiv",
+        'ada band', 'kotak', 'gigi', 'slank', 'chrisye', 'ari lasso', 'kerispatih',
+        'samsons', 'letto', 'naif', 'j-rocks', 'radja', 'wali', 'armada', 'repvblik',
+        'seventeen', 'kangen band', 'jamrud', 'boomerang'
+      ],
+      'peers': [
+        'Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu',
+        "D'Masiv", 'Ada Band', 'Ari Lasso', 'Glenn Fredly'
+      ]
+    },
+    {
+      'name': 'Indonesian Dangdut, Koplo & Jawa Pop Hits',
+      'genreKeywords': ['dangdut', 'koplo', 'jawa', 'campursari'],
+      'keywords': [
+        'denny caknan', 'guyon waton', 'ndarboy genk', 'happy asmara', 'gilga sahid',
+        'didi kempot', 'nella kharisma', 'via vallen', 'gildcoustic', 'aftershine',
+        'hendra kumbara', 'woro widowati', 'difarina indra', 'tasya rosmala',
+        'shinta arsinta', 'masdddho', 'niken salindry'
+      ],
+      'peers': [
+        'Denny Caknan', 'Guyon Waton', 'Happy Asmara', 'Gilga Sahid',
+        'Ndarboy Genk', 'Didi Kempot', 'Aftershine'
+      ]
+    },
+    {
+      'name': 'Global & Western Pop Hits',
+      'genreKeywords': ['pop', 'dance pop', 'electropop', 'teen pop'],
+      'keywords': [
+        'the weeknd', 'bruno mars', 'taylor swift', 'billie eilish', 'olivia rodrigo',
+        'ed sheeran', 'coldplay', 'dua lipa', 'maroon 5', 'post malone',
+        'sabrina carpenter', 'ariana grande', 'justin bieber', 'harry styles',
+        'lady gaga', 'shawn mendes', 'adele', 'sam smith', 'charlie puth',
+        'katy perry', 'rihanna', 'beyonce', 'selena gomez', 'miley cyrus', 'sia',
+        'camila cabello', 'chappell roan', 'tate mcrae'
+      ],
+      'peers': [
+        'The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish',
+        'Olivia Rodrigo', 'Coldplay', 'Sabrina Carpenter', 'Ed Sheeran',
+        'Dua Lipa', 'Ariana Grande'
+      ]
+    },
+    {
+      'name': 'Western Rock, Alternative, Metal & Punk Hits',
+      'genreKeywords': ['rock', 'hard rock', 'metal', 'heavy metal', 'punk', 'alternative rock', 'grunge', 'emo'],
+      'keywords': [
+        'linkin park', 'avenged sevenfold', 'bring me the horizon', 'green day',
+        'slipknot', 'queen', 'bon jovi', "guns n' roses", 'nirvana', 'foo fighters',
+        'my chemical romance', 'arctic monkeys', 'red hot chili peppers', 'radiohead',
+        'muse', 'fall out boy', 'paramore', 'evanescence', 'metallica', 'system of a down',
+        'oasis', 'the beatles', 'ac/dc', 'aerosmith', 'led zeppelin', 'blink-182',
+        'sum 41', 'simple plan', 'the killers', 'imagine dragons', 'twenty one pilots',
+        'three days grace', 'papa roach', 'disturbed', 'korn'
+      ],
+      'peers': [
+        'Linkin Park', 'Avenged Sevenfold', 'Bring Me The Horizon', 'Green Day',
+        'Arctic Monkeys', 'My Chemical Romance', 'Queen', 'Red Hot Chili Peppers',
+        'Imagine Dragons', 'Radiohead'
+      ]
+    },
+    {
+      'name': 'Western Hip-Hop, Rap & Trap Hits',
+      'genreKeywords': ['hip-hop', 'hip hop', 'rap', 'trap', 'urban'],
+      'keywords': [
+        'eminem', 'drake', 'kendrick lamar', 'travis scott', 'kanye west',
+        'juice wrld', 'j. cole', '21 savage', 'metro boomin', 'future',
+        'lil nas x', 'jack harlow', 'xxxtentacion', 'cardi b', 'nicki minaj',
+        'snoop dogg', '50 cent', 'dr. dre', 'jay-z', 'tyler, the creator',
+        'asap rocky', 'playboi carti', 'central cee', 'gunna', 'lil baby'
+      ],
+      'peers': [
+        'Eminem', 'Drake', 'Kendrick Lamar', 'Travis Scott', 'Kanye West',
+        'Juice WRLD', 'Metro Boomin', 'J. Cole', 'Central Cee'
+      ]
+    },
+    {
+      'name': 'Western R&B, Neo-Soul & Urban Chill',
+      'genreKeywords': ['r&b', 'r&b/soul', 'soul', 'neo-soul', 'contemporary r&b'],
+      'keywords': [
+        'daniel caesar', 'frank ocean', 'sza', 'steve lacy', 'giveon',
+        'brent faiyaz', 'keshi', 'joji', 'umi', 'niki', 'rich brian',
+        'mac ayres', 'jeremy zucker', 'lauv', 'lany', 'honne', 'alec benjamin',
+        'rex orange county', 'boy pablo', 'clairo', 'cuco', 'faye webster', 'bruno major'
+      ],
+      'peers': [
+        'Daniel Caesar', 'Frank Ocean', 'SZA', 'Keshi', 'Joji',
+        'NIKI', 'LANY', 'Lauv', 'Jeremy Zucker'
+      ]
+    },
+    {
+      'name': 'K-Pop Hits',
+      'genreKeywords': ['k-pop', 'kpop', 'korean', 'k-rock'],
+      'keywords': [
+        'newjeans', 'bts', 'blackpink', 'aespa', 'le sserafim', 'twice', 'iu',
+        'seventeen', 'stray kids', 'rosé', 'jennie', 'jungkook', 'ive', 'txt',
+        'enhypen', '(g)i-dle', 'itzy', 'exo', 'red velvet', 'nct', 'babymonster',
+        'illit', 'riize', 'ateez', 'taeyeon', 'lisa'
+      ],
+      'peers': [
+        'NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM',
+        'TWICE', 'IU', 'SEVENTEEN', 'ROSÉ', 'IVE'
+      ]
+    },
+    {
+      'name': 'J-Pop, J-Rock & Anime Hits',
+      'genreKeywords': ['j-pop', 'jpop', 'j-rock', 'anime', 'japanese'],
+      'keywords': [
+        'yoasobi', 'lisa', 'eve', 'radwimps', 'kenshi yonezu', 'ado', 'aimer',
+        'official hige dandism', 'fujii kaze', 'king gnu', 'vaundy', 'one ok rock',
+        'mrs. green apple', 'yuuri', 'back number', 'kana-boon', 'spyair', 'flow'
+      ],
+      'peers': [
+        'YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'Official HIGE DANdism',
+        'Fujii Kaze', 'RADWIMPS', 'ONE OK ROCK', 'Eve'
+      ]
+    },
+    {
+      'name': 'EDM, Dance & Electronic Hits',
+      'genreKeywords': ['electronic', 'dance', 'edm', 'house', 'techno', 'dubstep'],
+      'keywords': [
+        'alan walker', 'marshmello', 'avicii', 'the chainsmokers', 'calvin harris',
+        'martin garrix', 'dj snake', 'david guetta', 'zedd', 'kygo', 'skrillex',
+        'tiesto', 'alesso', 'major lazer', 'illenium', 'clean bandit', 'galantis'
+      ],
+      'peers': [
+        'Alan Walker', 'Marshmello', 'Avicii', 'The Chainsmokers',
+        'Calvin Harris', 'Martin Garrix', 'Zedd', 'Kygo'
+      ]
+    }
+  ];
+
+  List<String> getSimilarArtists(String artistName, {String? genre, List<String>? playlistArtists}) {
+    final normArtist = artistName.toLowerCase().trim();
+    final normGenre = (genre ?? '').toLowerCase().trim();
+
+    // 1. Direct artist match in cluster
+    if (normArtist.isNotEmpty) {
+      for (final cluster in artistGenreClusters) {
+        final keywords = (cluster['keywords'] as List<String>);
+        if (keywords.any((k) => normArtist.contains(k) || k.contains(normArtist))) {
+          final peers = (cluster['peers'] as List<String>)
+              .where((p) => !p.toLowerCase().contains(normArtist) && !normArtist.contains(p.toLowerCase()))
+              .toList()..shuffle();
+          return peers;
+        }
+      }
+    }
+
+    // 2. Dominant playlist artist cluster
+    if (playlistArtists != null && playlistArtists.isNotEmpty) {
+      final clusterScores = <Map<String, dynamic>, int>{};
+      for (final pArtist in playlistArtists) {
+        final pNorm = pArtist.toLowerCase().trim();
+        for (final cluster in artistGenreClusters) {
+          final keywords = (cluster['keywords'] as List<String>);
+          if (keywords.any((k) => pNorm.contains(k) || k.contains(pNorm))) {
+            clusterScores[cluster] = (clusterScores[cluster] ?? 0) + 1;
+          }
+        }
+      }
+      if (clusterScores.isNotEmpty) {
+        final topCluster = clusterScores.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+        final peers = (topCluster['peers'] as List<String>)
+            .where((p) => !p.toLowerCase().contains(normArtist) && !normArtist.contains(p.toLowerCase()))
+            .toList()..shuffle();
+        return peers;
+      }
+    }
+
+    // 3. Match genre keyword
+    if (normGenre.isNotEmpty) {
+      for (final cluster in artistGenreClusters) {
+        final genreKeywords = (cluster['genreKeywords'] as List<String>);
+        if (genreKeywords.any((gk) => normGenre.contains(gk))) {
+          final peers = (cluster['peers'] as List<String>)
+              .where((p) => !p.toLowerCase().contains(normArtist) && !normArtist.contains(p.toLowerCase()))
+              .toList()..shuffle();
+          return peers;
+        }
+      }
+    }
+
+    // 4. Balanced varied fallbacks (never biased to single artist!)
+    final fallbackPools = [
+      ['The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Ed Sheeran'],
+      ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Ungu'],
+      ['Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Rizky Febian']
+    ];
+    final selected = (List.from(fallbackPools)..shuffle()).first;
+    return List<String>.from(selected)..shuffle();
+  }
+
+  // Fetch Trending / Starter Tracks dynamically from diverse hitmaker charts
   Future<List<Track>> getTrendingTracks() async {
     try {
       final topArtists = [
-        'Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy',
-        'Mahalini', 'Tulus', 'Coldplay', 'The Weeknd', 'Bruno Mars', 'Billie Eilish'
+        'The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Billie Eilish',
+        'Sheila On 7', 'Dewa 19', 'NOAH', 'Mahalini', 'Tulus',
+        'Linkin Park', 'Avenged Sevenfold', 'NewJeans', 'Denny Caknan'
       ];
       final shuffled = List<String>.from(topArtists)..shuffle();
       final results = <Track>[];
@@ -1514,37 +1741,42 @@ class MusicApiService {
     return officialTopTracks;
   }
 
-  /// Finds famous, popular tracks related to current track for smart radio / next queue
-  Future<List<Track>> getSmartRecommendations(Track currentTrack) async {
+  /// Finds famous, popular tracks related to current track and playlist for smart radio / next queue
+  Future<List<Track>> getSmartRecommendations(Track currentTrack, {List<Track>? queue}) async {
     final pool = <Track>[];
     final seen = <String>{'${currentTrack.title.toLowerCase().trim()}_${currentTrack.artist.toLowerCase().trim()}'};
 
     try {
-      // 1. Search artist tracks
+      // 1. Search current artist's top hits
       final artistTracks = await searchTracks(currentTrack.artist);
       for (final t in artistTracks) {
         final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
         if (!seen.contains(key)) {
           seen.add(key);
           pool.add(t);
-          if (pool.length >= 6) break;
+          if (pool.length >= 5) break;
         }
       }
 
-      // 2. Add peer hitmaker tracks
-      final peers = ['Bernadya', 'Sal Priadi', 'Hindia', 'Juicy Luicy', 'Mahalini', 'Tulus', 'Coldplay', 'The Weeknd'];
-      peers.shuffle();
-      for (final peer in peers.take(2)) {
+      // 2. Dynamically resolve matching peer artists based on artist, genre, and queue
+      final playlistArtists = queue?.map((t) => t.artist).toList();
+      final peers = getSimilarArtists(
+        currentTrack.artist,
+        genre: currentTrack.genre,
+        playlistArtists: playlistArtists,
+      );
+
+      for (final peer in peers.take(3)) {
         final peerTracks = await searchTracks(peer);
         for (final t in peerTracks) {
           final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
           if (!seen.contains(key)) {
             seen.add(key);
             pool.add(t);
-            if (pool.length >= 12) break;
+            if (pool.length >= 15) break;
           }
         }
-        if (pool.length >= 12) break;
+        if (pool.length >= 15) break;
       }
 
       pool.shuffle();
