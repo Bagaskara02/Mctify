@@ -103,6 +103,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _acquireNativeLocks() async {
     try {
       await _nativeChannel.invokeMethod('acquireLocks');
+      final isIgnoring = await _nativeChannel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      if (isIgnoring == false) {
+        await _nativeChannel.invokeMethod('requestIgnoreBatteryOptimizations');
+      }
     } catch (_) {}
   }
 
@@ -132,8 +136,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           if (_initialStartStallCount >= 2) {
             _ytController?.playVideo();
           }
-          if (_initialStartStallCount >= 5) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 10s. Triggering recovery...');
+          if (_initialStartStallCount >= 4) {
+            try {
+              _ytController?.webViewController.runJavaScript(
+                'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
+              );
+            } catch (_) {}
+          }
+          // Only trigger recovery if in FOREGROUND:
+          // In background with screen off, WebView position events are throttled by Android/iOS OS.
+          // Aborting at 0:00 while backgrounded would falsely skip tracks and terminate the playlist!
+          if (!_isAppBackgrounded && _initialStartStallCount >= 6) {
+            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 12s in foreground. Triggering recovery...');
             _initialStartStallCount = 0;
             _handlePlaybackFailure(_currentTrack, 'Playback stuck at 0:00');
             return;
@@ -190,7 +204,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
       _isAppBackgrounded = true;
-      if (!_userRequestedPause && _currentTrack != null && _isPlaying) {
+      if (!_userRequestedPause && _currentTrack != null) {
         _acquireNativeLocks();
         if (_isUsingYoutubeIframe && _ytController != null) {
           _setJsUserRequestedPause(false);
@@ -200,7 +214,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else if (state == AppLifecycleState.resumed) {
       _isAppBackgrounded = false;
-      if (!_userRequestedPause && _currentTrack != null && _isPlaying) {
+      if (!_userRequestedPause && _currentTrack != null) {
         _acquireNativeLocks();
         _ytController?.playVideo();
       }
@@ -223,7 +237,23 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
 
-          // 1. Hook HTMLMediaElement.prototype.pause so OS screen-off pause calls are ignored
+          // 1. Battery & Thermal Saver: force low video quality (144p) and scale down video element
+          // Prevents CPU/GPU video decoding heat in background, eliminating battery drain and OS thermal force-close!
+          try {
+            if (typeof player !== 'undefined' && player) {
+              if (typeof player.setPlaybackQuality === 'function') player.setPlaybackQuality('tiny');
+              if (typeof player.setPlaybackQualityRange === 'function') player.setPlaybackQualityRange('tiny', 'tiny');
+            }
+            var bstyle = document.getElementById('mcmusic-battery-saver');
+            if (!bstyle) {
+              bstyle = document.createElement('style');
+              bstyle.id = 'mcmusic-battery-saver';
+              bstyle.innerHTML = 'video { opacity: 0.01 !important; transform: scale(0.05) !important; pointer-events: none !important; }';
+              document.head.appendChild(bstyle);
+            }
+          } catch(e) {}
+
+          // 2. Hook HTMLMediaElement.prototype.pause so OS screen-off pause calls are ignored
           if (!window.__pausePatched) {
             window.__pausePatched = true;
             try {
