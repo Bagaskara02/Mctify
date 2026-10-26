@@ -1483,9 +1483,198 @@ class MusicApiService {
     };
   }
 
+  static String detectTrackRegion(String artistName, String title, String genre) {
+    final normArtist = artistName.toLowerCase().trim();
+    final normTitle = title.toLowerCase().trim();
+    final normGenre = genre.toLowerCase().trim();
+
+    // 1. Explicit genre matches
+    if (normGenre.contains('k-pop') || normGenre.contains('kpop') || normGenre.contains('korean')) return 'kpop';
+    if (normGenre.contains('j-pop') || normGenre.contains('jpop') || normGenre.contains('japanese') || normGenre.contains('anime')) return 'jpop';
+    if (normGenre.contains('dangdut') || normGenre.contains('koplo') || normGenre.contains('campursari') || normGenre.contains('indo pop')) return 'indonesia';
+
+    // 2. Known K-Pop artists
+    const kpopArtists = [
+      'bts', 'blackpink', 'newjeans', 'twice', 'aespa', 'stray kids', 'exo',
+      'seventeen', 'red velvet', 'itzy', 'ive', 'le sserafim', 'txt', 'nct',
+      'iu', 'taeyeon', 'enhypen', 'monsta x', 'ateez', 'got7', 'mamamoo', 'bigbang'
+    ];
+    if (kpopArtists.any((a) => normArtist.contains(a) || a.contains(normArtist))) return 'kpop';
+
+    // 3. Known J-Pop artists
+    const jpopArtists = [
+      'yoasobi', 'kenshi yonezu', 'ado', 'aimer', 'official hige dandism',
+      'fujii kaze', 'radwimps', 'one ok rock', 'eve', 'lisa', 'vaundy', 'king gnu'
+    ];
+    if (jpopArtists.any((a) => normArtist.contains(a) || a.contains(normArtist))) return 'jpop';
+
+    // 4. Known Indonesian artists
+    const indonesianArtists = [
+      'sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', "d'masiv",
+      'ada band', 'kotak', 'gigi', 'slank', 'chrisye', 'ari lasso', 'kerispatih',
+      'samsons', 'letto', 'naif', 'j-rocks', 'radja', 'wali', 'armada', 'repvblik',
+      'seventeen', 'kangen band', 'jamrud', 'boomerang', 'mahalini', 'tulus',
+      'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya', 'yura yunita',
+      'rizky febian', 'raisa', 'afgan', 'judika', 'fabio asher', 'budi doremi',
+      'keisya levronka', 'jaz', 'andmesh', 'cakra khan', 'arash buana', 'idgitaf',
+      'glenn fredly', 'marcell', 'rio febrian', 'sammy simorangkir', 'feby putri',
+      'hindia', 'feast', '.feast', 'nadin amizah', 'sal priadi', 'kunto aji',
+      'pamungkas', 'danilla', 'fourtwnty', 'barasuara', 'reality club',
+      'efek rumah kaca', 'sore', 'the adams', 'morad', 'fiersa besari',
+      'bilal indrajaya', 'bernadya', 'perunggu', 'jason ranti', 'soegi bornean',
+      'denny caknan', 'guyon waton', 'ndarboy genk', 'happy asmara', 'gilga sahid',
+      'didi kempot', 'nella kharisma', 'via vallen', 'gildcoustic', 'aftershine',
+      'hendra kumbara', 'woro widowati', 'difarina indra', 'tasya rosmala',
+      'shinta arsinta', 'masdddho', 'niken salindry'
+    ];
+    if (indonesianArtists.any((a) => normArtist.contains(a) || a.contains(normArtist))) {
+      return 'indonesia';
+    }
+
+    // 5. Known Western / International / 88rising artists
+    const westernArtists = [
+      '88rising', 'joji', 'rich brian', 'niki', 'warren hue', 'stephanie poetri',
+      'daniel caesar', 'frank ocean', 'sza', 'steve lacy', 'giveon', 'brent faiyaz',
+      'keshi', 'umi', 'mac ayres', 'jeremy zucker', 'lauv', 'lany', 'honne',
+      'alec benjamin', 'rex orange county', 'boy pablo', 'clairo', 'cuco',
+      'faye webster', 'bruno major', 'dominic fike', 'childish gambino', 'khalid',
+      'post malone', 'bazzi', 'pink sweat', 'the weeknd', 'bruno mars',
+      'taylor swift', 'billie eilish', 'olivia rodrigo', 'ed sheeran', 'coldplay',
+      'dua lipa', 'maroon 5', 'sabrina carpenter', 'ariana grande', 'justin bieber',
+      'harry styles', 'lady gaga', 'shawn mendes', 'adele', 'sam smith', 'charlie puth',
+      'linkin park', 'avenged sevenfold', 'green day', 'queen', 'arctic monkeys',
+      'oasis', 'guns n roses', 'bon jovi', 'red hot chili peppers', 'foo fighters',
+      'nirvana', 'metallica', 'paramore', 'my chemical romance', 'radiohead',
+      'the beatles', 'ac/dc', 'u2', 'muse', 'eminem', 'drake', 'kendrick lamar',
+      'travis scott', 'kanye west', 'snoop dogg', 'jay-z', 'juice wrld', 'xxxtentacion',
+      'lil nas x', 'cardi b', 'nicky jam', 'alan walker', 'marshmello', 'avicii',
+      'the chainsmokers', 'calvin harris', 'martin garrix', 'dj snake', 'david guetta',
+      'zedd', 'kygo'
+    ];
+    if (westernArtists.any((a) => normArtist.contains(a) || a.contains(normArtist))) {
+      return 'western';
+    }
+
+    // 6. Indonesian language keywords in title
+    const indoTitleWords = [
+      'yang', 'dan', 'di', 'ke', 'dari', 'ini', 'itu', 'untuk', 'pada', 'adalah',
+      'dengan', 'bisa', 'ada', 'tak', 'tidak', 'kau', 'aku', 'kamu', 'dia',
+      'mereka', 'kita', 'kami', 'hati', 'cinta', 'sayang', 'kasih', 'rindu',
+      'sendiri', 'bersama', 'menunggu', 'pergi', 'hilang', 'kembali', 'pulang',
+      'lagu', 'jiwa', 'malam', 'pagi', 'siang', 'sore', 'hujan', 'angin',
+      'bintang', 'bulan', 'matahari', 'dunia', 'rasa', 'terlalu', 'sudah',
+      'belum', 'jangan', 'hanya', 'saja', 'seperti', 'bukan', 'tentang',
+      'saat', 'ketika', 'selalu', 'pernah', 'tanpa', 'masih', 'tetap',
+      'hidup', 'mati', 'mimpi', 'bayang', 'senja', 'kenangan', 'luka', 'janji'
+    ];
+    final titleWords = normTitle.split(RegExp(r'[^a-zA-Z0-9]+')).where((s) => s.isNotEmpty);
+    if (titleWords.any((word) => indoTitleWords.contains(word))) {
+      return 'indonesia';
+    }
+
+    // 7. Common English words
+    const englishWords = [
+      'the', 'and', 'to', 'of', 'a', 'in', 'that', 'have', 'i', 'it', 'for',
+      'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his',
+      'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my',
+      'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if',
+      'about', 'who', 'get', 'which', 'go', 'me', 'love', 'summer', 'madness',
+      'night', 'day', 'sun', 'moon', 'star', 'rain', 'fire', 'light', 'dark',
+      'sweet', 'young', 'forever', 'together', 'without', 'never', 'again',
+      'always', 'some', 'where', 'how', 'why', 'little', 'big', 'high', 'low',
+      'cold', 'hot', 'wild', 'free', 'crazy', 'lost', 'found', 'broken', 'home'
+    ];
+    if (titleWords.any((token) => englishWords.contains(token))) {
+      return 'western';
+    }
+
+    return 'western';
+  }
+
   static final List<Map<String, dynamic>> artistGenreClusters = [
     {
+      'name': 'Western R&B, Chill Hop & Urban',
+      'region': 'western',
+      'genreKeywords': ['r&b', 'r&b/soul', 'soul', 'neo-soul', 'contemporary r&b', 'chill', 'lo-fi'],
+      'keywords': [
+        '88rising', 'joji', 'rich brian', 'niki', 'warren hue', 'stephanie poetri',
+        'daniel caesar', 'frank ocean', 'sza', 'steve lacy', 'giveon',
+        'brent faiyaz', 'keshi', 'umi', 'mac ayres', 'jeremy zucker',
+        'lauv', 'lany', 'honne', 'alec benjamin', 'rex orange county',
+        'boy pablo', 'clairo', 'cuco', 'faye webster', 'bruno major',
+        'dominic fike', 'childish gambino', 'khalid', 'post malone', 'bazzi', 'pink sweat'
+      ],
+      'peers': [
+        'Joji', 'Keshi', 'NIKI', 'Rich Brian', 'Daniel Caesar', 'Frank Ocean',
+        'SZA', 'Steve Lacy', 'Giveon', 'Brent Faiyaz', 'Dominic Fike',
+        'Jeremy Zucker', 'Lauv', 'LANY', 'HONNE', 'Rex Orange County', 'Boy Pablo'
+      ]
+    },
+    {
+      'name': 'Global & Western Pop Hits',
+      'region': 'western',
+      'genreKeywords': ['pop', 'dance pop', 'electropop', 'teen pop'],
+      'keywords': [
+        'the weeknd', 'bruno mars', 'taylor swift', 'billie eilish', 'olivia rodrigo',
+        'ed sheeran', 'coldplay', 'dua lipa', 'maroon 5', 'post malone',
+        'sabrina carpenter', 'ariana grande', 'justin bieber', 'harry styles',
+        'lady gaga', 'shawn mendes', 'adele', 'sam smith', 'charlie puth',
+        'sia', 'katy perry', 'miley cyrus', 'selena gomez', 'camila cabello'
+      ],
+      'peers': [
+        'The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish',
+        'Olivia Rodrigo', 'Ed Sheeran', 'Coldplay', 'Dua Lipa', 'Maroon 5',
+        'Sabrina Carpenter', 'Ariana Grande', 'Justin Bieber', 'Harry Styles'
+      ]
+    },
+    {
+      'name': 'Western Rock & Alternative Legends',
+      'region': 'western',
+      'genreKeywords': ['rock', 'alternative rock', 'classic rock', 'hard rock', 'grunge', 'metal'],
+      'keywords': [
+        'linkin park', 'avenged sevenfold', 'green day', 'queen', 'arctic monkeys',
+        'oasis', 'guns n roses', 'bon jovi', 'red hot chili peppers', 'foo fighters',
+        'nirvana', 'metallica', 'paramore', 'my chemical romance', 'radiohead',
+        'the beatles', 'ac/dc', 'u2', 'muse', 'system of a down', 'bring me the horizon'
+      ],
+      'peers': [
+        'Linkin Park', 'Avenged Sevenfold', 'Green Day', 'Queen',
+        'Arctic Monkeys', 'Oasis', 'Guns N Roses', 'Red Hot Chili Peppers',
+        'Nirvana', 'Paramore', 'My Chemical Romance', 'Radiohead'
+      ]
+    },
+    {
+      'name': 'Hip-Hop, Rap & Trap Hits',
+      'region': 'western',
+      'genreKeywords': ['hip-hop', 'rap', 'trap', 'hip hop'],
+      'keywords': [
+        'eminem', 'drake', 'kendrick lamar', 'travis scott', 'kanye west',
+        'snoop dogg', 'jay-z', 'juice wrld', 'xxxtentacion', 'lil nas x',
+        'cardi b', 'nicki minaj', '21 savage', 'metro boomin', 'future',
+        'j. cole', 'post malone', 'mac miller', 'jack harlow', 'central cee'
+      ],
+      'peers': [
+        'Eminem', 'Drake', 'Kendrick Lamar', 'Travis Scott', 'Kanye West',
+        'Juice WRLD', 'Post Malone', 'J. Cole', 'Metro Boomin', 'Future'
+      ]
+    },
+    {
+      'name': 'EDM, Dance & Electronic Hits',
+      'region': 'western',
+      'genreKeywords': ['electronic', 'dance', 'edm', 'house', 'techno', 'dubstep'],
+      'keywords': [
+        'alan walker', 'marshmello', 'avicii', 'the chainsmokers', 'calvin harris',
+        'martin garrix', 'dj snake', 'david guetta', 'zedd', 'kygo', 'skrillex',
+        'tiesto', 'alesso', 'major lazer', 'illenium', 'clean bandit', 'galantis'
+      ],
+      'peers': [
+        'Alan Walker', 'Marshmello', 'Avicii', 'The Chainsmokers',
+        'Calvin Harris', 'Martin Garrix', 'Zedd', 'Kygo'
+      ]
+    },
+    {
       'name': 'Indonesian Pop & Ballad Hits',
+      'region': 'indonesia',
       'genreKeywords': ['pop', 'indo pop', 'indonesian pop', 'ballad'],
       'keywords': [
         'mahalini', 'tulus', 'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya',
@@ -1500,6 +1689,7 @@ class MusicApiService {
     },
     {
       'name': 'Indonesian Indie, Folk & Alternative Hits',
+      'region': 'indonesia',
       'genreKeywords': ['indie', 'alternative', 'folk', 'indie pop', 'acoustic'],
       'keywords': [
         'hindia', 'feast', '.feast', 'nadin amizah', 'sal priadi', 'kunto aji',
@@ -1514,6 +1704,7 @@ class MusicApiService {
     },
     {
       'name': 'Indonesian Pop Rock & Legend Band Hits',
+      'region': 'indonesia',
       'genreKeywords': ['rock', 'pop rock', 'legend', 'band indonesia', 'classic rock'],
       'keywords': [
         'sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', "d'masiv",
@@ -1528,6 +1719,7 @@ class MusicApiService {
     },
     {
       'name': 'Indonesian Dangdut, Koplo & Jawa Pop Hits',
+      'region': 'indonesia',
       'genreKeywords': ['dangdut', 'koplo', 'jawa', 'campursari'],
       'keywords': [
         'denny caknan', 'guyon waton', 'ndarboy genk', 'happy asmara', 'gilga sahid',
@@ -1541,114 +1733,38 @@ class MusicApiService {
       ]
     },
     {
-      'name': 'Global & Western Pop Hits',
-      'genreKeywords': ['pop', 'dance pop', 'electropop', 'teen pop'],
+      'name': 'K-Pop & Korean Hits',
+      'region': 'kpop',
+      'genreKeywords': ['k-pop', 'kpop', 'korean pop', 'korean'],
       'keywords': [
-        'the weeknd', 'bruno mars', 'taylor swift', 'billie eilish', 'olivia rodrigo',
-        'ed sheeran', 'coldplay', 'dua lipa', 'maroon 5', 'post malone',
-        'sabrina carpenter', 'ariana grande', 'justin bieber', 'harry styles',
-        'lady gaga', 'shawn mendes', 'adele', 'sam smith', 'charlie puth',
-        'katy perry', 'rihanna', 'beyonce', 'selena gomez', 'miley cyrus', 'sia',
-        'camila cabello', 'chappell roan', 'tate mcrae'
-      ],
-      'peers': [
-        'The Weeknd', 'Bruno Mars', 'Taylor Swift', 'Billie Eilish',
-        'Olivia Rodrigo', 'Coldplay', 'Sabrina Carpenter', 'Ed Sheeran',
-        'Dua Lipa', 'Ariana Grande'
-      ]
-    },
-    {
-      'name': 'Western Rock, Alternative, Metal & Punk Hits',
-      'genreKeywords': ['rock', 'hard rock', 'metal', 'heavy metal', 'punk', 'alternative rock', 'grunge', 'emo'],
-      'keywords': [
-        'linkin park', 'avenged sevenfold', 'bring me the horizon', 'green day',
-        'slipknot', 'queen', 'bon jovi', "guns n' roses", 'nirvana', 'foo fighters',
-        'my chemical romance', 'arctic monkeys', 'red hot chili peppers', 'radiohead',
-        'muse', 'fall out boy', 'paramore', 'evanescence', 'metallica', 'system of a down',
-        'oasis', 'the beatles', 'ac/dc', 'aerosmith', 'led zeppelin', 'blink-182',
-        'sum 41', 'simple plan', 'the killers', 'imagine dragons', 'twenty one pilots',
-        'three days grace', 'papa roach', 'disturbed', 'korn'
-      ],
-      'peers': [
-        'Linkin Park', 'Avenged Sevenfold', 'Bring Me The Horizon', 'Green Day',
-        'Arctic Monkeys', 'My Chemical Romance', 'Queen', 'Red Hot Chili Peppers',
-        'Imagine Dragons', 'Radiohead'
-      ]
-    },
-    {
-      'name': 'Western Hip-Hop, Rap & Trap Hits',
-      'genreKeywords': ['hip-hop', 'hip hop', 'rap', 'trap', 'urban'],
-      'keywords': [
-        'eminem', 'drake', 'kendrick lamar', 'travis scott', 'kanye west',
-        'juice wrld', 'j. cole', '21 savage', 'metro boomin', 'future',
-        'lil nas x', 'jack harlow', 'xxxtentacion', 'cardi b', 'nicki minaj',
-        'snoop dogg', '50 cent', 'dr. dre', 'jay-z', 'tyler, the creator',
-        'asap rocky', 'playboi carti', 'central cee', 'gunna', 'lil baby'
-      ],
-      'peers': [
-        'Eminem', 'Drake', 'Kendrick Lamar', 'Travis Scott', 'Kanye West',
-        'Juice WRLD', 'Metro Boomin', 'J. Cole', 'Central Cee'
-      ]
-    },
-    {
-      'name': 'Western R&B, Neo-Soul & Urban Chill',
-      'genreKeywords': ['r&b', 'r&b/soul', 'soul', 'neo-soul', 'contemporary r&b'],
-      'keywords': [
-        'daniel caesar', 'frank ocean', 'sza', 'steve lacy', 'giveon',
-        'brent faiyaz', 'keshi', 'joji', 'umi', 'niki', 'rich brian',
-        'mac ayres', 'jeremy zucker', 'lauv', 'lany', 'honne', 'alec benjamin',
-        'rex orange county', 'boy pablo', 'clairo', 'cuco', 'faye webster', 'bruno major'
-      ],
-      'peers': [
-        'Daniel Caesar', 'Frank Ocean', 'SZA', 'Keshi', 'Joji',
-        'NIKI', 'LANY', 'Lauv', 'Jeremy Zucker'
-      ]
-    },
-    {
-      'name': 'K-Pop Hits',
-      'genreKeywords': ['k-pop', 'kpop', 'korean', 'k-rock'],
-      'keywords': [
-        'newjeans', 'bts', 'blackpink', 'aespa', 'le sserafim', 'twice', 'iu',
-        'seventeen', 'stray kids', 'rosé', 'jennie', 'jungkook', 'ive', 'txt',
-        'enhypen', '(g)i-dle', 'itzy', 'exo', 'red velvet', 'nct', 'babymonster',
-        'illit', 'riize', 'ateez', 'taeyeon', 'lisa'
+        'bts', 'blackpink', 'newjeans', 'twice', 'aespa', 'stray kids', 'exo',
+        'seventeen', 'red velvet', 'itzy', 'ive', 'le sserafim', 'txt', 'nct',
+        'iu', 'taeyeon', 'enhypen', 'monsta x', 'ateez', 'got7', 'mamamoo', 'bigbang'
       ],
       'peers': [
         'NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM',
-        'TWICE', 'IU', 'SEVENTEEN', 'ROSÉ', 'IVE'
+        'IVE', 'TWICE', 'IU', 'Seventeen', 'Stray Kids'
       ]
     },
     {
-      'name': 'J-Pop, J-Rock & Anime Hits',
-      'genreKeywords': ['j-pop', 'jpop', 'j-rock', 'anime', 'japanese'],
+      'name': 'J-Pop & Japanese Hits',
+      'region': 'jpop',
+      'genreKeywords': ['j-pop', 'jpop', 'japanese', 'anime'],
       'keywords': [
-        'yoasobi', 'lisa', 'eve', 'radwimps', 'kenshi yonezu', 'ado', 'aimer',
-        'official hige dandism', 'fujii kaze', 'king gnu', 'vaundy', 'one ok rock',
-        'mrs. green apple', 'yuuri', 'back number', 'kana-boon', 'spyair', 'flow'
+        'yoasobi', 'kenshi yonezu', 'ado', 'aimer', 'official hige dandism',
+        'fujii kaze', 'radwimps', 'one ok rock', 'eve', 'lisa', 'vaundy', 'king gnu'
       ],
       'peers': [
         'YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'Official HIGE DANdism',
         'Fujii Kaze', 'RADWIMPS', 'ONE OK ROCK', 'Eve'
       ]
-    },
-    {
-      'name': 'EDM, Dance & Electronic Hits',
-      'genreKeywords': ['electronic', 'dance', 'edm', 'house', 'techno', 'dubstep'],
-      'keywords': [
-        'alan walker', 'marshmello', 'avicii', 'the chainsmokers', 'calvin harris',
-        'martin garrix', 'dj snake', 'david guetta', 'zedd', 'kygo', 'skrillex',
-        'tiesto', 'alesso', 'major lazer', 'illenium', 'clean bandit', 'galantis'
-      ],
-      'peers': [
-        'Alan Walker', 'Marshmello', 'Avicii', 'The Chainsmokers',
-        'Calvin Harris', 'Martin Garrix', 'Zedd', 'Kygo'
-      ]
     }
   ];
 
-  List<String> getSimilarArtists(String artistName, {String? genre, List<String>? playlistArtists}) {
+  List<String> getSimilarArtists(String artistName, {String? genre, List<String>? playlistArtists, String? title}) {
     final normArtist = artistName.toLowerCase().trim();
     final normGenre = (genre ?? '').toLowerCase().trim();
+    final targetRegion = detectTrackRegion(artistName, title ?? '', genre ?? '');
 
     // 1. Direct artist match in cluster
     if (normArtist.isNotEmpty) {
@@ -1663,15 +1779,17 @@ class MusicApiService {
       }
     }
 
-    // 2. Dominant playlist artist cluster
+    // 2. Dominant playlist artist cluster matching target region
     if (playlistArtists != null && playlistArtists.isNotEmpty) {
       final clusterScores = <Map<String, dynamic>, int>{};
       for (final pArtist in playlistArtists) {
         final pNorm = pArtist.toLowerCase().trim();
         for (final cluster in artistGenreClusters) {
-          final keywords = (cluster['keywords'] as List<String>);
-          if (keywords.any((k) => pNorm.contains(k) || k.contains(pNorm))) {
-            clusterScores[cluster] = (clusterScores[cluster] ?? 0) + 1;
+          if (cluster['region'] == targetRegion) {
+            final keywords = (cluster['keywords'] as List<String>);
+            if (keywords.any((k) => pNorm.contains(k) || k.contains(pNorm))) {
+              clusterScores[cluster] = (clusterScores[cluster] ?? 0) + 1;
+            }
           }
         }
       }
@@ -1684,28 +1802,50 @@ class MusicApiService {
       }
     }
 
-    // 3. Match genre keyword
+    // 3. Match genre keyword restricted to target region
     if (normGenre.isNotEmpty) {
       for (final cluster in artistGenreClusters) {
-        final genreKeywords = (cluster['genreKeywords'] as List<String>);
-        if (genreKeywords.any((gk) => normGenre.contains(gk))) {
-          final peers = (cluster['peers'] as List<String>)
-              .where((p) => !p.toLowerCase().contains(normArtist) && !normArtist.contains(p.toLowerCase()))
-              .toList()..shuffle();
-          return peers;
+        if (cluster['region'] == targetRegion) {
+          final genreKeywords = (cluster['genreKeywords'] as List<String>);
+          if (genreKeywords.any((gk) => normGenre.contains(gk))) {
+            final peers = (cluster['peers'] as List<String>)
+                .where((p) => !p.toLowerCase().contains(normArtist) && !normArtist.contains(p.toLowerCase()))
+                .toList()..shuffle();
+            return peers;
+          }
         }
       }
     }
 
-    // 4. Balanced varied fallbacks (never biased to single artist!)
+    // 4. Region-locked fallbacks (strictly respect target region!)
+    if (targetRegion == 'western') {
+      final westernPools = [
+        ['The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Billie Eilish', 'Olivia Rodrigo'],
+        ['Joji', 'Keshi', 'NIKI', 'Daniel Caesar', 'Frank Ocean', 'SZA', 'Dominic Fike'],
+        ['Linkin Park', 'Avenged Sevenfold', 'Green Day', 'Queen', 'Arctic Monkeys'],
+        ['Eminem', 'Drake', 'Kendrick Lamar', 'Travis Scott', 'Post Malone', 'Juice WRLD']
+      ];
+      final selected = (List.from(westernPools)..shuffle()).first;
+      return List<String>.from(selected)..shuffle();
+    }
+
+    if (targetRegion == 'kpop') {
+      return (['NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM', 'TWICE', 'IU']..shuffle());
+    }
+
+    if (targetRegion == 'jpop') {
+      return (['YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'RADWIMPS', 'Official HIGE DANdism']..shuffle());
+    }
+
     final fallbackPools = [
-      ['The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Ed Sheeran'],
-      ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Ungu'],
-      ['Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Rizky Febian']
+      ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Ungu', "D'Masiv"],
+      ['Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra', 'Yura Yunita', 'Rizky Febian'],
+      ['Denny Caknan', 'Guyon Waton', 'Happy Asmara', 'Gilga Sahid', 'Ndarboy Genk']
     ];
     final selected = (List.from(fallbackPools)..shuffle()).first;
     return List<String>.from(selected)..shuffle();
   }
+
 
   // Fetch Trending / Starter Tracks dynamically from diverse hitmaker charts
   Future<List<Track>> getTrendingTracks() async {
@@ -1764,6 +1904,7 @@ class MusicApiService {
         currentTrack.artist,
         genre: currentTrack.genre,
         playlistArtists: playlistArtists,
+        title: currentTrack.title,
       );
 
       for (final peer in peers.take(3)) {

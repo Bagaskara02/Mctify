@@ -733,23 +733,33 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         'ringtone', 'sped up', 'slowed', 'reverb', 'remake', 'tutorial', 'acapella'
       ];
 
-      // Identify peer hitmakers dynamically based on artist, genre, and queue
+      // Identify peer hitmakers dynamically based on artist, genre, title, and queue
       final artLower = track.artist.toLowerCase();
+      final targetRegion = MusicApiService.detectTrackRegion(track.artist, track.title, track.genre);
       final peerArtists = _apiService.getSimilarArtists(
         track.artist,
         genre: track.genre,
         playlistArtists: _queue.map((t) => t.artist).toList(),
+        title: track.title,
       );
-      final activePeers = peerArtists.where((p) => !artLower.contains(p.toLowerCase())).take(3).toList();
+      // Select 5-6 random peers each time from the pool for infinite non-template variety
+      final activePeers = (List<String>.from(peerArtists)..shuffle())
+          .where((p) => !artLower.contains(p.toLowerCase()))
+          .take(6)
+          .toList();
 
-      // Query user's liked and frequently played tracks first
+      // Query user's liked and frequently played tracks (strictly respecting target region!)
       final userLikedTracks = <Track>[];
       try {
         final liked = await _storageService.getLikedTracks();
         for (final t in liked) {
           final clean = t.title.toLowerCase().trim();
+          final itemRegion = MusicApiService.detectTrackRegion(t.artist, t.title, t.genre);
+          if (itemRegion != targetRegion) continue;
+
           final tArt = t.artist.toLowerCase();
-          final isMatch = tArt.contains(artLower) || artLower.contains(tArt) ||
+          final isMatch = tArt.contains(artLower) ||
+              artLower.contains(tArt) ||
               activePeers.any((p) => tArt.contains(p.toLowerCase()));
           final isJunk = banned.any((b) => clean.contains(b));
           if (isMatch && !isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
@@ -767,7 +777,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       ];
       final searchResults = await Future.wait(searchFutures);
 
-      final artistHits = <Track>[];
+      // Collect artist songs and randomly sample 2-3 different hits each time
+      final cleanArtistHits = <Track>[];
       if (searchResults.isNotEmpty) {
         for (final t in searchResults[0]) {
           final clean = t.title.toLowerCase().trim();
@@ -775,53 +786,55 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
             seen.add(t.id);
             seen.add(clean);
-            artistHits.add(t);
+            cleanArtistHits.add(t);
           }
         }
       }
+      final sampledArtistHits = (List<Track>.from(cleanArtistHits)..shuffle()).take(3).toList();
 
-      final peerHits = <Track>[];
+      // Collect peer songs and randomly sample 1-2 different hits per peer
+      final sampledPeerHits = <Track>[];
       for (int i = 1; i < searchResults.length; i++) {
+        final peerList = <Track>[];
         for (final t in searchResults[i]) {
           final clean = t.title.toLowerCase().trim();
+          final songRegion = MusicApiService.detectTrackRegion(t.artist, t.title, t.genre);
           final isJunk = banned.any((b) => clean.contains(b));
-          if (!isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
+          if (songRegion == targetRegion && !isJunk && !seen.contains(t.id) && !seen.contains(clean)) {
             seen.add(t.id);
             seen.add(clean);
-            peerHits.add(t);
+            peerList.add(t);
           }
         }
+        final peerSample = (peerList..shuffle()).take(2);
+        sampledPeerHits.addAll(peerSample);
       }
+      sampledPeerHits.shuffle();
 
-      // Structured Hit Queue Interleaving:
-      // High-priority popular songs without random shuffle:
-      // 1. User's liked / favorite track (if any)
-      // 2. Artist's top #1 hit
-      // 3. Peer #1 hit
-      // 4. Artist's #2 hit
-      // 5. Peer #2 hit
-      // 6. Artist's #3 hit ...
+      // Balanced Interleaved Queue: Dynamic, fresh, and zero static template!
       final structuredQueue = <Track>[];
       int userIdx = 0;
       int artIdx = 0;
       int peerIdx = 0;
 
       while (structuredQueue.length < 18 &&
-          (userIdx < userLikedTracks.length || artIdx < artistHits.length || peerIdx < peerHits.length)) {
+          (userIdx < userLikedTracks.length || artIdx < sampledArtistHits.length || peerIdx < sampledPeerHits.length)) {
         if (userIdx < userLikedTracks.length && (structuredQueue.isEmpty || structuredQueue.length % 3 == 0)) {
           structuredQueue.add(userLikedTracks[userIdx++]);
         }
-        if (artIdx < artistHits.length && structuredQueue.length < 18) {
-          structuredQueue.add(artistHits[artIdx++]);
+        if (artIdx < sampledArtistHits.length && structuredQueue.length < 18) {
+          structuredQueue.add(sampledArtistHits[artIdx++]);
         }
-        if (peerIdx < peerHits.length && structuredQueue.length < 18) {
-          structuredQueue.add(peerHits[peerIdx++]);
+        if (peerIdx < sampledPeerHits.length && structuredQueue.length < 18) {
+          structuredQueue.add(sampledPeerHits[peerIdx++]);
         }
-        if (artIdx >= artistHits.length && peerIdx >= peerHits.length && userIdx < userLikedTracks.length && structuredQueue.length < 18) {
+        if (artIdx >= sampledArtistHits.length &&
+            peerIdx >= sampledPeerHits.length &&
+            userIdx < userLikedTracks.length &&
+            structuredQueue.length < 18) {
           structuredQueue.add(userLikedTracks[userIdx++]);
         }
       }
-
       if (structuredQueue.isNotEmpty) {
         _queue = [
           if (_currentTrack != null) _currentTrack! else track,
@@ -1078,26 +1091,35 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       final primaryArtist = _currentTrack?.artist ?? (playlistArtists.isNotEmpty ? playlistArtists.first : '');
+      final targetRegion = MusicApiService.detectTrackRegion(
+        primaryArtist,
+        _currentTrack?.title ?? '',
+        _currentTrack?.genre ?? '',
+      );
       final peerArtists = _apiService.getSimilarArtists(
         primaryArtist,
         genre: _currentTrack?.genre,
         playlistArtists: playlistArtists.toList(),
+        title: _currentTrack?.title,
       );
 
       final sampleArtists = {
-        ...playlistArtists.take(2),
-        ...peerArtists.take(2),
+        ...(List<String>.from(playlistArtists)..shuffle()).take(2),
+        ...(List<String>.from(peerArtists)..shuffle()).take(3),
       }.toList();
 
       final existingIds = _queue.map((t) => t.id).toSet();
       final existingTitles = _queue.map((t) => t.title.toLowerCase().trim()).toSet();
       final newRecommendations = <Track>[];
 
-      // 2. Prioritize user's liked tracks matching these artists
+      // 2. Prioritize user's liked tracks matching these artists and targetRegion
       try {
         final liked = await _storageService.getLikedTracks();
         for (final t in liked) {
           final cleanTitle = t.title.toLowerCase().trim();
+          final songRegion = MusicApiService.detectTrackRegion(t.artist, t.title, t.genre);
+          if (songRegion != targetRegion) continue;
+
           final tArt = t.artist.toLowerCase();
           final isMatch = sampleArtists.any((a) => tArt.contains(a.toLowerCase()));
           if (isMatch &&
@@ -1115,34 +1137,42 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       for (final artist in sampleArtists) {
         try {
           final results = await _apiService.searchTracks(artist);
+          final artistList = <Track>[];
           for (final t in results) {
             final cleanTitle = t.title.toLowerCase().trim();
-            if (!existingIds.contains(t.id) &&
+            final songRegion = MusicApiService.detectTrackRegion(t.artist, t.title, t.genre);
+            if (songRegion == targetRegion &&
+                !existingIds.contains(t.id) &&
                 !existingTitles.contains(cleanTitle) &&
                 !_isExcludedTrack(cleanTitle)) {
               existingIds.add(t.id);
               existingTitles.add(cleanTitle);
-              newRecommendations.add(t);
-              if (newRecommendations.length >= 15) break;
+              artistList.add(t);
             }
           }
+          // Take 2-3 random tracks from this artist to avoid static template
+          newRecommendations.addAll((artistList..shuffle()).take(3));
+          if (newRecommendations.length >= 18) break;
         } catch (_) {}
       }
 
       // 4. Supplement with additional peer hitmakers from same genre if few
       if (newRecommendations.length < 5) {
-        for (final peer in peerArtists.skip(2).take(2)) {
+        final remainingPeers = (List<String>.from(peerArtists)..shuffle()).take(3);
+        for (final peer in remainingPeers) {
           try {
             final results = await _apiService.searchTracks(peer);
             for (final t in results) {
               final cleanTitle = t.title.toLowerCase().trim();
-              if (!existingIds.contains(t.id) &&
+              final songRegion = MusicApiService.detectTrackRegion(t.artist, t.title, t.genre);
+              if (songRegion == targetRegion &&
+                  !existingIds.contains(t.id) &&
                   !existingTitles.contains(cleanTitle) &&
                   !_isExcludedTrack(cleanTitle)) {
                 existingIds.add(t.id);
                 existingTitles.add(cleanTitle);
                 newRecommendations.add(t);
-                if (newRecommendations.length >= 15) break;
+                if (newRecommendations.length >= 18) break;
               }
             }
           } catch (_) {}
@@ -1150,6 +1180,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       if (newRecommendations.isNotEmpty) {
+        newRecommendations.shuffle();
         _queue.addAll(newRecommendations);
         notifyListeners();
         await playTrack(newRecommendations.first);
