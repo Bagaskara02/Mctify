@@ -24,22 +24,7 @@ class MainActivity : AudioServiceActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var isAudioPlaying = false
-    private val mainHandler = Handler(Looper.getMainLooper())
     private val cachedWebViews = java.util.Collections.synchronizedSet(mutableSetOf<java.lang.ref.WeakReference<WebView>>())
-    private val keepAliveRunnable = object : Runnable {
-        override fun run() {
-            try {
-                if (isAudioPlaying) {
-                    pokeWebViews()
-                }
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            }
-            if (isAudioPlaying) {
-                mainHandler.postDelayed(this, 3000)
-            }
-        }
-    }
 
     // Android Native Audio Effects (Hardware-accelerated Equalizer, Loudness Enhancer, Bass Boost & 3D Virtualizer)
     private var equalizer: Equalizer? = null
@@ -307,7 +292,7 @@ class MainActivity : AudioServiceActivity() {
             wakeLock?.setReferenceCounted(false)
 
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "McMusic::PlaybackWifiLock")
+            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL, "McMusic::PlaybackWifiLock")
             wifiLock?.setReferenceCounted(false)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -381,34 +366,15 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun pokeWebViews() {
-        synchronized(cachedWebViews) {
-            val iterator = cachedWebViews.iterator()
-            while (iterator.hasNext()) {
-                val wv = iterator.next().get()
-                if (wv == null) {
-                    iterator.remove()
-                } else {
-                    try {
-                        wv.onResume()
-                        wv.resumeTimers()
-                    } catch (_: Throwable) {}
-                }
-            }
-        }
-    }
-
     private fun acquirePlaybackLocks() {
         try {
             if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire(24 * 60 * 60 * 1000L)
+                wakeLock?.acquire(4 * 60 * 60 * 1000L) // Safe 4-hour max timeout
             }
             if (wifiLock?.isHeld != true) {
                 wifiLock?.acquire()
             }
             notifyWebViewsForeground()
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            mainHandler.post(keepAliveRunnable)
         } catch (e: Throwable) {
             e.printStackTrace()
         }
@@ -416,7 +382,6 @@ class MainActivity : AudioServiceActivity() {
 
     private fun releasePlaybackLocks() {
         try {
-            mainHandler.removeCallbacks(keepAliveRunnable)
             if (!isAudioPlaying) {
                 if (wakeLock?.isHeld == true) {
                     wakeLock?.release()
@@ -432,51 +397,32 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onPause() {
         try {
-            if (isAudioPlaying || wakeLock?.isHeld != true) {
+            if (isAudioPlaying) {
                 acquirePlaybackLocks()
             }
             notifyWebViewsForeground()
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            if (isAudioPlaying) {
-                mainHandler.post(keepAliveRunnable)
-            }
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onPause()
-        try {
-            notifyWebViewsForeground()
-        } catch (e: Throwable) {
-            e.printStackTrace()
-        }
     }
 
     override fun onStop() {
         try {
-            if (isAudioPlaying || wakeLock?.isHeld != true) {
+            if (isAudioPlaying) {
                 acquirePlaybackLocks()
             }
             notifyWebViewsForeground()
-            mainHandler.removeCallbacks(keepAliveRunnable)
-            if (isAudioPlaying) {
-                mainHandler.post(keepAliveRunnable)
-            }
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onStop()
-        try {
-            notifyWebViewsForeground()
-        } catch (e: Throwable) {
-            e.printStackTrace()
-        }
     }
 
     override fun onResume() {
         super.onResume()
         try {
             if (!isAudioPlaying) {
-                mainHandler.removeCallbacks(keepAliveRunnable)
                 releasePlaybackLocks()
             }
             window.decorView?.let { collectWebViews(it) }
@@ -499,7 +445,6 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
         try {
-            mainHandler.removeCallbacks(keepAliveRunnable)
             isAudioPlaying = false
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()

@@ -32,6 +32,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _isLoadingRecommendations = false;
   bool _hasPrefetchedNextTrack = false;
   Timer? _backgroundWatchdogTimer;
+  DateTime? _trackStartTime;
   Duration _lastWatchdogPosition = Duration.zero;
   int _watchdogStallCount = 0;
   int _initialStartStallCount = 0;
@@ -121,33 +122,47 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _watchdogStallCount = 0;
     _initialStartStallCount = 0;
     _lastWatchdogPosition = _position;
-    _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _trackStartTime = DateTime.now().subtract(_position);
+
+    _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!_userRequestedPause && _isUsingYoutubeIframe && _ytController != null && _currentTrack != null) {
-        // If player is paused by OS/Chromium in background, wake it up!
-        if (!_isPlaying) {
-          _isPlaying = true;
+        final playerState = _ytController?.value.playerState;
+
+        // 1. Resume if unexpectedly paused by OS while screen is off
+        if (playerState == ytp.PlayerState.paused) {
+          debugPrint('[AudioPlayerManager] Watchdog: unexpected pause detected, auto-resuming...');
           _acquireNativeLocks();
           _ytController?.playVideo();
+          return;
         }
 
-        // 1. Detect if audio playback never started (stuck at 0:00 for > 6 seconds)
-        if (_position == Duration.zero) {
+        // 2. Wall-clock track completion detector:
+        // Ensures songs advance smoothly without stalling even if Chromium suspends JS timers with screen off
+        if (_duration > Duration.zero && _duration.inSeconds > 5) {
+          final now = DateTime.now();
+          final elapsed = now.difference(_trackStartTime ?? now);
+          if (elapsed.inSeconds >= _duration.inSeconds + 2) {
+            debugPrint('[AudioPlayerManager] Watchdog: track duration reached via wall clock (${elapsed.inSeconds}s / ${_duration.inSeconds}s). Auto-advancing...');
+            _trackStartTime = DateTime.now();
+            if (_sleepTimerAtTrackEnd) {
+              _triggerSleepTimerStop();
+            } else if (_isRepeat) {
+              _ytController?.seekTo(seconds: 0);
+              _ytController?.playVideo();
+            } else {
+              next();
+            }
+            return;
+          }
+        }
+
+        // 3. Initial start stall detector (foreground only)
+        if (!_isAppBackgrounded && _position == Duration.zero) {
           _initialStartStallCount++;
-          if (_initialStartStallCount >= 2) {
+          if (_initialStartStallCount == 2) {
             _ytController?.playVideo();
-          }
-          if (_initialStartStallCount >= 4) {
-            try {
-              _ytController?.webViewController.runJavaScript(
-                'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
-              );
-            } catch (_) {}
-          }
-          // Only trigger recovery if in FOREGROUND:
-          // In background with screen off, WebView position events are throttled by Android/iOS OS.
-          // Aborting at 0:00 while backgrounded would falsely skip tracks and terminate the playlist!
-          if (!_isAppBackgrounded && _initialStartStallCount >= 6) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stuck at 0:00 for 12s in foreground. Triggering recovery...');
+          } else if (_initialStartStallCount >= 5) {
+            debugPrint('[AudioPlayerManager] Watchdog: stuck at 0:00 for 15s. Triggering recovery...');
             _initialStartStallCount = 0;
             _handlePlaybackFailure(_currentTrack, 'Playback stuck at 0:00');
             return;
@@ -156,37 +171,26 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _initialStartStallCount = 0;
         }
 
-        // 2. Detect if audio playback is stalled mid-song while screen is off
-        final isBuffering = _ytController?.value.playerState == ytp.PlayerState.buffering;
-        if (isBuffering) {
-          // Normal network buffering while driving: allow buffer to fill smoothly without jittery kicks
-          _watchdogStallCount = 0;
-        } else if (_position == _lastWatchdogPosition && _position > Duration.zero) {
-          _watchdogStallCount++;
-          if (_watchdogStallCount >= 2) {
-            // Stalled for 4 seconds: enforce playback kick
-            _acquireNativeLocks();
-            _ytController?.playVideo();
-          }
-          if (_watchdogStallCount >= 4) {
-            // Stalled for 8 seconds: inject direct JS play trigger
-            try {
-              _ytController?.webViewController.runJavaScript(
-                'if (typeof player !== "undefined" && player && player.playVideo) player.playVideo();'
-              );
-            } catch (_) {}
-          }
-          // Only trigger recovery if in FOREGROUND where position is guaranteed to tick:
-          // In background with screen off, audio plays smoothly but JS position reporting is throttled by OS.
-          if (!_isAppBackgrounded && _watchdogStallCount >= 8) {
-            debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 16s in foreground. Triggering recovery...');
+        // 4. Mid-song stall detector (foreground only)
+        if (!_isAppBackgrounded) {
+          final isBuffering = playerState == ytp.PlayerState.buffering;
+          if (isBuffering) {
             _watchdogStallCount = 0;
-            _handlePlaybackFailure(_currentTrack, 'Playback stalled for 16s');
-            return;
+          } else if (_position == _lastWatchdogPosition && _position > Duration.zero) {
+            _watchdogStallCount++;
+            if (_watchdogStallCount == 2) {
+              _acquireNativeLocks();
+              _ytController?.playVideo();
+            } else if (_watchdogStallCount >= 5) {
+              debugPrint('[AudioPlayerManager] Watchdog: playback stalled for 15s. Triggering recovery...');
+              _watchdogStallCount = 0;
+              _handlePlaybackFailure(_currentTrack, 'Playback stalled for 15s');
+              return;
+            }
+          } else {
+            _watchdogStallCount = 0;
+            _lastWatchdogPosition = _position;
           }
-        } else {
-          _watchdogStallCount = 0;
-          _lastWatchdogPosition = _position;
         }
       }
     });
@@ -237,18 +241,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
 
-          // 1. Battery & Thermal Saver: force low video quality (144p) and scale down video element
-          // Prevents CPU/GPU video decoding heat in background, eliminating battery drain and OS thermal force-close!
+          // 1. Thermal & Quality optimization: ensure lightweight decoding
           try {
             if (typeof player !== 'undefined' && player) {
-              if (typeof player.setPlaybackQuality === 'function') player.setPlaybackQuality('tiny');
-              if (typeof player.setPlaybackQualityRange === 'function') player.setPlaybackQualityRange('tiny', 'tiny');
+              if (typeof player.setPlaybackQuality === 'function') player.setPlaybackQuality('small');
             }
             var bstyle = document.getElementById('mcmusic-battery-saver');
             if (!bstyle) {
               bstyle = document.createElement('style');
               bstyle.id = 'mcmusic-battery-saver';
-              bstyle.innerHTML = 'video { opacity: 0.01 !important; transform: scale(0.05) !important; pointer-events: none !important; }';
+              bstyle.innerHTML = 'video { pointer-events: none !important; }';
               document.head.appendChild(bstyle);
             }
           } catch(e) {}
@@ -274,7 +276,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             } catch(e) {}
           }
 
-          // 2. Protect existing and newly added video tags
+          // 3. Protect video tag with safe debounce (Never loop on natural song end!)
           function protectVideo(v) {
             if (!v || v.__protected) return;
             v.__protected = true;
@@ -286,9 +288,17 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             } catch(e) {}
 
             v.addEventListener('pause', function(e) {
+              // If video ended naturally, DO NOT force play!
+              if (v.ended || (v.duration && v.currentTime >= v.duration - 0.5)) {
+                return;
+              }
               if (!window.__userRequestedPause) {
                 e.stopImmediatePropagation();
-                try { v.play(); } catch(_) {}
+                setTimeout(function() {
+                  if (!window.__userRequestedPause && v.paused && !v.ended) {
+                    try { v.play(); } catch(_) {}
+                  }
+                }, 300);
               }
             }, true);
           }
@@ -306,7 +316,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             } catch(e) {}
           }
 
-          // 3. Spoof visibility properties so YouTube player engine believes screen is ALWAYS on
+          // 4. Spoof visibility properties so YouTube player engine knows screen is always active
           if (!window.__visibilityPatched) {
             window.__visibilityPatched = true;
             try {
@@ -316,7 +326,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             } catch(e) {}
           }
 
-          // 4. Block OS screen off / window blur events (attach ONCE only to prevent memory leak)
+          // 5. Block OS screen off / window blur events
           if (!window.__eventsBlocked) {
             window.__eventsBlocked = true;
             var blockEvents = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide', 'freeze', 'unload'];
@@ -333,25 +343,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               }, true);
             });
           }
-
-          // 5. Inaudible Web Audio oscillator keep-alive to keep audio pipeline active
-          try {
-            if (!window.__keepAliveAudioCtx) {
-              var AudioCtx = window.AudioContext || window.webkitAudioContext;
-              if (AudioCtx) {
-                var actx = new AudioCtx();
-                var osc = actx.createOscillator();
-                var gain = actx.createGain();
-                gain.gain.value = 0.00001;
-                osc.connect(gain);
-                gain.connect(actx.destination);
-                osc.start();
-                window.__keepAliveAudioCtx = actx;
-              }
-            } else if (window.__keepAliveAudioCtx.state === 'suspended') {
-              window.__keepAliveAudioCtx.resume();
-            }
-          } catch(e) {}
 
           // 6. Ensure player volume is at maximum
           try {
@@ -874,6 +865,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _isPlaying = true;
     _userRequestedPause = false;
     _hasPrefetchedNextTrack = false;
+    _trackStartTime = DateTime.now();
     _mediaHandler?.updateTrack(track, _duration);
     _syncMediaHandler();
     _acquireNativeLocks();
@@ -980,6 +972,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _isPlaying = false;
       } else {
         _userRequestedPause = false;
+        _trackStartTime = DateTime.now().subtract(_position);
         _acquireNativeLocks();
         _setJsUserRequestedPause(false);
         _ytController!.playVideo();
@@ -1016,6 +1009,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> seek(Duration pos) async {
     _position = pos;
+    _trackStartTime = DateTime.now().subtract(pos);
     _syncMediaHandler();
     notifyListeners();
     final wasPlaying = _isPlaying;
