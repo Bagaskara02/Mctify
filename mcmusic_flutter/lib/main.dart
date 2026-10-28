@@ -5,6 +5,7 @@ import 'services/audio_player_manager.dart';
 import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import 'theme/app_theme.dart';
 import 'views/home_view.dart';
 import 'views/library_view.dart';
@@ -143,6 +144,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             index: _currentIndex,
             children: pages,
           ),
+
+          // Pure Background Audio Engine (100% off-screen, completely invisible - zero video box on screen)
+          if (_player.ytController != null)
+            Positioned(
+              left: -9999,
+              top: -9999,
+              width: 1,
+              height: 1,
+              child: IgnorePointer(
+                child: ytp.YoutubePlayer(
+                  controller: _player.ytController!,
+                  keepAlive: true,
+                ),
+              ),
+            ),
 
           // Floating Mini Player (Positioned above Bottom Navigation Bar)
           ListenableBuilder(

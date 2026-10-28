@@ -718,7 +718,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: widget.player.playbackSpeed != 1.0 ? AppTheme.primaryAzure.withOpacity(0.2) : Colors.transparent,
+                                color: widget.player.playbackSpeed != 1.0 ? AppTheme.primaryAzure.withValues(alpha: 0.2) : Colors.transparent,
                                 borderRadius: BorderRadius.circular(12),
                                 border: widget.player.playbackSpeed != 1.0 ? Border.all(color: AppTheme.primaryAzure, width: 1) : null,
                               ),
