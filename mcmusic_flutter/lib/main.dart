@@ -5,7 +5,6 @@ import 'services/audio_player_manager.dart';
 import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
-import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import 'theme/app_theme.dart';
 import 'views/home_view.dart';
 import 'views/library_view.dart';
@@ -144,24 +143,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             index: _currentIndex,
             children: pages,
           ),
-
-          // Official YouTube Audio/Video Engine for Flutter (Active, Composited, Never hidden, with keepAlive)
-          if (_player.ytController != null)
-            Positioned(
-              bottom: 0,
-              right: 0,
-              width: 48,
-              height: 48,
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: 0.02,
-                  child: ytp.YoutubePlayer(
-                    controller: _player.ytController!,
-                    keepAlive: true,
-                  ),
-                ),
-              ),
-            ),
 
           // Floating Mini Player (Positioned above Bottom Navigation Bar)
           ListenableBuilder(
