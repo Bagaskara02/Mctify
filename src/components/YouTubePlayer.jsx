@@ -101,6 +101,15 @@ export default function YouTubePlayer({
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.ENDED) {
               triggerEnded();
+            } else if (event.data === window.YT.PlayerState.PAUSED) {
+              // In background tabs, YouTube sometimes enters PAUSED at the very end of video instead of ENDED
+              try {
+                const current = playerRef.current?.getCurrentTime?.() || 0;
+                const dur = playerRef.current?.getDuration?.() || 0;
+                if (dur > 5 && current >= dur - 1.2) {
+                  triggerEnded();
+                }
+              } catch {}
             }
           },
           onError: (err) => {
@@ -192,10 +201,14 @@ export default function YouTubePlayer({
     }
   }, [playbackRate, isReady]);
 
-  // Poll currentTime & duration smoothly (80ms for ultra-responsive 60fps karaoke)
+  // Poll currentTime & duration smoothly with Web Worker (exempt from background tab timer throttling)
   useEffect(() => {
     if (!isReady) return;
-    const interval = setInterval(() => {
+
+    let worker = null;
+    let fallbackTimer = null;
+
+    const pollTime = () => {
       try {
         if (playerRef.current && isPlaying && videoId) {
           const current = playerRef.current.getCurrentTime?.() || 0;
@@ -203,16 +216,45 @@ export default function YouTubePlayer({
           if (Number.isFinite(current) && Number.isFinite(dur) && dur > 0) {
             onTimeUpdate?.(current, dur);
 
-            // True end of track trigger (strictly at the very end)
-            if (dur > 5 && current >= dur - 0.4) {
+            // True end of track trigger (strictly at the end of track)
+            if (dur > 5 && current >= dur - 0.6) {
               triggerEnded();
             }
           }
         }
       } catch {}
-    }, 80);
+    };
 
-    return () => clearInterval(interval);
+    try {
+      const blob = new Blob([
+        `let t = null;
+         self.onmessage = (e) => {
+           if (e.data === 'start') {
+             if (!t) t = setInterval(() => self.postMessage('tick'), 100);
+           } else if (e.data === 'stop') {
+             if (t) { clearInterval(t); t = null; }
+           }
+         };`
+      ], { type: 'application/javascript' });
+      const blobUrl = URL.createObjectURL(blob);
+      worker = new Worker(blobUrl);
+      worker.onmessage = () => pollTime();
+      worker.postMessage('start');
+    } catch {
+      fallbackTimer = setInterval(pollTime, 100);
+    }
+
+    return () => {
+      if (worker) {
+        try {
+          worker.postMessage('stop');
+          worker.terminate();
+        } catch {}
+      }
+      if (fallbackTimer) {
+        clearInterval(fallbackTimer);
+      }
+    };
   }, [isReady, isPlaying, onTimeUpdate, videoId]);
 
   return (

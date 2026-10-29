@@ -33,8 +33,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _hasPrefetchedNextTrack = false;
   Timer? _backgroundWatchdogTimer;
   Timer? _resumeDebounceTimer;
+  Timer? _networkReconnectTimer;
   DateTime? _trackStartTime;
   bool _isRecovering = false;
+  int _networkRetryCount = 0;
+  bool _isNetworkOnline = true;
   final Set<String> _failedVideoIds = <String>{};
 
   // Sleep Timer state
@@ -70,6 +73,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   List<Track> get queue => _queue;
   bool get isShuffle => _isShuffle;
   bool get isRepeat => _isRepeat;
+  bool get isNetworkOnline => _isNetworkOnline;
   ytp.YoutubePlayerController? get ytController => _ytController;
 
   // Sleep Timer getters
@@ -90,6 +94,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
     WidgetsBinding.instance.addObserver(this);
+    _initNativeChannelListeners();
     _initAudioContext();
     _initAudioListeners();
     _initYoutube();
@@ -97,6 +102,55 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _loadStoredAudioQuality();
     // Pre-warm and apply stored Equalizer preset & DSP effects on startup
     EqualizerService.instance;
+  }
+
+  void _initNativeChannelListeners() {
+    _nativeChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onNetworkAvailable':
+        case 'onNetworkValidated':
+          _handleNetworkReconnected();
+          break;
+        case 'onNetworkLost':
+          _handleNetworkLost();
+          break;
+      }
+    });
+  }
+
+  void _handleNetworkLost() {
+    debugPrint('[AudioPlayerManager] Native network lost (switching WiFi <-> Mobile Data)...');
+    _isNetworkOnline = false;
+  }
+
+  void _handleNetworkReconnected() {
+    debugPrint('[AudioPlayerManager] Native network validated! Restoring active audio stream...');
+    _isNetworkOnline = true;
+    _networkRetryCount = 0;
+
+    _networkReconnectTimer?.cancel();
+    _networkReconnectTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!_userRequestedPause && _currentTrack != null) {
+        _acquireNativeLocks();
+        if (_isUsingYoutubeIframe && _ytController != null) {
+          final curVid = _currentTrack?.videoId;
+          if (curVid != null && curVid.isNotEmpty) {
+            final playerState = _ytController?.value.playerState;
+            if (playerState != ytp.PlayerState.playing) {
+              debugPrint('[AudioPlayerManager] Network restored: re-triggering playback at ${_position.inSeconds}s');
+              final posSec = _position.inSeconds.toDouble();
+              _ytController?.seekTo(seconds: posSec, allowSeekAhead: true);
+              _ytController?.playVideo();
+              _injectBackgroundPlaybackScripts();
+            }
+          }
+        } else {
+          if (_player.state != PlayerState.playing) {
+            _player.resume();
+          }
+        }
+      }
+    });
   }
 
   Future<void> _acquireNativeLocks() async {
@@ -133,7 +187,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _trackStartTime = DateTime.now().subtract(_position);
 
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_userRequestedPause && _currentTrack != null) {
+      if (!_userRequestedPause && _currentTrack != null && _isNetworkOnline) {
         if (_isUsingYoutubeIframe && _ytController != null) {
           final playerState = _ytController?.value.playerState;
 
@@ -281,6 +335,21 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                 }, 400);
               }
             }, true);
+
+            v.addEventListener('error', function(e) {
+              console.log('[McMusic] HTMLMediaElement error event during network switch');
+              if (!window.__userRequestedPause) {
+                setTimeout(function() {
+                  try {
+                    if (!window.__userRequestedPause && player) {
+                      var cur = player.getCurrentTime() || 0;
+                      player.seekTo(cur, true);
+                      player.playVideo();
+                    }
+                  } catch(_) {}
+                }, 1000);
+              }
+            }, true);
           }
 
           try {
@@ -304,6 +373,25 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
               Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
             } catch(e) {}
+          }
+
+          // 5. Auto-recover immediately on network handover (WiFi <-> Cellular)
+          if (!window.__networkHooked) {
+            window.__networkHooked = true;
+            window.addEventListener('online', function() {
+              console.log('[McMusic] WebView online event detected');
+              if (!window.__userRequestedPause) {
+                setTimeout(function() {
+                  try {
+                    if (typeof player !== 'undefined' && player) {
+                      var cur = player.getCurrentTime() || 0;
+                      player.seekTo(cur, true);
+                      player.playVideo();
+                    }
+                  } catch(_) {}
+                }, 800);
+              }
+            });
           }
         })();
       ''');
@@ -329,11 +417,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         // Failsafe recovery if video is unplayable or embed restricted
         if (value.hasError) {
           debugPrint('[AudioPlayerManager] YouTube Iframe Error: ${value.error} for "${_currentTrack?.title}"');
-          _handlePlaybackFailure(_currentTrack, 'Iframe error: ${value.error}');
+          _handlePlaybackNetworkError(_currentTrack, 'Iframe error: ${value.error}');
           return;
         }
 
         if (value.playerState == ytp.PlayerState.playing) {
+          _networkRetryCount = 0;
           _isPlaying = true;
           _userRequestedPause = false;
           _acquireNativeLocks();
@@ -389,6 +478,33 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('YouTube controller init error: $e');
     }
+  }
+
+  Future<void> _handlePlaybackNetworkError(Track? track, String reason) async {
+    if (track == null || _isRecovering) return;
+
+    // 1. If error happens during network handover (WiFi <-> Cellular), RETRY the same video at current position first!
+    if (_networkRetryCount < 3) {
+      _networkRetryCount++;
+      debugPrint('[AudioPlayerManager] Temporary network/playback blip (attempt $_networkRetryCount of 3). Retrying "${track.title}" at ${_position.inSeconds}s...');
+      await Future.delayed(const Duration(milliseconds: 1200));
+
+      if (!_userRequestedPause && _currentTrack?.id == track.id) {
+        final currentVid = track.videoId;
+        if (currentVid != null && currentVid.isNotEmpty && _ytController != null) {
+          try {
+            _ytController?.seekTo(seconds: _position.inSeconds.toDouble(), allowSeekAhead: true);
+            _ytController?.playVideo();
+            _injectBackgroundPlaybackScripts();
+            return;
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 2. Only if 3 retries completely fail while online, escalate to alternative video resolution
+    _networkRetryCount = 0;
+    _handlePlaybackFailure(track, reason);
   }
 
   Future<void> _handlePlaybackFailure(Track? track, String reason) async {
@@ -1202,6 +1318,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _stopWatchdog();
+    _networkReconnectTimer?.cancel();
     _releaseNativeLocks();
     _sleepTimer?.cancel();
     _ytController?.close();

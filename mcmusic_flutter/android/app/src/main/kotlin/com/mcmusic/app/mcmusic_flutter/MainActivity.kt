@@ -6,6 +6,9 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Bundle
@@ -26,6 +29,11 @@ class MainActivity : AudioServiceActivity() {
     private var isAudioPlaying = false
     private val cachedWebViews = java.util.Collections.synchronizedSet(mutableSetOf<java.lang.ref.WeakReference<WebView>>())
 
+    // Network Handover Monitor (WiFi <-> Cellular smooth playback transition)
+    private var wakelockChannel: MethodChannel? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     // Android Native Audio Effects (Hardware-accelerated Equalizer, Loudness Enhancer, Bass Boost & 3D Virtualizer)
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
@@ -38,7 +46,8 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         initAudioEffects()
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WAKELOCK_CHANNEL).setMethodCallHandler { call, result ->
+        wakelockChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WAKELOCK_CHANNEL)
+        wakelockChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "acquireLocks" -> {
                     isAudioPlaying = true
@@ -298,6 +307,59 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
 
+        // Register Network Callback to handle smooth WiFi <-> Mobile Data handover without audio interruption
+        try {
+            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                networkCallback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        runOnUiThread {
+                            wakelockChannel?.invokeMethod("onNetworkAvailable", null)
+                        }
+                    }
+
+                    override fun onLost(network: Network) {
+                        runOnUiThread {
+                            // If WiFi was lost, release wifiLock immediately so mobile data takes over without lock contention
+                            if (wifiLock?.isHeld == true) {
+                                try { wifiLock?.release() } catch (_: Throwable) {}
+                            }
+                            wakelockChannel?.invokeMethod("onNetworkLost", null)
+                        }
+                    }
+
+                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                        val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                        val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                        val isCellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+
+                        runOnUiThread {
+                            if (isWifi && isAudioPlaying) {
+                                if (wifiLock?.isHeld != true) {
+                                    try { wifiLock?.acquire() } catch (_: Throwable) {}
+                                }
+                            } else if (isCellular) {
+                                if (wifiLock?.isHeld == true) {
+                                    try { wifiLock?.release() } catch (_: Throwable) {}
+                                }
+                            }
+
+                            if (hasInternet && isValidated) {
+                                wakelockChannel?.invokeMethod("onNetworkValidated", mapOf(
+                                    "isWifi" to isWifi,
+                                    "isCellular" to isCellular
+                                ))
+                            }
+                        }
+                    }
+                }
+                networkCallback?.let { connectivityManager?.registerDefaultNetworkCallback(it) }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         // Enable High Refresh Rate (90Hz / 120Hz / 144Hz) for ultra-fluid 60fps+ rendering
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -366,12 +428,30 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun isWifiConnected(): Boolean {
+        try {
+            val cm = connectivityManager ?: (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager) ?: return false
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val activeNetwork = cm.activeNetwork ?: return false
+                val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+                return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            } else {
+                @Suppress("DEPRECATION")
+                val info = cm.activeNetworkInfo ?: return false
+                @Suppress("DEPRECATION")
+                return info.type == ConnectivityManager.TYPE_WIFI && info.isConnected
+            }
+        } catch (_: Throwable) {}
+        return false
+    }
+
     private fun acquirePlaybackLocks() {
         try {
             if (wakeLock?.isHeld != true) {
                 wakeLock?.acquire(4 * 60 * 60 * 1000L) // Safe 4-hour max timeout
             }
-            if (wifiLock?.isHeld != true) {
+            // Only acquire WifiLock if actively connected to WiFi (prevents locking mobile data)
+            if (isWifiConnected() && wifiLock?.isHeld != true) {
                 wifiLock?.acquire()
             }
             notifyWebViewsForeground()
@@ -432,6 +512,13 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            networkCallback?.let {
+                connectivityManager?.unregisterNetworkCallback(it)
+            }
+            networkCallback = null
+        } catch (_: Throwable) {}
+
         try {
             equalizer?.release()
             equalizer = null

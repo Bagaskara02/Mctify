@@ -75,7 +75,6 @@ export default function App() {
   // Dynamic Personalized Feed State
   const [personalizedFeed, setPersonalizedFeed] = useState(null);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
-  const [useIframeFallback, setUseIframeFallback] = useState(false);
 
   // Smart Autoplay Toast Notification
   const [smartToast, setSmartToast] = useState(null);
@@ -190,26 +189,12 @@ export default function App() {
     setIsPlaying(true);
 
     if (track.videoId) {
-      setUseIframeFallback(false);
       const hdTrack = {
         ...track,
         artwork: getHighResArtworkUrl(track.artwork),
       };
       setCurrentTrack(hdTrack);
       setDuration(track.duration || 210);
-
-      // Stream direct audio through native HTML5 audio element
-      // This enables REAL hardware sound output switching (Headphones, Speakers, USB, HDMI) via setSinkId!
-      if (audioRef.current) {
-        audioRef.current.src = `/api/yt/stream?id=${track.videoId}`;
-        audioRef.current.currentTime = 0;
-        audioRef.current.volume = isMuted ? 0 : volume;
-        audioRef.current.playbackRate = playbackRate;
-        audioRef.current.play().catch((err) => {
-          console.warn('[App] Direct stream playback fallback to iframe:', err);
-          setUseIframeFallback(true);
-        });
-      }
     } else {
       // Clear native audio preview immediately
       if (audioRef.current) {
@@ -230,18 +215,6 @@ export default function App() {
           setCurrentTrack(fullTrack);
           setDuration(yt.duration || track.duration);
           setQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
-
-          setUseIframeFallback(false);
-          if (audioRef.current) {
-            audioRef.current.src = `/api/yt/stream?id=${yt.videoId}`;
-            audioRef.current.currentTime = 0;
-            audioRef.current.volume = isMuted ? 0 : volume;
-            audioRef.current.playbackRate = playbackRate;
-            audioRef.current.play().catch((err) => {
-              console.warn('[App] Direct stream playback fallback to iframe:', err);
-              setUseIframeFallback(true);
-            });
-          }
         } else if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
           audioRef.current.currentTime = 0;
@@ -839,35 +812,33 @@ export default function App() {
         onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
       />
 
-      {/* Fallback YouTube Iframe Engine (used only if direct stream fallback is needed) */}
-      {useIframeFallback && (
-        <YouTubePlayer
-          videoId={currentTrack?.videoId}
-          isPlaying={isPlaying}
-          volume={volume}
-          isMuted={isMuted}
-          playbackRate={playbackRate}
-          seekTime={seekTime}
-          onTimeUpdate={(current, dur) => {
-            setCurrentTime(current);
-            if (dur && Number.isFinite(dur) && dur > 0) {
-              setDuration(dur);
-              // Safety auto-advance if playback is within 0.6s of end
-              if (dur > 5 && current >= dur - 0.6 && isPlaying) {
-                handleEnded();
-              }
+      {/* Primary YouTube Player Engine - Always mounted for continuous background auto-advance */}
+      <YouTubePlayer
+        videoId={currentTrack?.videoId}
+        isPlaying={isPlaying}
+        volume={volume}
+        isMuted={isMuted}
+        playbackRate={playbackRate}
+        seekTime={seekTime}
+        onTimeUpdate={(current, dur) => {
+          setCurrentTime(current);
+          if (dur && Number.isFinite(dur) && dur > 0) {
+            setDuration(dur);
+            // Safety auto-advance if playback is within 0.6s of end
+            if (dur > 5 && current >= dur - 0.6 && isPlaying) {
+              handleEnded();
             }
-          }}
-          onEnded={handleEnded}
-          onError={(err) => {
-            console.warn('YouTube playback error, attempting preview fallback', err);
-            if (currentTrack?.audioUrl && audioRef.current) {
-              audioRef.current.src = currentTrack.audioUrl;
-              audioRef.current.play().catch(console.warn);
-            }
-          }}
-        />
-      )}
+          }
+        }}
+        onEnded={handleEnded}
+        onError={(err) => {
+          console.warn('YouTube playback error, attempting preview fallback', err);
+          if (currentTrack?.audioUrl && audioRef.current) {
+            audioRef.current.src = currentTrack.audioUrl;
+            audioRef.current.play().catch(console.warn);
+          }
+        }}
+      />
 
       {/* Primary Native Audio Stream Element (Powers setSinkId & Real Windows Hardware Output Switching) */}
       <audio
