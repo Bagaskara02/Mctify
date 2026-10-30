@@ -5,7 +5,7 @@ import 'services/audio_player_manager.dart';
 import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
-import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
+import 'package:webview_flutter/webview_flutter.dart';
 import 'theme/app_theme.dart';
 import 'views/home_view.dart';
 import 'views/library_view.dart';
@@ -139,26 +139,32 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return Scaffold(
       body: Stack(
         children: [
+          // Background YouTube Audio Engine (Composited on-screen at (0,0) with 120x120 size so Chromium remains 100% active)
+          if (_player.ytController != null)
+            Positioned(
+              top: 0,
+              left: 0,
+              width: 120,
+              height: 120,
+              child: IgnorePointer(
+                child: WebViewWidget(
+                  controller: _player.ytController!.webViewController,
+                ),
+              ),
+            ),
+
+          // Solid Background Cover over the audio engine (guarantees 0% visibility)
+          const Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(color: AppTheme.darkBackground),
+            ),
+          ),
+
           // Current Tab View
           IndexedStack(
             index: _currentIndex,
             children: pages,
           ),
-
-          // Pure Background Audio Engine (100% off-screen, completely invisible - zero video box on screen)
-          if (_player.ytController != null)
-            Positioned(
-              left: -9999,
-              top: -9999,
-              width: 1,
-              height: 1,
-              child: IgnorePointer(
-                child: ytp.YoutubePlayer(
-                  controller: _player.ytController!,
-                  keepAlive: true,
-                ),
-              ),
-            ),
 
           // Floating Mini Player (Positioned above Bottom Navigation Bar)
           ListenableBuilder(

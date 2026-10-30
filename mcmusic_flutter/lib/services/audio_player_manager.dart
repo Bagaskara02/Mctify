@@ -279,93 +279,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         (function() {
           window.__userRequestedPause = ${_userRequestedPause ? 'true' : 'false'};
 
-          // 1. Thermal & Battery optimization: ensure lowest video decoding overhead
+          // 1. Thermal & Battery optimization: ensure lightweight video decoding
           try {
-            if (typeof player !== 'undefined' && player) {
-              if (typeof player.setPlaybackQuality === 'function') player.setPlaybackQuality('small');
-            }
-            var bstyle = document.getElementById('mcmusic-saver');
-            if (!bstyle) {
-              bstyle = document.createElement('style');
-              bstyle.id = 'mcmusic-saver';
-              bstyle.innerHTML = 'video { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
-              document.head.appendChild(bstyle);
+            if (typeof player !== 'undefined' && player && typeof player.setPlaybackQuality === 'function') {
+              player.setPlaybackQuality('small');
             }
           } catch(e) {}
 
-          // 2. Hook HTMLMediaElement.prototype.pause so OS screen-off pause calls are ignored
-          if (!window.__pausePatched) {
-            window.__pausePatched = true;
-            try {
-              var origPause = HTMLMediaElement.prototype.pause;
-              HTMLMediaElement.prototype.pause = function() {
-                if (window.__userRequestedPause) {
-                  return origPause.apply(this, arguments);
-                }
-                return Promise.resolve();
-              };
-
-              var origPlay = HTMLMediaElement.prototype.play;
-              HTMLMediaElement.prototype.play = function() {
-                this.muted = false;
-                this.volume = 1.0;
-                return origPlay.apply(this, arguments);
-              };
-            } catch(e) {}
-          }
-
-          // 3. Protect video tag with safe debounce (Never loop on natural song end!)
-          function protectVideo(v) {
-            if (!v || v.__protected) return;
-            v.__protected = true;
-            v.muted = false;
-            v.volume = 1.0;
-
-            v.addEventListener('pause', function(e) {
-              // If video ended naturally, DO NOT force play!
-              if (v.ended || (v.duration && v.currentTime >= v.duration - 0.5)) {
-                return;
-              }
-              if (!window.__userRequestedPause) {
-                e.stopImmediatePropagation();
-                setTimeout(function() {
-                  if (!window.__userRequestedPause && v.paused && !v.ended) {
-                    try { v.play(); } catch(_) {}
-                  }
-                }, 400);
-              }
-            }, true);
-
-            v.addEventListener('error', function(e) {
-              console.log('[McMusic] HTMLMediaElement error event during network switch');
-              if (!window.__userRequestedPause) {
-                setTimeout(function() {
-                  try {
-                    if (!window.__userRequestedPause && player) {
-                      var cur = player.getCurrentTime() || 0;
-                      player.seekTo(cur, true);
-                      player.playVideo();
-                    }
-                  } catch(_) {}
-                }, 1000);
-              }
-            }, true);
-          }
-
-          try {
-            document.querySelectorAll('video').forEach(protectVideo);
-          } catch(e) {}
-
-          if (!window.__videoObserver && window.MutationObserver) {
-            try {
-              window.__videoObserver = new MutationObserver(function() {
-                document.querySelectorAll('video').forEach(protectVideo);
-              });
-              window.__videoObserver.observe(document.documentElement, { childList: true, subtree: true });
-            } catch(e) {}
-          }
-
-          // 4. Spoof visibility properties so YouTube player engine knows screen is always active
+          // 2. Spoof visibility properties so YouTube player engine knows screen is always active
           if (!window.__visibilityPatched) {
             window.__visibilityPatched = true;
             try {
@@ -375,7 +296,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             } catch(e) {}
           }
 
-          // 5. Auto-recover immediately on network handover (WiFi <-> Cellular)
+          // 3. Auto-recover immediately on network handover (WiFi <-> Cellular)
           if (!window.__networkHooked) {
             window.__networkHooked = true;
             window.addEventListener('online', function() {
@@ -400,16 +321,19 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _initYoutube() {
     try {
-      _ytController = ytp.YoutubePlayerController(
-        params: const ytp.YoutubePlayerParams(
-          showControls: false,
-          showFullscreenButton: false,
-          mute: false,
-          enableCaption: false,
-          showVideoAnnotations: false,
-          playsInline: true,
-        ),
+      const params = ytp.YoutubePlayerParams(
+        showControls: false,
+        showFullscreenButton: false,
+        mute: false,
+        enableCaption: false,
+        showVideoAnnotations: false,
+        playsInline: true,
       );
+
+      _ytController = ytp.YoutubePlayerController(
+        params: params,
+      );
+      _ytController!.initWithParams(params: params);
 
       _ytController!.listen((value) {
         if (!_isUsingYoutubeIframe) return;
@@ -436,7 +360,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             // Unsolicited pause (e.g. OS screen off): debounced resume
             _scheduleBackgroundResume();
           }
-        } else if (value.playerState == ytp.PlayerState.cued || value.playerState == ytp.PlayerState.unStarted) {
+        } else if (value.playerState == ytp.PlayerState.cued) {
           if (!_userRequestedPause && _currentTrack != null) {
             _scheduleBackgroundResume();
           }
@@ -941,7 +865,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           await _player.stop();
         } catch (_) {}
         _ytController!.loadVideoById(videoId: videoId);
-        _ytController!.playVideo();
         if (_playbackSpeed != 1.0) {
           try {
             _ytController!.setPlaybackRate(_playbackSpeed);
