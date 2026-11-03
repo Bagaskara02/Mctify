@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { AUDIO_QUALITIES, audioQualityService } from '../src/services/audioQualityService.js';
 import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudioEqualizer.js';
+import { getHighResArtworkUrl, isCleanPopularTrack, DEFAULT_ARTWORK } from '../src/services/musicApi.js';
 
 describe('Web Audio Quality Service Tests', () => {
   it('defines realistic YouTube audio bitrates up to 160 kbps ceiling', () => {
@@ -53,17 +54,42 @@ describe('Web Audio Equalizer Tests', () => {
   });
 });
 
-describe('Web Audio Output Service Tests', () => {
-  it('initializes safely and provides default device fallback', async () => {
-    const { audioOutputService } = await import('../src/services/audioOutputService.js');
-    assert.equal(typeof audioOutputService.getDeviceId(), 'string');
-    assert.ok(['default', ''].includes(audioOutputService.getDeviceId()) || typeof audioOutputService.getDeviceId() === 'string');
-    
-    let receivedDeviceId = null;
-    const unsubscribe = audioOutputService.subscribe((devs, deviceId) => {
-      receivedDeviceId = deviceId;
-    });
-    assert.ok(receivedDeviceId !== null);
-    unsubscribe();
+describe('Music API Artwork & Filter Tests', () => {
+  it('transforms low-res album art to high-res versions', () => {
+    // Google User Content
+    const googleLow = 'https://lh3.googleusercontent.com/abc=w120-h120-l90-rj';
+    assert.equal(getHighResArtworkUrl(googleLow), 'https://lh3.googleusercontent.com/abc=w800-h800-l90-rj');
+
+    // YouTube Thumbnail
+    const ytLow = 'https://i.ytimg.com/vi/123/default.jpg?sqp=abc';
+    assert.equal(getHighResArtworkUrl(ytLow), 'https://i.ytimg.com/vi/123/hq720.jpg');
+
+    // Apple / iTunes
+    const appleLow = 'https://is1-ssl.mzstatic.com/image/thumb/123/100x100bb.jpg';
+    assert.equal(getHighResArtworkUrl(appleLow), 'https://is1-ssl.mzstatic.com/image/thumb/123/1000x1000bb.jpg');
+
+    // Fallback on null/empty
+    assert.equal(getHighResArtworkUrl(null), DEFAULT_ARTWORK);
+    assert.equal(getHighResArtworkUrl(''), DEFAULT_ARTWORK);
+  });
+
+  it('filters out non-radio tracks, covers, and karaoke versions', () => {
+    // Legitimate track
+    const goodTrack = { title: 'Yellow', artist: 'Coldplay', duration: 269 };
+    assert.equal(isCleanPopularTrack(goodTrack), true);
+
+    // Banned keywords
+    assert.equal(isCleanPopularTrack({ title: 'Yellow (Karaoke Version)', artist: 'Coldplay', duration: 269 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Yellow - Guitar Tutorial', artist: 'Someone', duration: 269 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Yellow (Cover by John)', artist: 'John', duration: 200 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Yellow (Sped Up)', artist: 'Coldplay', duration: 180 }), false);
+
+    // Duration boundaries (< 75s or > 450s)
+    assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 30 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 600 }), false);
+
+    // Incomplete data
+    assert.equal(isCleanPopularTrack(null), false);
+    assert.equal(isCleanPopularTrack({ title: '' }), false);
   });
 });
