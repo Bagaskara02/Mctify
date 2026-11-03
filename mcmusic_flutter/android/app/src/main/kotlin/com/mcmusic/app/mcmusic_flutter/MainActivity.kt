@@ -27,6 +27,7 @@ class MainActivity : AudioServiceActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var isAudioPlaying = false
+    private var screenOffReceiver: android.content.BroadcastReceiver? = null
     private val cachedWebViews = java.util.Collections.synchronizedSet(mutableSetOf<java.lang.ref.WeakReference<WebView>>())
 
     // Network Handover Monitor (WiFi <-> Cellular smooth playback transition)
@@ -360,6 +361,23 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
 
+        // Instant Screen-Off WakeLock & WebView Keeper (Zero jeda / zero stutter when power button is pressed)
+        try {
+            val screenFilter = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
+            screenOffReceiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == Intent.ACTION_SCREEN_OFF && isAudioPlaying) {
+                        acquirePlaybackLocks()
+                        notifyWebViewsForeground()
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            if (isAudioPlaying) notifyWebViewsForeground()
+                        }, 25)
+                    }
+                }
+            }
+            registerReceiver(screenOffReceiver, screenFilter)
+        } catch (_: Throwable) {}
+
         // Enable High Refresh Rate (90Hz / 120Hz / 144Hz) for ultra-fluid 60fps+ rendering
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -485,6 +503,14 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
         super.onPause()
+        if (isAudioPlaying) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isAudioPlaying) notifyWebViewsForeground()
+            }, 25)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isAudioPlaying) notifyWebViewsForeground()
+            }, 100)
+        }
     }
 
     override fun onStop() {
@@ -497,6 +523,14 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
         super.onStop()
+        if (isAudioPlaying) {
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isAudioPlaying) notifyWebViewsForeground()
+            }, 25)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isAudioPlaying) notifyWebViewsForeground()
+            }, 100)
+        }
     }
 
     override fun onResume() {
@@ -517,6 +551,11 @@ class MainActivity : AudioServiceActivity() {
                 connectivityManager?.unregisterNetworkCallback(it)
             }
             networkCallback = null
+        } catch (_: Throwable) {}
+
+        try {
+            screenOffReceiver?.let { unregisterReceiver(it) }
+            screenOffReceiver = null
         } catch (_: Throwable) {}
 
         try {

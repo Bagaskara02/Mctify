@@ -74,6 +74,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool get isShuffle => _isShuffle;
   bool get isRepeat => _isRepeat;
   bool get isNetworkOnline => _isNetworkOnline;
+  bool get isAppBackgrounded => _isAppBackgrounded;
   ytp.YoutubePlayerController? get ytController => _ytController;
 
   // Sleep Timer getters
@@ -171,9 +172,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _scheduleBackgroundResume() {
     _resumeDebounceTimer?.cancel();
-    _resumeDebounceTimer = Timer(const Duration(milliseconds: 600), () {
+    _resumeDebounceTimer = Timer(const Duration(milliseconds: 40), () {
       if (!_userRequestedPause && _currentTrack != null && _isUsingYoutubeIframe) {
-        debugPrint('[AudioPlayerManager] Debounced auto-resume triggering...');
+        debugPrint('[AudioPlayerManager] Auto-resume triggering...');
         _acquireNativeLocks();
         _setJsUserRequestedPause(false);
         _injectBackgroundPlaybackScripts();
@@ -193,32 +194,38 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
           // 1. Resume if unexpectedly paused by OS while screen is off
           if (playerState == ytp.PlayerState.paused) {
-            debugPrint('[AudioPlayerManager] Watchdog: unexpected pause detected, debouncing auto-resume...');
-            _scheduleBackgroundResume();
+            debugPrint('[AudioPlayerManager] Watchdog: unexpected pause detected, auto-resuming...');
+            _acquireNativeLocks();
+            _setJsUserRequestedPause(false);
+            _injectBackgroundPlaybackScripts();
+            _ytController?.playVideo();
             return;
           }
 
           // 2. Safe Wall-clock track completion detector:
-          // Ensures songs advance smoothly if video ended without firing the ended event,
-          // but NEVER cuts off a song mid-vibe! Must be at least 15s past expected duration
-          // and either stalled near the end or at 00:00.
+          // CRITICAL: NEVER cut off or advance a song while it is actively playing!
+          if (playerState == ytp.PlayerState.playing) {
+            // Song is actively playing! User is vibing! NEVER interrupt!
+            return;
+          }
+
           if (_duration > Duration.zero && _duration.inSeconds > 10) {
             final now = DateTime.now();
             final elapsed = now.difference(_trackStartTime ?? now);
-            if (elapsed.inSeconds >= _duration.inSeconds + 15) {
-              if (_isAppBackgrounded || _position >= _duration - const Duration(seconds: 10) || _position == Duration.zero) {
-                debugPrint('[AudioPlayerManager] Watchdog: track finished via safe wall clock (${elapsed.inSeconds}s / ${_duration.inSeconds}s). Advancing...');
-                _trackStartTime = DateTime.now();
-                if (_sleepTimerAtTrackEnd) {
-                  _triggerSleepTimerStop();
-                } else if (_isRepeat) {
-                  _ytController?.seekTo(seconds: 0);
-                  _ytController?.playVideo();
-                } else {
-                  next();
-                }
-                return;
+            // Must have exceeded full duration AND be stalled near the end
+            if (elapsed.inSeconds >= _duration.inSeconds + 15 &&
+                _position >= _duration - const Duration(seconds: 5)) {
+              debugPrint('[AudioPlayerManager] Watchdog: track finished near end (${elapsed.inSeconds}s / ${_duration.inSeconds}s). Advancing...');
+              _trackStartTime = DateTime.now();
+              if (_sleepTimerAtTrackEnd) {
+                _triggerSleepTimerStop();
+              } else if (_isRepeat) {
+                _ytController?.seekTo(seconds: 0);
+                _ytController?.playVideo();
+              } else {
+                next();
               }
+              return;
             }
           }
         } else {
@@ -250,6 +257,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _acquireNativeLocks();
         if (_isUsingYoutubeIframe) {
           _injectBackgroundPlaybackScripts();
+          _ytController?.playVideo();
         }
       }
     } else if (state == AppLifecycleState.resumed) {
@@ -271,6 +279,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  void _setJsLoadingTrack(bool loading) {
+    try {
+      _ytController?.webViewController.runJavaScript(
+        'window.__isLoadingTrack = $loading;'
+      );
+    } catch (_) {}
+  }
+
   Future<void> _injectBackgroundPlaybackScripts() async {
     try {
       final controller = _ytController?.webViewController;
@@ -286,7 +302,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             }
           } catch(e) {}
 
-          // 2. Spoof visibility properties so YouTube player engine knows screen is always active
+          // 2. Spoof visibility properties & block blur/pagehide/visibilitychange pause triggers
           if (!window.__visibilityPatched) {
             window.__visibilityPatched = true;
             try {
@@ -294,9 +310,48 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
               Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
             } catch(e) {}
+
+            window.addEventListener('visibilitychange', function(e) {
+              e.stopImmediatePropagation();
+            }, true);
+            document.addEventListener('visibilitychange', function(e) {
+              e.stopImmediatePropagation();
+            }, true);
+            window.addEventListener('pagehide', function(e) {
+              e.stopImmediatePropagation();
+            }, true);
           }
 
-          // 3. Auto-recover immediately on network handover (WiFi <-> Cellular)
+          // 3. Instant auto-resume on unexpected media pause (Zero Jeda on Screen Off!)
+          function protectVideo(v) {
+            if (!v || v.__bgProtected) return;
+            v.__bgProtected = true;
+
+            v.addEventListener('pause', function(e) {
+              if (v.ended || (v.duration && v.currentTime >= v.duration - 0.5)) return;
+              if (!window.__userRequestedPause && !window.__isLoadingTrack) {
+                try {
+                  var p = v.play();
+                  if (p && typeof p.catch === 'function') p.catch(function(){});
+                } catch(_) {}
+              }
+            }, true);
+          }
+
+          try {
+            document.querySelectorAll('video').forEach(protectVideo);
+          } catch(e) {}
+
+          if (!window.__videoObserver && window.MutationObserver) {
+            try {
+              window.__videoObserver = new MutationObserver(function() {
+                document.querySelectorAll('video').forEach(protectVideo);
+              });
+              window.__videoObserver.observe(document.documentElement, { childList: true, subtree: true });
+            } catch(e) {}
+          }
+
+          // 4. Auto-recover immediately on network handover (WiFi <-> Cellular)
           if (!window.__networkHooked) {
             window.__networkHooked = true;
             window.addEventListener('online', function() {
@@ -310,7 +365,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                       player.playVideo();
                     }
                   } catch(_) {}
-                }, 800);
+                }, 400);
               }
             });
           }
@@ -349,6 +404,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _networkRetryCount = 0;
           _isPlaying = true;
           _userRequestedPause = false;
+          _setJsLoadingTrack(false);
           _acquireNativeLocks();
           _setJsUserRequestedPause(false);
           _injectBackgroundPlaybackScripts();
@@ -357,8 +413,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           if (_userRequestedPause) {
             _isPlaying = false;
           } else if (!_userRequestedPause && _currentTrack != null) {
-            // Unsolicited pause (e.g. OS screen off): debounced resume
-            _scheduleBackgroundResume();
+            // Unsolicited pause (e.g. OS screen off): resume IMMEDIATELY with 0ms delay!
+            _acquireNativeLocks();
+            _setJsUserRequestedPause(false);
+            _injectBackgroundPlaybackScripts();
+            _ytController?.playVideo();
           }
         } else if (value.playerState == ytp.PlayerState.cued) {
           if (!_userRequestedPause && _currentTrack != null) {
@@ -782,13 +841,20 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   // TWS & Remote Previous Click Tracker (3x Tap detection)
   DateTime? _lastPreviousActionTime;
 
-  void _prefetchNextTrackStream() {
+  void _prefetchNextTrackStream() async {
     if (_queue.isEmpty || _currentTrack == null) return;
     final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
     if (currentIndex != -1 && currentIndex + 1 < _queue.length) {
       final nextTrack = _queue[currentIndex + 1];
       if (nextTrack.videoId == null || nextTrack.videoId!.isEmpty) {
-        _apiService.resolveVideoId(nextTrack.title, nextTrack.artist, nextTrack.duration);
+        final vid = await _apiService.resolveVideoId(nextTrack.title, nextTrack.artist, nextTrack.duration);
+        if (vid != null && vid.isNotEmpty) {
+          final idx = _queue.indexWhere((t) => t.id == nextTrack.id);
+          if (idx != -1) {
+            _queue[idx] = _queue[idx].copyWith(videoId: vid);
+            debugPrint('[AudioPlayerManager] Next track "${nextTrack.title}" pre-resolved with videoId=$vid');
+          }
+        }
       }
     }
   }
@@ -864,6 +930,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         try {
           await _player.stop();
         } catch (_) {}
+        _setJsLoadingTrack(true);
         _ytController!.loadVideoById(videoId: videoId);
         if (_playbackSpeed != 1.0) {
           try {
@@ -880,13 +947,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step C: Fallback to next track if videoId could not be resolved
-      debugPrint('[AudioPlayerManager] No videoId found for "${track.title}". Auto-advancing...');
+      // Step C: If resolution could not find videoId, DO NOT skip user's track!
+      debugPrint('[AudioPlayerManager] Could not resolve videoId for "${track.title}". Keeping current selection.');
+      _isPlaying = false;
       _syncMediaHandler();
       notifyListeners();
-      if (_queue.length > 1) {
-        await next();
-      }
       return;
     } catch (e) {
       debugPrint('Playback error: $e');
