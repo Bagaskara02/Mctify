@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { audioQualityService } from '../services/audioQualityService';
 import { 
   Play, 
   Pause, 
@@ -84,6 +85,13 @@ export default function PlayerBar({
   // Volume drag state
   const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
   const [isVolumeHovered, setIsVolumeHovered] = useState(false);
+  const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+
+  useEffect(() => {
+    return audioQualityService.subscribe((qId) => {
+      setCurrentQuality(qId);
+    });
+  }, []);
 
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -188,13 +196,20 @@ export default function PlayerBar({
             </div>
 
             <div className="min-w-0 pr-2">
-              <h4 
-                onClick={onToggleLyrics}
-                className="font-bold text-sm truncate hover:underline cursor-pointer text-white tracking-tight"
-                title={currentTrack.title}
-              >
-                {cleanTrackTitle(currentTrack.title)}
-              </h4>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h4 
+                  onClick={onToggleLyrics}
+                  className="font-bold text-sm truncate hover:underline cursor-pointer text-white tracking-tight"
+                  title={currentTrack.title}
+                >
+                  {cleanTrackTitle(currentTrack.title)}
+                </h4>
+                {currentQuality === 'lossless' && (
+                  <span className="shrink-0 px-1.5 py-0.2 rounded text-[9px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-yellow-400 text-black shadow-sm" title="Hi-Res Lossless 1411 kbps Studio Master Audio">
+                    LOSSLESS
+                  </span>
+                )}
+              </div>
               <p 
                 className="text-xs text-[#b3b3b3] truncate hover:underline hover:text-white cursor-pointer mt-0.5"
                 title={currentTrack.artist}
@@ -418,14 +433,21 @@ export default function PlayerBar({
         {/* Audio Quality Trigger */}
         <button
           onClick={onToggleAudioQuality}
-          className={`p-2 rounded-full transition-all active:scale-95 ${
+          className={`p-2 rounded-full transition-all active:scale-95 flex items-center gap-1 ${
             isAudioQualityOpen
               ? 'text-[#3B82F6]'
+              : currentQuality === 'lossless'
+              ? 'text-amber-400 hover:text-amber-300'
               : 'text-[#b3b3b3] hover:text-white'
           }`}
-          title="Kualitas Audio (Bitrate)"
+          title={`Kualitas Audio: ${currentQuality === 'lossless' ? 'Hi-Res Lossless (1411 kbps FLAC)' : currentQuality}`}
         >
           <Gauge className="w-4 h-4" />
+          {currentQuality === 'lossless' && (
+            <span className="hidden xl:inline text-[9px] font-black px-1 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
+              FLAC
+            </span>
+          )}
         </button>
 
         {/* Equalizer Trigger */}

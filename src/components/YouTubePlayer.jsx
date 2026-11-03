@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Tv, TvMinimal, X } from 'lucide-react';
 import { webAudioEqualizer } from '../services/webAudioEqualizer';
+import { audioQualityService } from '../services/audioQualityService';
 
 /**
  * YouTube Audio/Video Player Engine
@@ -190,6 +191,31 @@ export default function YouTubePlayer({
       console.warn(e);
     }
   }, [seekTime]);
+
+  // Sync audio/playback quality (Hi-Res Lossless, High, Standard, Data Saver)
+  useEffect(() => {
+    const applyQuality = (qId) => {
+      if (!isReady || !playerRef.current) return;
+      try {
+        if (qId === 'lossless') {
+          playerRef.current.setPlaybackQuality?.('highres');
+        } else if (qId === 'high') {
+          playerRef.current.setPlaybackQuality?.('hd1080');
+        } else if (qId === 'standard') {
+          playerRef.current.setPlaybackQuality?.('medium');
+        } else if (qId === 'dataSaver') {
+          playerRef.current.setPlaybackQuality?.('small');
+        }
+      } catch (e) {
+        console.warn('Failed to set playback quality:', e);
+      }
+    };
+
+    applyQuality(audioQualityService.getQuality());
+    return audioQualityService.subscribe((qId) => {
+      applyQuality(qId);
+    });
+  }, [isReady, videoId]);
 
   // Sync playback speed (0.75x, 1.0x, 1.25x, 1.5x, 2.0x)
   useEffect(() => {

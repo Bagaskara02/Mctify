@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { audioQualityService } from '../services/audioQualityService';
 import { 
   ChevronDown, 
   Play, 
@@ -57,6 +58,13 @@ export default function MobileFullscreenPlayer({
   const scrubberRef = useRef(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
+  const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+
+  useEffect(() => {
+    return audioQualityService.subscribe((qId) => {
+      setCurrentQuality(qId);
+    });
+  }, []);
 
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -148,12 +156,26 @@ export default function MobileFullscreenPlayer({
       {/* Track Info & Like */}
       <div className="flex items-center justify-between mb-4">
         <div className="min-w-0 pr-4">
-          <h2 className="text-xl sm:text-2xl font-black text-white truncate tracking-tight">
-            {cleanTrackTitle(currentTrack.title)}
-          </h2>
-          <p className="text-sm sm:text-base text-[#b3b3b3] truncate mt-0.5">
-            {currentTrack.artist}
-          </p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-black text-white truncate tracking-tight">
+              {cleanTrackTitle(currentTrack.title)}
+            </h2>
+            {currentQuality === 'lossless' && (
+              <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-yellow-400 text-black shadow-md">
+                LOSSLESS
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <p className="text-sm sm:text-base text-[#b3b3b3] truncate">
+              {currentTrack.artist}
+            </p>
+            {currentQuality === 'lossless' && (
+              <span className="text-[10px] text-amber-300 font-mono font-semibold">
+                • 24-bit/96kHz FLAC
+              </span>
+            )}
+          </div>
         </div>
 
         <button
@@ -286,11 +308,15 @@ export default function MobileFullscreenPlayer({
             onClose();
             onOpenAudioQuality?.();
           }}
-          className="py-2 px-1 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all"
+          className={`py-2 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition-all ${
+            currentQuality === 'lossless'
+              ? 'bg-amber-500/15 border-amber-400/40 text-amber-300 hover:bg-amber-500/20 shadow-sm shadow-amber-500/10'
+              : 'bg-white/10 hover:bg-white/15 border-white/10 text-white'
+          }`}
         >
-          <Gauge className="w-4 h-4 text-[#00a3ff]" />
-          <span className="text-[10px] font-bold text-white tracking-tight">
-            Kualitas
+          <Gauge className={`w-4 h-4 ${currentQuality === 'lossless' ? 'text-amber-400' : 'text-[#00a3ff]'}`} />
+          <span className="text-[10px] font-bold tracking-tight">
+            {currentQuality === 'lossless' ? 'Hi-Res FLAC' : 'Kualitas'}
           </span>
         </button>
 

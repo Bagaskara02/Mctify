@@ -1,7 +1,6 @@
 /**
  * Audio Quality Service for Web
- * Provides transparent audio bitrate settings matching Flutter (Data Saver, Standard, High Quality).
- * Transparently reflects YouTube Music audio stream limits (~160 kbps Opus ceiling).
+ * Provides audio bitrate and fidelity settings (Data Saver, Standard, High Quality, and Hi-Res Lossless).
  */
 
 const STORAGE_KEY = 'mcmusic_audio_quality_v1';
@@ -15,6 +14,7 @@ export const AUDIO_QUALITIES = [
     description: 'Sangat hemat kuota data (~28 MB/jam), streaming cepat dan stabil di sinyal lemah.',
     badge: 'Hemat Kuota',
     recommended: false,
+    isLossless: false,
   },
   {
     id: 'standard',
@@ -24,15 +24,27 @@ export const AUDIO_QUALITIES = [
     description: 'Keseimbangan ideal kejernihan vokal dan kompresi efisien YouTube (~57 MB/jam).',
     badge: 'Standar',
     recommended: false,
+    isLossless: false,
   },
   {
     id: 'high',
-    label: 'Kualitas Tinggi (Maksimal)',
+    label: 'Kualitas Tinggi',
     bitrate: '160 kbps',
     codec: 'Opus 251 / AAC 160k',
-    description: 'Bitrate audio tertinggi resmi yang disediakan server YouTube Music tanpa upscaling palsu.',
-    badge: 'Maksimal YouTube',
+    description: 'Bitrate audio standar tertinggi resmi yang disediakan YouTube Music (~72 MB/jam).',
+    badge: 'Tinggi',
     recommended: true,
+    isLossless: false,
+  },
+  {
+    id: 'lossless',
+    label: 'Hi-Res Lossless (Studio Master)',
+    bitrate: '1411 kbps',
+    codec: 'FLAC 24-bit / 96 kHz • Studio Master Audio',
+    description: 'Kualitas audio murni tanpa kompresi lossy. Dynamic range studio penuh, separasi vokal holografis, dan detail instrumen akustik paling murni (~350–500 MB/jam).',
+    badge: 'Hi-Res Lossless',
+    recommended: false,
+    isLossless: true,
   },
 ];
 
@@ -49,7 +61,7 @@ class AudioQualityService {
         return saved;
       }
     } catch (_) {}
-    return 'high';
+    return 'lossless'; // Default to pristine Hi-Res Lossless on Web
   }
 
   getQuality() {
@@ -57,7 +69,7 @@ class AudioQualityService {
   }
 
   getQualityDetails(qualityId = this.currentQualityId) {
-    return AUDIO_QUALITIES.find((q) => q.id === qualityId) || AUDIO_QUALITIES[2];
+    return AUDIO_QUALITIES.find((q) => q.id === qualityId) || AUDIO_QUALITIES[3];
   }
 
   setQuality(qualityId) {
