@@ -53,8 +53,6 @@ export default function MobileFullscreenPlayer({
   onOpenEqualizer,
   onOpenAudioQuality,
 }) {
-  if (!isOpen || !currentTrack) return null;
-
   const scrubberRef = useRef(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
@@ -65,6 +63,8 @@ export default function MobileFullscreenPlayer({
       setCurrentQuality(qId);
     });
   }, []);
+
+  if (!isOpen || !currentTrack) return null;
 
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';

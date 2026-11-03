@@ -1,4 +1,4 @@
-import { musicApi, DEFAULT_ARTWORK } from './musicApi';
+import { musicApi, DEFAULT_ARTWORK } from './musicApi.js';
 
 /**
  * Multi-Platform Playlist Importer

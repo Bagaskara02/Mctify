@@ -49,15 +49,7 @@ export default function PlaylistView({
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const scrollContainerRef = useRef(null);
 
-  if (!playlist) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-neutral-400 bg-[#121212]">
-        <p>Tidak ada playlist yang dipilih</p>
-      </div>
-    );
-  }
-
-  const rawTracks = playlist.tracks || [];
+  const rawTracks = playlist?.tracks || [];
   const totalDuration = rawTracks.reduce((acc, t) => acc + (t.duration || 0), 0);
   const totalMinutes = Math.floor(totalDuration / 60);
 
@@ -95,6 +87,14 @@ export default function PlaylistView({
 
     return result;
   }, [rawTracks, searchQuery, sortBy]);
+
+  if (!playlist) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-neutral-400 bg-[#121212]">
+        <p>Tidak ada playlist yang dipilih</p>
+      </div>
+    );
+  }
 
   const handleScroll = (e) => {
     if (e.currentTarget.scrollTop > 240) {
