@@ -5,21 +5,21 @@ import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudio
 import { getHighResArtworkUrl, isCleanPopularTrack, DEFAULT_ARTWORK } from '../src/services/musicApi.js';
 
 describe('Web Audio Quality Service Tests', () => {
-  it('defines realistic YouTube audio bitrates up to 160 kbps ceiling', () => {
-    assert.equal(AUDIO_QUALITIES.length, 3);
+  it('defines audio bitrates including standard tiers and Hi-Res Lossless', () => {
+    assert.equal(AUDIO_QUALITIES.length, 4);
     const bitrates = AUDIO_QUALITIES.map(q => q.bitrate);
-    assert.deepEqual(bitrates, ['64 kbps', '128 kbps', '160 kbps']);
+    assert.deepEqual(bitrates, ['64 kbps', '128 kbps', '160 kbps', '1411 kbps']);
 
-    const highQuality = AUDIO_QUALITIES.find(q => q.id === 'high');
-    assert.ok(highQuality);
-    assert.equal(highQuality.recommended, true);
-    assert.ok(highQuality.codec.includes('Opus'));
+    const losslessQuality = AUDIO_QUALITIES.find(q => q.id === 'lossless');
+    assert.ok(losslessQuality);
+    assert.equal(losslessQuality.isLossless, true);
+    assert.ok(losslessQuality.codec.includes('FLAC'));
   });
 
   it('provides reliable fallback when invalid quality ID is provided', () => {
     const fallback = audioQualityService.getQualityDetails('invalid_unknown_id');
-    assert.equal(fallback.id, 'high');
-    assert.equal(fallback.bitrate, '160 kbps');
+    assert.equal(fallback.id, 'lossless');
+    assert.equal(fallback.bitrate, '1411 kbps');
   });
 });
 
