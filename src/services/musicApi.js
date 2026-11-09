@@ -48,6 +48,78 @@ export function getHighResArtworkUrl(url) {
  * Rejects obscure amateur covers, karaoke versions, instrumentals, parodies,
  * tutorials, and junk uploads to ensure ONLY verified, well-known popular hits.
  */
+/**
+ * Yugen-Inspired Comprehensive Track Title Sanitizer
+ * Strips YouTube video IDs, noise brackets, uploader suffixes, and outer quotes
+ * while preserving legitimate track features like "(feat. ...)".
+ */
+export function cleanTrackTitle(title) {
+  if (!title || typeof title !== 'string') return '';
+  let clean = title.trim();
+  // 1. Strip YouTube 11-char videoId bracket: e.g. [dQw4w9WgXcQ]
+  clean = clean.replace(/\s*\[[\w-]{11}\]\s*$/i, '');
+  // 2. Strip bracket noise containing video keywords
+  clean = clean.replace(/\s*[([][^()[\]]*\b(?:official|music\s*video|lyrics?|audio|video|visuali[sz]er|remaster(?:ed)?|hd|hq|4k|m\/?v|session|live|deluxe|10\s*years)\b[^()[\]]*[)\]]/gi, '');
+  // 3. Strip outer quotes
+  clean = clean.replace(/^["'“”‘’](.+)["'“”‘’]$/, '$1');
+  // 4. Strip "- Official Video" / "- Official Audio" suffixes
+  clean = clean.replace(/\s*-\s*Official.*$/i, '');
+  return clean.trim() || title;
+}
+
+/**
+ * Yugen-Inspired Round-Robin Artist Spreading:
+ * Distributes tracks in rounds across unique artists so that no single
+ * artist monopolizes the queue (preventing the "all songs by one artist" issue),
+ * creating a diverse and balanced radio broadcast experience.
+ */
+export function spreadArtists(tracks, maxPerArtist = 2) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return [];
+  const byArtist = new Map();
+  for (const t of tracks) {
+    if (!t) continue;
+    const name = (t.artist || 'Unknown').toLowerCase().trim();
+    if (!byArtist.has(name)) byArtist.set(name, []);
+    byArtist.get(name).push(t);
+  }
+
+  // Shuffle within each artist's track list for fresh variety
+  for (const list of byArtist.values()) {
+    list.sort(() => Math.random() - 0.5);
+  }
+
+  // Deal tracks in rounds (Round 0: 1st track of each artist, Round 1: 2nd track...)
+  const result = [];
+  const artistKeys = Array.from(byArtist.keys()).sort(() => Math.random() - 0.5);
+
+  for (let round = 0; round < maxPerArtist; round++) {
+    for (const key of artistKeys) {
+      const list = byArtist.get(key);
+      if (list && list[round]) {
+        result.push(list[round]);
+      }
+    }
+  }
+  return result;
+}
+
+// Session memory to prevent repeating the same songs in consecutive randomize queues
+const recentRadioHistory = new Set();
+const MAX_RECENT_HISTORY = 40;
+
+export function recordRecentRadioTrack(key) {
+  if (!key) return;
+  recentRadioHistory.add(key.toLowerCase().trim());
+  if (recentRadioHistory.size > MAX_RECENT_HISTORY) {
+    const first = recentRadioHistory.values().next().value;
+    recentRadioHistory.delete(first);
+  }
+}
+
+export function clearRecentRadioHistory() {
+  recentRadioHistory.clear();
+}
+
 export function isCleanPopularTrack(t) {
   if (!t || !t.title || !t.artist) return false;
   const title = t.title.toLowerCase();
@@ -1212,32 +1284,49 @@ export const musicApi = {
         }
       }
 
-      // Build structured popular queue:
+      // Combine artist hits and peer hits
+      const combinedCandidates = [...cleanArtistHits, ...sampledPeerHits];
+
+      // Anti-template memory filter: filter out tracks played recently in this session
+      const freshCandidates = combinedCandidates.filter(t => {
+        const cleanT = cleanTrackTitle(t.title || '').toLowerCase().trim();
+        return !recentRadioHistory.has(cleanT);
+      });
+
+      const poolToSpread = freshCandidates.length >= limit ? freshCandidates : combinedCandidates;
+      if (poolToSpread === combinedCandidates) {
+        recentRadioHistory.clear();
+      }
+
+      // Apply Yugen-inspired Round-Robin spread across artists
+      const spreadTracks = spreadArtists(poolToSpread, 2);
+
+      // Build structured popular queue interleaving user favorites:
       const finalRadioQueue = [];
       let userIdx = 0;
-      let artistIdx = 0;
-      let peerIdx = 0;
+      let spreadIdx = 0;
 
       while (
         finalRadioQueue.length < limit &&
-        (userIdx < userFavoriteHits.length || artistIdx < sampledArtistHits.length || peerIdx < sampledPeerHits.length)
+        (userIdx < userFavoriteHits.length || spreadIdx < spreadTracks.length)
       ) {
-        // Interleave user's frequently played / liked song if available
-        if (userIdx < userFavoriteHits.length && (finalRadioQueue.length === 0 || finalRadioQueue.length % 3 === 0)) {
+        // Interleave user favorite hit periodically
+        if (userIdx < userFavoriteHits.length && (finalRadioQueue.length === 0 || finalRadioQueue.length % 4 === 0)) {
           finalRadioQueue.push(userFavoriteHits[userIdx++]);
         }
-        // Interleave artist's top hit
-        if (artistIdx < sampledArtistHits.length && finalRadioQueue.length < limit) {
-          finalRadioQueue.push(sampledArtistHits[artistIdx++]);
+        // Interleave spread radio track
+        if (spreadIdx < spreadTracks.length && finalRadioQueue.length < limit) {
+          finalRadioQueue.push(spreadTracks[spreadIdx++]);
         }
-        // Interleave peer's top hit
-        if (peerIdx < sampledPeerHits.length && finalRadioQueue.length < limit) {
-          finalRadioQueue.push(sampledPeerHits[peerIdx++]);
-        }
-        // If artist and peer pools are exhausted, add remaining user favorites
-        if (artistIdx >= sampledArtistHits.length && peerIdx >= sampledPeerHits.length && userIdx < userFavoriteHits.length && finalRadioQueue.length < limit) {
+        // If spread tracks are exhausted, fill with remaining favorites
+        if (spreadIdx >= spreadTracks.length && userIdx < userFavoriteHits.length && finalRadioQueue.length < limit) {
           finalRadioQueue.push(userFavoriteHits[userIdx++]);
         }
+      }
+
+      // Record selected tracks in session memory
+      for (const t of finalRadioQueue) {
+        recordRecentRadioTrack(cleanTrackTitle(t.title || ''));
       }
 
       return finalRadioQueue.slice(0, limit);

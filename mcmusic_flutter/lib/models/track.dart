@@ -14,7 +14,7 @@ class Track {
 
   Track({
     required this.id,
-    required this.title,
+    required String title,
     required this.artist,
     this.album = 'Single',
     required String artwork,
@@ -25,7 +25,28 @@ class Track {
     this.isExplicit = false,
     this.popularity = 0,
     this.genre = 'Pop',
-  }) : artwork = toHighResArtwork(artwork);
+  })  : title = cleanTitle(title),
+        artwork = toHighResArtwork(artwork);
+
+  /// Yugen-inspired clean title sanitizer: strips [videoId], bracket video noise, quotes, and uploader noise
+  static String cleanTitle(String rawTitle) {
+    if (rawTitle.isEmpty) return '';
+    var clean = rawTitle.trim();
+    // 1. Remove [11-char videoId] at end: e.g. "Song Name [dQw4w9WgXcQ]"
+    clean = clean.replaceAll(RegExp(r'\s*\[[\w-]{11}\]\s*$', caseSensitive: false), '');
+    // 2. Remove video bracket noise
+    clean = clean.replaceAll(
+      RegExp(r'\s*[([][^()[\]]*\b(?:official|music\s*video|lyrics?|audio|video|visuali[sz]er|remaster(?:ed)?|hd|hq|4k|m\/?v|session|live|deluxe|10\s*years)\b[^()[\]]*[)\]]', caseSensitive: false),
+      '',
+    );
+    // 3. Remove outer quotes
+    clean = clean.replaceAll(RegExp(r'^["\u2018\u201c](.+)["\u2019\u201d]$'), r'$1');
+    // 4. Remove channel noise if in title
+    clean = clean.replaceAll(RegExp(r'\s*-\s*Official.*$', caseSensitive: false), '');
+    return clean.trim().isEmpty ? rawTitle : clean.trim();
+  }
+
+  String get displayTitle => cleanTitle(title);
 
   static String toHighResArtwork(String url) {
     if (url.isEmpty) return url;

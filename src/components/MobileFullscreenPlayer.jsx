@@ -16,15 +16,9 @@ import {
   Gauge,
   Moon
 } from 'lucide-react';
-import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { DEFAULT_ARTWORK, cleanTrackTitle } from '../services/musicApi';
 
-function cleanTrackTitle(title) {
-  if (!title) return '';
-  return title
-    .replace(/\s*[\(\[](official\s*(music\s*)?video|audio|mv|visualizer|lyric(s)?(\s*video)?|remastered|single|hd|4k|session|brooklyn session|10 years)[\)\]]/gi, '')
-    .replace(/\s*-\s*Official Video.*$/i, '')
-    .trim() || title;
-}
+// cleanTrackTitle imported from musicApi.js
 
 export default function MobileFullscreenPlayer({
   isOpen,

@@ -802,29 +802,43 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
       sampledPeerHits.shuffle();
 
+      // Combine artist hits and peer hits
+      final combinedCandidates = [...sampledArtistHits, ...sampledPeerHits];
+
+      // Anti-template memory filter: filter out tracks played recently in this session
+      final freshCandidates = combinedCandidates.where((t) {
+        return !MusicApiService.recentRadioHistory.contains(t.title.toLowerCase().trim());
+      }).toList();
+
+      final poolToSpread = freshCandidates.length >= 10 ? freshCandidates : combinedCandidates;
+      if (poolToSpread == combinedCandidates) {
+        MusicApiService.recentRadioHistory.clear();
+      }
+
+      // Apply Yugen-inspired Round-Robin spread across artists
+      final spreadTracks = MusicApiService.spreadArtists(poolToSpread, maxPerArtist: 2);
+
       // Balanced Interleaved Queue: Dynamic, fresh, and zero static template!
       final structuredQueue = <Track>[];
       int userIdx = 0;
-      int artIdx = 0;
-      int peerIdx = 0;
+      int spreadIdx = 0;
 
       while (structuredQueue.length < 18 &&
-          (userIdx < userLikedTracks.length || artIdx < sampledArtistHits.length || peerIdx < sampledPeerHits.length)) {
-        if (userIdx < userLikedTracks.length && (structuredQueue.isEmpty || structuredQueue.length % 3 == 0)) {
+          (userIdx < userLikedTracks.length || spreadIdx < spreadTracks.length)) {
+        if (userIdx < userLikedTracks.length && (structuredQueue.isEmpty || structuredQueue.length % 4 == 0)) {
           structuredQueue.add(userLikedTracks[userIdx++]);
         }
-        if (artIdx < sampledArtistHits.length && structuredQueue.length < 18) {
-          structuredQueue.add(sampledArtistHits[artIdx++]);
+        if (spreadIdx < spreadTracks.length && structuredQueue.length < 18) {
+          structuredQueue.add(spreadTracks[spreadIdx++]);
         }
-        if (peerIdx < sampledPeerHits.length && structuredQueue.length < 18) {
-          structuredQueue.add(sampledPeerHits[peerIdx++]);
-        }
-        if (artIdx >= sampledArtistHits.length &&
-            peerIdx >= sampledPeerHits.length &&
-            userIdx < userLikedTracks.length &&
-            structuredQueue.length < 18) {
+        if (spreadIdx >= spreadTracks.length && userIdx < userLikedTracks.length && structuredQueue.length < 18) {
           structuredQueue.add(userLikedTracks[userIdx++]);
         }
+      }
+
+      // Record selected tracks in session memory
+      for (final t in structuredQueue) {
+        MusicApiService.recordRecentRadioTrack(t.title);
       }
       if (structuredQueue.isNotEmpty) {
         _queue = [

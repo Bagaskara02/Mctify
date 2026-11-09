@@ -2,7 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { AUDIO_QUALITIES, audioQualityService } from '../src/services/audioQualityService.js';
 import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudioEqualizer.js';
-import { getHighResArtworkUrl, isCleanPopularTrack, DEFAULT_ARTWORK } from '../src/services/musicApi.js';
+import { 
+  getHighResArtworkUrl, 
+  isCleanPopularTrack, 
+  cleanTrackTitle, 
+  spreadArtists, 
+  DEFAULT_ARTWORK 
+} from '../src/services/musicApi.js';
 
 describe('Web Audio Quality Service Tests', () => {
   it('defines audio bitrates including standard tiers and Hi-Res Lossless', () => {
@@ -31,11 +37,9 @@ describe('Web Audio Equalizer Tests', () => {
   });
 
   it('calculates acoustic loudness multiplier with bounded headroom', () => {
-    // Disabled Equalizer should return neutral unity multiplier (1.0)
     const disabledMult = webAudioEqualizer.getLoudnessMultiplier({ isEnabled: false });
     assert.equal(disabledMult, 1.0);
 
-    // Flat Equalizer (0 dB everywhere, 0 bass boost) should return neutral 1.0
     const flatMult = webAudioEqualizer.getLoudnessMultiplier({
       isEnabled: true,
       bands: [0, 0, 0, 0, 0],
@@ -43,7 +47,6 @@ describe('Web Audio Equalizer Tests', () => {
     });
     assert.ok(Math.abs(flatMult - 1.0) < 0.05);
 
-    // Boosted Equalizer should return > 1.0 but clamped safely within +6 dB (< 2.05)
     const boostedMult = webAudioEqualizer.getLoudnessMultiplier({
       isEnabled: true,
       bands: [12, 8, 4, 2, 2],
@@ -56,40 +59,74 @@ describe('Web Audio Equalizer Tests', () => {
 
 describe('Music API Artwork & Filter Tests', () => {
   it('transforms low-res album art to high-res versions', () => {
-    // Google User Content
     const googleLow = 'https://lh3.googleusercontent.com/abc=w120-h120-l90-rj';
     assert.equal(getHighResArtworkUrl(googleLow), 'https://lh3.googleusercontent.com/abc=w800-h800-l90-rj');
 
-    // YouTube Thumbnail
     const ytLow = 'https://i.ytimg.com/vi/123/default.jpg?sqp=abc';
     assert.equal(getHighResArtworkUrl(ytLow), 'https://i.ytimg.com/vi/123/hq720.jpg');
 
-    // Apple / iTunes
     const appleLow = 'https://is1-ssl.mzstatic.com/image/thumb/123/100x100bb.jpg';
     assert.equal(getHighResArtworkUrl(appleLow), 'https://is1-ssl.mzstatic.com/image/thumb/123/1000x1000bb.jpg');
 
-    // Fallback on null/empty
     assert.equal(getHighResArtworkUrl(null), DEFAULT_ARTWORK);
     assert.equal(getHighResArtworkUrl(''), DEFAULT_ARTWORK);
   });
 
   it('filters out non-radio tracks, covers, and karaoke versions', () => {
-    // Legitimate track
     const goodTrack = { title: 'Yellow', artist: 'Coldplay', duration: 269 };
     assert.equal(isCleanPopularTrack(goodTrack), true);
 
-    // Banned keywords
     assert.equal(isCleanPopularTrack({ title: 'Yellow (Karaoke Version)', artist: 'Coldplay', duration: 269 }), false);
     assert.equal(isCleanPopularTrack({ title: 'Yellow - Guitar Tutorial', artist: 'Someone', duration: 269 }), false);
     assert.equal(isCleanPopularTrack({ title: 'Yellow (Cover by John)', artist: 'John', duration: 200 }), false);
     assert.equal(isCleanPopularTrack({ title: 'Yellow (Sped Up)', artist: 'Coldplay', duration: 180 }), false);
 
-    // Duration boundaries (< 75s or > 450s)
     assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 30 }), false);
     assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 600 }), false);
 
-    // Incomplete data
     assert.equal(isCleanPopularTrack(null), false);
     assert.equal(isCleanPopularTrack({ title: '' }), false);
+  });
+});
+
+describe('Yugen Inspirations: Title Cleaning & Artist Spreading Tests', () => {
+  it('cleans noisy YouTube video metadata, videoIds, and bracket noise', () => {
+    // 11-char videoId bracket
+    assert.equal(cleanTrackTitle('Midsummer Madness [dQw4w9WgXcQ]'), 'Midsummer Madness');
+
+    // Video noise in brackets
+    assert.equal(cleanTrackTitle('Die With A Smile (Official Music Video)'), 'Die With A Smile');
+    assert.equal(cleanTrackTitle('Golden Hour [Visualizer]'), 'Golden Hour');
+    assert.equal(cleanTrackTitle('Fix You (Live 4K Remastered)'), 'Fix You');
+
+    // Suffix noise
+    assert.equal(cleanTrackTitle('Sialan - Official Video'), 'Sialan');
+
+    // Legitimate song title brackets preserved
+    assert.equal(cleanTrackTitle('Telepatía (feat. Kali Uchis)'), 'Telepatía (feat. Kali Uchis)');
+
+    // Outer quotes stripped
+    assert.equal(cleanTrackTitle('"Glimpse of Us"'), 'Glimpse of Us');
+    assert.equal(cleanTrackTitle('“Komang”'), 'Komang');
+  });
+
+  it('spreads tracks across unique artists in balanced round-robin cycles', () => {
+    const tracks = [
+      { id: '1', title: 'Slow Dancing', artist: 'Joji' },
+      { id: '2', title: 'Glimpse of Us', artist: 'Joji' },
+      { id: '3', title: 'Sanctuary', artist: 'Joji' },
+      { id: '4', title: 'LIMBO', artist: 'Keshi' },
+      { id: '5', title: 'Gesk', artist: 'Keshi' },
+      { id: '6', title: 'Lowkey', artist: 'NIKI' },
+      { id: '7', title: 'Every Summertime', artist: 'NIKI' },
+    ];
+
+    const spread = spreadArtists(tracks, 2);
+    assert.ok(spread.length <= 6); // Max 2 per artist = 2 * 3 = 6
+
+    // The first 3 tracks must be from 3 different artists!
+    const first3Artists = spread.slice(0, 3).map(t => t.artist.toLowerCase());
+    const uniqueFirst3 = new Set(first3Artists);
+    assert.equal(uniqueFirst3.size, 3, 'First round must contain one track per unique artist');
   });
 });

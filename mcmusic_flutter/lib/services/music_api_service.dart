@@ -1905,47 +1905,152 @@ class MusicApiService {
     return officialTopTracks;
   }
 
+  /// Filter out parodies, karaoke, tutorials, and non-studio junk
+  static bool isCleanPopularTrack(Track t) {
+    if (t.title.isEmpty || t.artist.isEmpty) return false;
+    final title = t.title.toLowerCase();
+    final artist = t.artist.toLowerCase();
+
+    const banned = [
+      'karaoke', 'instrumental', 'backing track', 'cover by', 'tribute to',
+      'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb',
+      '8d audio', 'tutorial', 'chord', 'guitar lesson', 'bass tab',
+      'drum cover', 'reaction', 'teaser', 'trailer', 'podcast',
+      'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
+      'lirik video', 'lyrics video', 'acapella'
+    ];
+
+    if (banned.any((b) => title.contains(b) || artist.contains(b))) {
+      return false;
+    }
+
+    if (t.duration < 75 || t.duration > 450) return false;
+
+    return true;
+  }
+
+  /// Yugen-inspired Round-Robin artist spreading:
+  /// Disperses tracks across unique artists so that no single artist
+  /// monopolizes the queue, creating a balanced and rich listening experience.
+  static List<Track> spreadArtists(List<Track> tracks, {int maxPerArtist = 2}) {
+    if (tracks.isEmpty) return [];
+    final byArtist = <String, List<Track>>{};
+    for (final t in tracks) {
+      final key = t.artist.toLowerCase().trim();
+      byArtist.putIfAbsent(key, () => []).add(t);
+    }
+
+    // Shuffle tracks within each artist for variety
+    for (final list in byArtist.values) {
+      list.shuffle();
+    }
+
+    final result = <Track>[];
+    final artistKeys = byArtist.keys.toList()..shuffle();
+
+    for (var round = 0; round < maxPerArtist; round++) {
+      for (final aKey in artistKeys) {
+        final list = byArtist[aKey]!;
+        if (round < list.length) {
+          result.add(list[round]);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  static final Set<String> recentRadioHistory = <String>{};
+  static const int maxRecentHistory = 40;
+
+  static void recordRecentRadioTrack(String key) {
+    if (key.isEmpty) return;
+    recentRadioHistory.add(key.toLowerCase().trim());
+    if (recentRadioHistory.length > maxRecentHistory) {
+      recentRadioHistory.remove(recentRadioHistory.first);
+    }
+  }
+
+  static void clearRecentRadioHistory() {
+    recentRadioHistory.clear();
+  }
+
   /// Finds famous, popular tracks related to current track and playlist for smart radio / next queue
   Future<List<Track>> getSmartRecommendations(Track currentTrack, {List<Track>? queue}) async {
     final pool = <Track>[];
-    final seen = <String>{'${currentTrack.title.toLowerCase().trim()}_${currentTrack.artist.toLowerCase().trim()}'};
+    final seen = <String>{
+      '${currentTrack.title.toLowerCase().trim()}_${currentTrack.artist.toLowerCase().trim()}'
+    };
 
     try {
-      // 1. Search current artist's top hits
-      final artistTracks = await searchTracks(currentTrack.artist);
-      for (final t in artistTracks) {
-        final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
-        if (!seen.contains(key)) {
-          seen.add(key);
-          pool.add(t);
-          if (pool.length >= 5) break;
-        }
-      }
-
-      // 2. Dynamically resolve matching peer artists based on artist, genre, and queue
+      final targetRegion = detectTrackRegion(currentTrack.artist, currentTrack.title, currentTrack.genre);
       final playlistArtists = queue?.map((t) => t.artist).toList();
-      final peers = getSimilarArtists(
+
+      // 1. Resolve matching peers in same region
+      final allPeers = getSimilarArtists(
         currentTrack.artist,
         genre: currentTrack.genre,
         playlistArtists: playlistArtists,
         title: currentTrack.title,
       );
 
-      for (final peer in peers.take(3)) {
-        final peerTracks = await searchTracks(peer);
-        for (final t in peerTracks) {
-          final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
-          if (!seen.contains(key)) {
-            seen.add(key);
-            pool.add(t);
-            if (pool.length >= 15) break;
-          }
-        }
-        if (pool.length >= 15) break;
+      // Randomly pick 4 peers for non-template variety
+      final selectedPeers = (List<String>.from(allPeers)..shuffle()).take(4).toList();
+
+      // 2. Query artist hits and peer hits in parallel
+      final artistSearchFuture = searchTracks(currentTrack.artist);
+      final peerFutures = selectedPeers.map((peer) => searchTracks(peer));
+
+      final results = await Future.wait([artistSearchFuture, ...peerFutures]);
+      final artistTracks = results[0];
+      final peerResults = results.sublist(1);
+
+      final candidates = <Track>[];
+
+      for (final t in artistTracks) {
+        if (!isCleanPopularTrack(t)) continue;
+        final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
+        if (seen.contains(key)) continue;
+        seen.add(key);
+        candidates.add(t);
       }
 
-      pool.shuffle();
-    } catch (_) {}
+      for (final peerTracks in peerResults) {
+        for (final t in peerTracks) {
+          if (!isCleanPopularTrack(t)) continue;
+          final region = detectTrackRegion(t.artist, t.title, t.genre);
+          if (region != targetRegion) continue; // STRICT REGIONAL ISOLATION!
+
+          final key = '${t.title.toLowerCase().trim()}_${t.artist.toLowerCase().trim()}';
+          if (seen.contains(key)) continue;
+          seen.add(key);
+          candidates.add(t);
+        }
+      }
+
+      // Anti-template memory filter
+      final freshCandidates = candidates
+          .where((t) => !recentRadioHistory.contains(t.title.toLowerCase().trim()))
+          .toList();
+
+      final poolToSpread = freshCandidates.length >= 8 ? freshCandidates : candidates;
+      if (poolToSpread == candidates) {
+        recentRadioHistory.clear();
+      }
+
+      // YUGEN SPREAD_ARTISTS: Round-Robin interleaving across artists!
+      final spreadQueue = spreadArtists(poolToSpread, maxPerArtist: 2);
+
+      for (final t in spreadQueue) {
+        recordRecentRadioTrack(t.title);
+      }
+
+      if (spreadQueue.isNotEmpty) {
+        return spreadQueue.take(15).toList();
+      }
+    } catch (e) {
+      debugPrint('getSmartRecommendations error: $e');
+    }
 
     return pool.isNotEmpty ? pool : officialTopTracks;
   }
