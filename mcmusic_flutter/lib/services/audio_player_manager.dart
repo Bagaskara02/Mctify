@@ -27,7 +27,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   List<Track> _queue = [];
   bool _isShuffle = false;
   bool _isRepeat = false;
-  bool _isUsingYoutubeIframe = true;
+  bool _isUsingYoutubeIframe = false;
   bool _isAppBackgrounded = false;
   bool _isLoadingRecommendations = false;
   bool _hasPrefetchedNextTrack = false;
@@ -230,6 +230,23 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly, auto-resuming...');
             _acquireNativeLocks();
             _player.resume();
+          } else if (_duration > Duration.zero && _duration.inSeconds > 10) {
+            final now = DateTime.now();
+            final elapsed = now.difference(_trackStartTime ?? now);
+            if (elapsed.inSeconds >= _duration.inSeconds + 15 &&
+                _position >= _duration - const Duration(seconds: 5)) {
+              debugPrint('[AudioPlayerManager] Watchdog: native player finished near end. Advancing...');
+              _trackStartTime = DateTime.now();
+              if (_sleepTimerAtTrackEnd) {
+                _triggerSleepTimerStop();
+              } else if (_isRepeat) {
+                seek(Duration.zero);
+                _player.resume();
+              } else {
+                next();
+              }
+              return;
+            }
           }
         }
       }
@@ -501,14 +518,23 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       await Future.delayed(const Duration(milliseconds: 1200));
 
       if (!_userRequestedPause && _currentTrack?.id == track.id) {
-        final currentVid = track.videoId;
-        if (currentVid != null && currentVid.isNotEmpty && _ytController != null) {
+        if (!_isUsingYoutubeIframe) {
           try {
-            _ytController?.seekTo(seconds: _position.inSeconds.toDouble(), allowSeekAhead: true);
-            _ytController?.playVideo();
-            _injectBackgroundPlaybackScripts();
+            debugPrint('[AudioPlayerManager] Retrying native player at ${_position.inSeconds}s...');
+            await _player.seek(_position);
+            await _player.resume();
             return;
           } catch (_) {}
+        } else {
+          final currentVid = track.videoId;
+          if (currentVid != null && currentVid.isNotEmpty && _ytController != null) {
+            try {
+              _ytController?.seekTo(seconds: _position.inSeconds.toDouble(), allowSeekAhead: true);
+              _ytController?.playVideo();
+              _injectBackgroundPlaybackScripts();
+              return;
+            } catch (_) {}
+          }
         }
       }
     }
@@ -534,7 +560,37 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _apiService.invalidateVideoId(track.title, track.artist, currentVid);
       }
 
-      // 1. Try alternative candidate video
+      // 1. Try alternative candidate direct audio stream for Native ExoPlayer murni
+      final altStream = await _apiService.resolveDirectAudioStream(
+        track,
+        _audioQuality,
+        _failedVideoIds,
+      );
+
+      if (altStream != null && altStream.isNotEmpty && !MusicApiService.isPreviewUrl(altStream)) {
+        debugPrint('[AudioPlayerManager] Recovery: alternative native stream resolved for "${track.title}"');
+        _isUsingYoutubeIframe = false;
+        _isPlaying = true;
+        _userRequestedPause = false;
+        try {
+          _ytController?.pauseVideo();
+        } catch (_) {}
+        await _player.stop();
+        await _player.play(UrlSource(altStream));
+        if (_position > Duration.zero) {
+          try {
+            await _player.seek(_position);
+          } catch (_) {}
+        }
+        _acquireNativeLocks();
+        _startWatchdog();
+        _syncMediaHandler();
+        notifyListeners();
+        _isRecovering = false;
+        return;
+      }
+
+      // 2. Fallback to alternative YouTube video ID if native stream resolution fails
       final altVideoId = await _apiService.resolveVideoId(
         track.title,
         track.artist,
@@ -690,6 +746,15 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         } else {
           next();
         }
+      }
+    });
+
+    _player.eventStream.listen((event) {
+      // Event stream monitoring
+    }, onError: (err) {
+      debugPrint('[AudioPlayerManager] Native player stream error: $err');
+      if (!_isUsingYoutubeIframe && _currentTrack != null) {
+        _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err');
       }
     });
   }
@@ -892,15 +957,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
     if (currentIndex != -1 && currentIndex + 1 < _queue.length) {
       final nextTrack = _queue[currentIndex + 1];
-      if (nextTrack.videoId == null || nextTrack.videoId!.isEmpty) {
-        final vid = await _apiService.resolveVideoId(nextTrack.title, nextTrack.artist, nextTrack.duration);
-        if (vid != null && vid.isNotEmpty) {
-          final idx = _queue.indexWhere((t) => t.id == nextTrack.id);
-          if (idx != -1) {
-            _queue[idx] = _queue[idx].copyWith(videoId: vid);
-            debugPrint('[AudioPlayerManager] Next track "${nextTrack.title}" pre-resolved with videoId=$vid');
-          }
-        }
+      try {
+        await _apiService.prefetchTrackStream(nextTrack, _audioQuality);
+        debugPrint('[AudioPlayerManager] Next track "${nextTrack.title}" stream pre-cached for instant playback');
+      } catch (e) {
+        debugPrint('[AudioPlayerManager] Prefetch next track stream error: $e');
       }
     }
   }
@@ -958,7 +1019,43 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Fast Full Song Playback via YouTube Player Engine (100% reliable, zero 403 errors, full song)
+      // Step B: Native ExoPlayer Murni (Full-length 3-5+ min AAC audio stream, 100% free, zero screen-off lag)
+      try {
+        final directStreamUrl = await _apiService.resolveDirectAudioStream(
+          track,
+          _audioQuality,
+          _failedVideoIds,
+        );
+
+        if (directStreamUrl != null &&
+            directStreamUrl.isNotEmpty &&
+            !MusicApiService.isPreviewUrl(directStreamUrl)) {
+          debugPrint('[AudioPlayerManager] Playing full song via Native ExoPlayer murni: "${track.title}"');
+          try {
+            _ytController?.pauseVideo();
+          } catch (_) {}
+          _isUsingYoutubeIframe = false;
+          await _player.stop();
+          await _player.play(UrlSource(directStreamUrl));
+          if (_playbackSpeed != 1.0) {
+            try {
+              await _player.setPlaybackRate(_playbackSpeed);
+            } catch (_) {}
+          }
+          _isPlaying = true;
+          _userRequestedPause = false;
+          _acquireNativeLocks();
+          _startWatchdog();
+          _syncMediaHandler();
+          notifyListeners();
+          _prefetchNextTrackStream();
+          return;
+        }
+      } catch (streamErr) {
+        debugPrint('[AudioPlayerManager] Native ExoPlayer stream resolution error: $streamErr. Falling back to YouTube Engine...');
+      }
+
+      // Step C: Fallback to YouTube Player Engine if native stream resolution fails
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty || _failedVideoIds.contains(videoId)) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration, _failedVideoIds);
@@ -969,7 +1066,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
 
       if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine: videoId=$videoId');
+        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine fallback: videoId=$videoId');
         _isUsingYoutubeIframe = true;
         _isPlaying = true;
         _userRequestedPause = false;
@@ -993,8 +1090,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step C: If resolution could not find videoId, DO NOT skip user's track!
-      debugPrint('[AudioPlayerManager] Could not resolve videoId for "${track.title}". Keeping current selection.');
+      // Step D: If resolution could not find videoId, DO NOT skip user's track!
+      debugPrint('[AudioPlayerManager] Could not resolve stream or videoId for "${track.title}". Keeping current selection.');
       _isPlaying = false;
       _syncMediaHandler();
       notifyListeners();

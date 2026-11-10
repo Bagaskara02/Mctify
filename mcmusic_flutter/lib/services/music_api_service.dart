@@ -46,11 +46,14 @@ class MusicApiService {
     final yt = YoutubeExplode();
     try {
       final manifest = await yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 8));
-      final mp4Streams = manifest.audioOnly.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
-      final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : manifest.audioOnly.withHighestBitrate();
-      final streamUrl = chosen.url.toString();
-      _streamCache[cleanKey] = streamUrl;
-      return streamUrl;
+      final allAudio = manifest.audioOnly.toList();
+      if (allAudio.isNotEmpty) {
+        final mp4Streams = allAudio.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+        final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : allAudio.withHighestBitrate();
+        final streamUrl = chosen.url.toString();
+        _streamCache[cleanKey] = streamUrl;
+        return streamUrl;
+      }
     } catch (e) {
       debugPrint('resolveStreamUrlFromVideoId error for $videoId: $e');
     } finally {
@@ -87,17 +90,21 @@ class MusicApiService {
   }
 
   /// Resolves direct audio stream for native ExoPlayer background playback (100% full song only!)
-  Future<String?> resolveDirectAudioStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
+  Future<String?> resolveDirectAudioStream(
+    Track track, [
+    AudioQuality quality = AudioQuality.high,
+    Set<String>? excludeVideoIds,
+  ]) async {
     final cached = getCachedStream(track, quality);
     if (cached != null) return cached;
 
-    // 1. Try resolving direct stream via videoId if already present on track
+    // 1. Try resolving direct stream via videoId if already present on track and not excluded
     String? vid = track.videoId;
-    if (vid == null || vid.isEmpty) {
-      vid = await resolveVideoId(track.title, track.artist, track.duration);
+    if (vid == null || vid.isEmpty || (excludeVideoIds != null && excludeVideoIds.contains(vid))) {
+      vid = await resolveVideoId(track.title, track.artist, track.duration, excludeVideoIds);
     }
 
-    if (vid != null && vid.isNotEmpty) {
+    if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
       final url = await resolveStreamUrlFromVideoId(vid);
       if (url != null && url.isNotEmpty) {
         final key = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
@@ -107,7 +114,13 @@ class MusicApiService {
     }
 
     // 2. Resolve direct MP4 audio stream from YouTube Explode (full 3-5+ minute song!)
-    final stream = await resolveFullAudioStream(track.title, track.artist, quality, track.duration);
+    final stream = await resolveFullAudioStream(
+      track.title,
+      track.artist,
+      quality,
+      track.duration,
+      excludeVideoIds,
+    );
     if (stream != null && stream.isNotEmpty) {
       return stream;
     }
@@ -309,7 +322,7 @@ class MusicApiService {
         if (bestVideoId == null || bestVideoId.isEmpty) break;
 
         try {
-          final manifest = await yt.videos.streamsClient.getManifest(bestVideoId);
+          final manifest = await yt.videos.streamsClient.getManifest(bestVideoId).timeout(const Duration(seconds: 8));
           final allStreams = manifest.audioOnly.toList();
           if (allStreams.isNotEmpty) {
             // CRITICAL: Prefer MP4 (AAC) streams. Android native MediaPlayer plays MP4/AAC reliably
@@ -337,6 +350,7 @@ class MusicApiService {
 
             final streamUrl = chosenStream.url.toString();
             _streamCache[cleanKey] = streamUrl;
+            _streamCache['stream_$bestVideoId'] = streamUrl;
             return streamUrl;
           }
         } catch (e) {
