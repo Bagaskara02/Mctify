@@ -148,9 +148,16 @@ class MusicApiService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final vid = data['videoId'] as String?;
+        final retTitle = (data['title'] ?? '').toString();
+        final retArtist = (data['artist'] ?? '').toString();
+        final retDur = (data['duration'] as num?)?.toInt();
         if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-          _streamCache[cleanKey] = vid;
-          return vid;
+          // Strictly verify candidate score so homonyms by different artists are NEVER accepted!
+          final score = _scoreCandidate(retTitle, retArtist, sanitizedTitle, firstArtist, retDur, expectedDuration);
+          if (score >= 400) {
+            _streamCache[cleanKey] = vid;
+            return vid;
+          }
         }
       }
     } catch (e) {
@@ -164,11 +171,23 @@ class MusicApiService {
       if (multiRes.statusCode == 200) {
         final multiData = jsonDecode(multiRes.body);
         final songs = multiData['songs'] as List? ?? [];
+        final scored = <MapEntry<String, int>>[];
         for (final s in songs) {
           final vid = (s['videoId'] ?? s['id'] ?? '').toString();
+          final sTitle = (s['title'] ?? '').toString();
+          final sArtist = (s['artist'] ?? '').toString();
+          final sDur = (s['duration'] as num?)?.toInt();
           if (vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-            _streamCache[cleanKey] = vid;
-            return vid;
+            final score = _scoreCandidate(sTitle, sArtist, sanitizedTitle, firstArtist, sDur, expectedDuration);
+            scored.add(MapEntry(vid, score));
+          }
+        }
+        if (scored.isNotEmpty) {
+          scored.sort((a, b) => b.value.compareTo(a.value));
+          if (scored.first.value >= 400) {
+            final bestId = scored.first.key;
+            _streamCache[cleanKey] = bestId;
+            return bestId;
           }
         }
       }
@@ -197,9 +216,11 @@ class MusicApiService {
           }).toList();
 
           scored.sort((a, b) => b.value.compareTo(a.value));
-          final bestId = scored.first.key;
-          _streamCache[cleanKey] = bestId;
-          return bestId;
+          if (scored.first.value >= 400) {
+            final bestId = scored.first.key;
+            _streamCache[cleanKey] = bestId;
+            return bestId;
+          }
         }
       }
     } catch (e) {
@@ -356,7 +377,6 @@ class MusicApiService {
     final normCoreTitle = _normalizeQuery(coreTitle);
     final cleanTitle = title.toLowerCase();
     final normArtist = _normalizeQuery(artist);
-    final firstArtist = normArtist.split(' ').first;
     int score = 1000;
 
     // 1. STRICT CORE TITLE REQUIREMENT: Disqualify completely if candidate doesn't even contain the core song title!
@@ -372,11 +392,18 @@ class MusicApiService {
       }
     }
 
-    // 2. Artist match bonus
-    if (normVideo.contains(normArtist) || lowerAuthor.contains(artist.toLowerCase())) {
-      score += 200;
-    } else if (normVideo.contains(firstArtist) || lowerAuthor.contains(firstArtist)) {
-      score += 100;
+    // 2. Strict Artist match requirement:
+    final artistTokens = normArtist.split(' ').where((w) => w.length > 1).toList();
+    final hasArtistMatch = artistTokens.any((tok) => normVideo.contains(tok) || lowerAuthor.contains(tok));
+    if (hasArtistMatch) {
+      if (normVideo.contains(normArtist) || lowerAuthor.contains(artist.toLowerCase())) {
+        score += 500;
+      } else {
+        score += 250;
+      }
+    } else if (artistTokens.isNotEmpty) {
+      // Disqualify completely if artist is different (e.g. French Montana when searching PnB Rock)
+      score -= 5000;
     }
 
     final isAcousticRequested = cleanTitle.contains('acoustic');
@@ -439,9 +466,11 @@ class MusicApiService {
     final unwanted = [
       '10 years', 'tribute', 'karaoke', 'terjemahan',
       'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
-      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental',
+      'slowed', 'reverb', 'sped up', 'speed up', 'instrumental', 'instr.',
       'originally performed', 'made popular by', 'in the style of', 'parodi', 'parody', 'mashup',
-      'backing track', 'acapella'
+      'backing track', 'acapella', 'minus one', 'no vocals', 'vocal guide',
+      'sing-along', 'sing along', 'type beat', 'free beat', 'rap beat', 'trap beat',
+      'ombre2choc'
     ];
     if (!isAcousticRequested && !isSessionRequested) {
       unwanted.addAll(['brooklyn session', 'session']);
@@ -449,7 +478,21 @@ class MusicApiService {
 
     for (final term in unwanted) {
       if (combined.contains(term) && !cleanTitle.contains(term)) {
-        score -= 4000;
+        score -= 4500;
+      }
+    }
+
+    // Heavy penalty for scraper & fake remix uploaders (e.g. Ombre2Choc Remix)
+    if (lowerAuthor.contains('ombre2choc') || lowerAuthor.contains('karaoke') || lowerAuthor.contains('tribute band')) {
+      score -= 5000;
+    }
+
+    // Strict Anti-Slowed / Anti-Reverb check if not explicitly requested
+    final isSlowedRequested = cleanTitle.contains('slowed') || cleanTitle.contains('reverb') || cleanTitle.contains('sped up');
+    if (!isSlowedRequested) {
+      final slowedRegex = RegExp(r'\b(slowed|reverb|slowed \+ reverb|slowed and reverb|sped up|speed up|nightcore|8d audio)\b', caseSensitive: false);
+      if (slowedRegex.hasMatch(combined)) {
+        score -= 4500;
       }
     }
 
@@ -645,6 +688,63 @@ class MusicApiService {
     ),
   ];
 
+  /// Universal Anti-Junk / Anti-Instrumental / Anti-Karaoke / Anti-Reverb Filter
+  /// Strictly filters out non-original versions unless the user explicitly searched for them.
+  static bool isUnwantedJunkTrack(String title, String artist, String album, [String? query]) {
+    final qNorm = (query ?? '').toLowerCase().trim();
+    final tLower = title.toLowerCase();
+    final aLower = artist.toLowerCase();
+    final albLower = album.toLowerCase();
+    final combined = '$tLower $aLower $albLower';
+
+    // If query explicitly requests instrumental, karaoke, slowed, cover, or remix, do not filter:
+    final isInstrumentalWanted = qNorm.contains('instrumental') || qNorm.contains('instrumen');
+    final isKaraokeWanted = qNorm.contains('karaoke') || qNorm.contains('backing track');
+    final isSlowedWanted = qNorm.contains('slowed') || qNorm.contains('reverb') || qNorm.contains('sped up');
+    final isCoverWanted = qNorm.contains('cover');
+
+    if (!isInstrumentalWanted) {
+      final instPattern = RegExp(r'\b(instrumental|instrument|instr\.?|minus one|no vocals|vocal guide|karaoke version|sing-along|sing along)\b', caseSensitive: false);
+      if (instPattern.hasMatch(combined)) return true;
+    }
+
+    if (!isKaraokeWanted) {
+      final karaokePattern = RegExp(r'\b(karaoke|backing track|tribute to|originally performed by|in the style of|made popular by)\b', caseSensitive: false);
+      if (karaokePattern.hasMatch(combined)) return true;
+    }
+
+    if (!isCoverWanted) {
+      final coverPattern = RegExp(r'\b(guitar cover|piano cover|drum cover|acoustic cover|violin cover|cello cover|cover by|bass tab|guitar tutorial)\b', caseSensitive: false);
+      if (coverPattern.hasMatch(combined)) return true;
+    }
+
+    if (!isSlowedWanted) {
+      final slowedPattern = RegExp(r'\b(slowed|reverb|slowed \+ reverb|slowed and reverb|sped up|speed up|nightcore|8d audio)\b', caseSensitive: false);
+      if (slowedPattern.hasMatch(combined)) return true;
+    }
+
+    if (combined.contains('parodi') || combined.contains('parody')) return true;
+
+    // Beat scraper detection (e.g. "type beat", "rap beat", "free beat")
+    if (RegExp(r'\b(type beat|free beat|instrumental beat|rap beat|trap beat)\b', caseSensitive: false).hasMatch(combined)) {
+      return true;
+    }
+
+    // Known scraper / fake remix artists (e.g. "Ombre2Choc Remix", "Karaoke All Stars")
+    if (aLower.contains('ombre2choc') || aLower.contains('karaoke') || aLower.contains('tribute band')) {
+      return true;
+    }
+
+    const bannedKeywords = [
+      'reaction', 'teaser', 'trailer', 'podcast',
+      'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
+      'lirik video', 'lyrics video', 'acapella'
+    ];
+    if (bannedKeywords.any((b) => combined.contains(b))) return true;
+
+    return false;
+  }
+
   // Parallelized fast search helper: iTunes Global & ID catalog
   Future<List<Track>> _searchItunes(String query) async {
     final List<Track> list = [];
@@ -657,7 +757,9 @@ class MusicApiService {
         for (final item in results) {
           final title = item['trackName'] ?? '';
           final artist = item['artistName'] ?? '';
+          final album = item['collectionName'] ?? 'Single';
           if (title.isNotEmpty) {
+            if (isUnwantedJunkTrack(title, artist, album, query)) continue;
             final tid = (item['trackId'] ?? '').toString();
             final genre = (item['primaryGenreName'] as String?) ?? 'Pop';
             String art = item['artworkUrl100'] ?? defaultArtwork;
@@ -666,7 +768,7 @@ class MusicApiService {
               id: tid,
               title: title,
               artist: artist,
-              album: item['collectionName'] ?? 'Single',
+              album: album,
               artwork: art,
               audioUrl: '',
               duration: item['trackTimeMillis'] != null ? (item['trackTimeMillis'] / 1000).round() : 180,
@@ -693,14 +795,16 @@ class MusicApiService {
         for (final item in items) {
           final title = (item['title'] ?? '').toString();
           final artist = (item['artist']?['name'] ?? '').toString();
+          final album = (item['album']?['title'] ?? 'Single').toString();
           if (title.isNotEmpty) {
+            if (isUnwantedJunkTrack(title, artist, album, query)) continue;
             final tid = 'dz_${item['id']}';
             final rank = (item['rank'] as num?)?.toInt() ?? 0;
             list.add(Track(
               id: tid,
               title: title,
               artist: artist,
-              album: (item['album']?['title'] ?? 'Single').toString(),
+              album: album,
               artwork: (item['album']?['cover_big'] ?? item['album']?['cover_medium'] ?? defaultArtwork).toString(),
               audioUrl: '',
               duration: (item['duration'] as num?)?.toInt() ?? 180,
@@ -726,29 +830,20 @@ class MusicApiService {
         final songs = (data['songs'] as List? ?? []);
         final qNorm = query.toLowerCase();
         final isLiveWanted = qNorm.contains('live') || qNorm.contains('concert') || qNorm.contains('konser');
-        final isKaraokeWanted = qNorm.contains('karaoke') || qNorm.contains('instrumental');
 
         for (int i = 0; i < songs.length; i++) {
           final s = songs[i];
           final title = (s['title'] ?? '').toString();
           final artist = (s['artist'] ?? '').toString();
+          final album = (s['album'] ?? 'Single').toString();
           final vid = (s['videoId'] ?? s['id'] ?? '').toString();
           if (title.isNotEmpty) {
-            final lowerTitle = title.toLowerCase();
-            final lowerArtist = artist.toLowerCase();
+            if (isUnwantedJunkTrack(title, artist, album, query)) continue;
 
             // Whole-word Anti-Live / Anti-Concert Filter (Prevents false positives on Alive, Long Live, Stay Alive, Deliver)
             if (!isLiveWanted) {
               final liveRegex = RegExp(r'\b(live at|live in|live from|\(live\)|\[live\]|- live|concert|konser|fancam|world tour)\b', caseSensitive: false);
-              if (liveRegex.hasMatch(lowerTitle)) {
-                continue;
-              }
-            }
-
-            // Whole-word Anti-Karaoke / Anti-Instrumental / Anti-Cover Filter
-            if (!isKaraokeWanted) {
-              final junkRegex = RegExp(r'\b(karaoke|instrumental|backing track|piano cover|guitar cover|drum cover|tribute|parodi|parody)\b', caseSensitive: false);
-              if (junkRegex.hasMatch(lowerTitle) || junkRegex.hasMatch(lowerArtist)) {
+              if (liveRegex.hasMatch(title.toLowerCase())) {
                 continue;
               }
             }
@@ -759,7 +854,7 @@ class MusicApiService {
               videoId: vid, // CRITICAL: preserve verified YouTube Music studio audio videoId!
               title: title,
               artist: artist,
-              album: (s['album'] ?? 'Single').toString(),
+              album: album,
               artwork: (s['artwork'] ?? defaultArtwork).toString(),
               audioUrl: '',
               duration: (s['duration'] as num?)?.toInt() ?? 180,
@@ -1015,23 +1110,37 @@ class MusicApiService {
 
     // CRITICAL SPEED FIX: Map YouTube Music videoIds and pre-attach onto Deezer & iTunes tracks!
     // This allows 100% of search tracks to play INSTANTLY in 50ms without resolveVideoId bottleneck!
+    // Map YouTube Music videoIds and pre-attach onto Deezer & iTunes tracks
+    // CRITICAL: NEVER map by title alone! Video ID is strictly matched ONLY when title matches AND artist shares significant tokens.
     final ytTrackMap = <String, String>{};
     for (final t in ytTracks) {
       if (t.videoId != null && t.videoId!.isNotEmpty) {
         final k = '${_normalizeQuery(t.title)}___${_normalizeQuery(t.artist)}';
         ytTrackMap[k] = t.videoId!;
-        final titleKey = _normalizeQuery(t.title);
-        if (!ytTrackMap.containsKey(titleKey)) {
-          ytTrackMap[titleKey] = t.videoId!;
-        }
       }
     }
 
     for (int i = 0; i < rawPool.length; i++) {
       final t = rawPool[i];
       if (t.videoId == null || t.videoId!.isEmpty) {
-        final k = '${_normalizeQuery(t.title)}___${_normalizeQuery(t.artist)}';
-        final vid = ytTrackMap[k] ?? ytTrackMap[_normalizeQuery(t.title)];
+        final normT = _normalizeQuery(t.title);
+        final normA = _normalizeQuery(t.artist);
+        final k = '${normT}___$normA';
+        String? vid = ytTrackMap[k];
+        if (vid == null) {
+          // Check if candidate artist matches target artist tokens (NEVER match by title alone!)
+          final aTokens = normA.split(' ').where((w) => w.length > 2).toList();
+          for (final entry in ytTrackMap.entries) {
+            final parts = entry.key.split('___');
+            if (parts.length == 2 && parts[0] == normT) {
+              final candidateArtist = parts[1];
+              if (aTokens.isNotEmpty && aTokens.any((tok) => candidateArtist.contains(tok))) {
+                vid = entry.value;
+                break;
+              }
+            }
+          }
+        }
         if (vid != null && vid.isNotEmpty) {
           rawPool[i] = t.copyWith(videoId: vid);
         }
@@ -1042,6 +1151,7 @@ class MusicApiService {
     rawPool.sort((a, b) => _calculateSearchRelevance(b, query).compareTo(_calculateSearchRelevance(a, query)));
 
     for (final t in rawPool) {
+      if (isUnwantedJunkTrack(t.title, t.artist, t.album, query)) continue;
       final key = '${_normalizeQuery(t.title)}___${_normalizeQuery(t.artist)}';
       if (!seenKeys.contains(key)) {
         seenKeys.add(key);
@@ -1908,24 +2018,8 @@ class MusicApiService {
   /// Filter out parodies, karaoke, tutorials, and non-studio junk
   static bool isCleanPopularTrack(Track t) {
     if (t.title.isEmpty || t.artist.isEmpty) return false;
-    final title = t.title.toLowerCase();
-    final artist = t.artist.toLowerCase();
-
-    const banned = [
-      'karaoke', 'instrumental', 'backing track', 'cover by', 'tribute to',
-      'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb',
-      '8d audio', 'tutorial', 'chord', 'guitar lesson', 'bass tab',
-      'drum cover', 'reaction', 'teaser', 'trailer', 'podcast',
-      'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
-      'lirik video', 'lyrics video', 'acapella'
-    ];
-
-    if (banned.any((b) => title.contains(b) || artist.contains(b))) {
-      return false;
-    }
-
+    if (isUnwantedJunkTrack(t.title, t.artist, t.album)) return false;
     if (t.duration < 75 || t.duration > 450) return false;
-
     return true;
   }
 

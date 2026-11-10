@@ -63,28 +63,38 @@ export default async function handler(req, res) {
 
     const qLower = q.toLowerCase();
     const isKaraokeReq = qLower.includes('karaoke');
-    const isInstrumentalReq = qLower.includes('instrumental');
+    const isInstrumentalReq = qLower.includes('instrumental') || qLower.includes('instrumen');
     const isCoverReq = qLower.includes('cover');
     const isVideoReq = qLower.includes('video') || qLower.includes('mv');
+    const isSlowedReq = qLower.includes('slowed') || qLower.includes('reverb') || qLower.includes('sped up');
 
     const filteredSongs = rawSongs.filter(s => {
       const titleStr = (typeof s.title === 'string' ? s.title : (s.title?.text || '')).toLowerCase();
       const artistStr = (s.artists?.[0]?.name || s.author?.name || '').toLowerCase();
       const combined = `${titleStr} ${artistStr}`;
 
-      if (!isKaraokeReq && (combined.includes('karaoke') || combined.includes('made popular by') || combined.includes('backing track'))) {
+      if (!isKaraokeReq && (combined.includes('karaoke') || combined.includes('made popular by') || combined.includes('backing track') || combined.includes('minus one') || combined.includes('no vocals') || combined.includes('vocal guide'))) {
         return false;
       }
-      if (!isInstrumentalReq && combined.includes('instrumental')) {
+      if (!isInstrumentalReq && (combined.includes('instrumental') || combined.includes('instrument') || /\binstr\.?\b/i.test(combined))) {
         return false;
       }
-      if (!isCoverReq && (combined.includes('guitar cover') || combined.includes('piano cover') || combined.includes('drum cover'))) {
+      if (!isCoverReq && (combined.includes('guitar cover') || combined.includes('piano cover') || combined.includes('drum cover') || combined.includes('acoustic cover') || combined.includes('violin cover'))) {
+        return false;
+      }
+      if (!isSlowedReq && /\b(slowed|reverb|slowed \+ reverb|slowed and reverb|sped up|speed up|nightcore|8d audio)\b/i.test(combined)) {
         return false;
       }
       if (!isVideoReq && (combined.includes('music video') || combined.includes('official music video') || combined.includes('video klip'))) {
         return false;
       }
       if (combined.includes('parodi') || combined.includes('parody')) {
+        return false;
+      }
+      if (/\b(type beat|free beat|instrumental beat|rap beat|trap beat)\b/i.test(combined)) {
+        return false;
+      }
+      if (artistStr.includes('ombre2choc') || artistStr.includes('karaoke') || artistStr.includes('tribute band')) {
         return false;
       }
       return true;

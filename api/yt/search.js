@@ -85,10 +85,13 @@ export default async function handler(req, res) {
     const isStrippedRequested = qLower.includes('stripped') || qLower.includes('piano');
 
     const unwantedKeywords = [
-      'karaoke', 'instrumental', 'made popular by', 'tribute', 'terjemahan',
+      'karaoke', 'instrumental', 'instrument', 'instr.', 'made popular by', 'tribute', 'terjemahan',
       'cover', 'guitar cover', 'drum cover', 'piano cover', 'reaction',
-      'slowed', 'reverb', 'sped up', 'speed up', 'backing track',
-      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup', 'acapella'
+      'slowed', 'reverb', 'sped up', 'speed up', 'nightcore', 'backing track',
+      'minus one', 'no vocals', 'vocal guide', 'sing-along', 'sing along',
+      'type beat', 'rap beat', 'free beat',
+      'originally performed', 'in the style of', 'parodi', 'parody', 'mashup', 'acapella',
+      'ombre2choc'
     ];
     if (!isAcousticRequested && !isSessionRequested) {
       unwantedKeywords.push('brooklyn session', 'session');
@@ -130,21 +133,36 @@ export default async function handler(req, res) {
           score += 600;
         }
 
-        // 2. Artist check:
+        // 2. Strict Artist check:
         if (targetArtist) {
-          if (authorStr.includes(targetArtist) || targetArtist.includes(authorStr)) {
+          const targetTokens = targetArtist.split(/\s+/).filter(w => w.length > 1);
+          const hasArtistMatch = authorStr.includes(targetArtist) ||
+                                 targetArtist.includes(authorStr) ||
+                                 combined.includes(targetArtist) ||
+                                 (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)));
+          if (hasArtistMatch) {
             score += 800;
-          } else if (combined.includes(targetArtist)) {
-            score += 300;
           } else if (rawArtist) {
-            score -= 1000;
+            score -= 5000; // WRONG ARTIST: Completely disqualifies different artist tracks!
           }
         }
 
-        // 3. Reject unwanted junk (Karaoke, instrumental, covers, tributes, parody)
+        // 3. Reject unwanted junk (Karaoke, instrumental, covers, tributes, parody, scraper)
         for (const kw of activeUnwanted) {
           if (combined.includes(kw)) {
-            score -= 4000;
+            score -= 4500;
+          }
+        }
+
+        if (authorStr.includes('ombre2choc') || authorStr.includes('karaoke') || authorStr.includes('tribute band')) {
+          score -= 5000;
+        }
+
+        // Strict Anti-Slowed / Anti-Reverb check if not explicitly requested
+        const isSlowedRequested = qLower.includes('slowed') || qLower.includes('reverb') || qLower.includes('sped up');
+        if (!isSlowedRequested) {
+          if (/\b(slowed|reverb|slowed \+ reverb|slowed and reverb|sped up|speed up|nightcore|8d audio)\b/i.test(combined)) {
+            score -= 4500;
           }
         }
 

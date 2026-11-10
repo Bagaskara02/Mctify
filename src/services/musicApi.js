@@ -124,17 +124,20 @@ export function isCleanPopularTrack(t) {
   if (!t || !t.title || !t.artist) return false;
   const title = t.title.toLowerCase();
   const artist = t.artist.toLowerCase();
+  const album = (t.album || '').toLowerCase();
+  const combined = `${title} ${artist} ${album}`;
 
   const bannedKeywords = [
-    'karaoke', 'instrumental', 'backing track', 'cover by', 'tribute to',
-    'parodi', 'parody', 'ringtone', 'sped up', 'slowed', 'reverb',
+    'karaoke', 'instrumental', 'instrument', 'instr.', 'backing track', 'cover by', 'tribute to',
+    'parodi', 'parody', 'ringtone', 'sped up', 'speed up', 'slowed', 'reverb',
     '8d audio', 'tutorial', 'chord', 'guitar lesson', 'bass tab',
-    'drum cover', 'reaction', 'teaser', 'trailer', 'podcast',
+    'drum cover', 'guitar cover', 'piano cover', 'acoustic cover', 'reaction', 'teaser', 'trailer', 'podcast',
     'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
-    'lirik video', 'lyrics video', 'acapella'
+    'lirik video', 'lyrics video', 'acapella', 'minus one', 'no vocals', 'vocal guide',
+    'sing-along', 'sing along', 'type beat', 'rap beat', 'free beat', 'ombre2choc'
   ];
 
-  if (bannedKeywords.some(w => title.includes(w) || artist.includes(w))) {
+  if (bannedKeywords.some(w => combined.includes(w))) {
     return false;
   }
 
@@ -703,10 +706,15 @@ export const musicApi = {
         if (res.ok) {
           const data = await res.json();
           if (data && data.videoId) {
-            if (data.thumbnail) {
-              data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+            // Strictly verify that candidate artist does not conflict (e.g. French Montana when searching PnB Rock)
+            const retArtist = (data.artist || '').toLowerCase();
+            const aTokens = artist.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            if (aTokens.length === 0 || aTokens.some(tok => retArtist.includes(tok))) {
+              if (data.thumbnail) {
+                data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+              }
+              return data;
             }
-            return data;
           }
         }
       } catch (_) {}
@@ -723,6 +731,18 @@ export const musicApi = {
 
     try {
       const q = query.trim();
+      const qLower = q.toLowerCase();
+      const isKaraokeReq = qLower.includes('karaoke') || qLower.includes('backing track');
+      const isInstrumentalReq = qLower.includes('instrumental') || qLower.includes('instrumen');
+      const isCoverReq = qLower.includes('cover');
+      const isSlowedReq = qLower.includes('slowed') || qLower.includes('reverb') || qLower.includes('sped up');
+
+      const isAllowedCandidate = (s) => {
+        if (!s || !s.title) return false;
+        if (isKaraokeReq || isInstrumentalReq || isCoverReq || isSlowedReq) return true;
+        return isCleanPopularTrack(s);
+      };
+
       // 1. YouTube Music backend multi-search
       const ytPromise = fetch(`/api/yt/search-multi?q=${encodeURIComponent(q)}`)
         .then(r => r.ok ? r.json() : { songs: [], artists: [] })
@@ -772,13 +792,13 @@ export const musicApi = {
 
       // Prioritize ytSongs first to retain clean videoId & YouTube Music rank
       for (const s of ytSongs) {
-        if (!s || !s.title) continue;
+        if (!isAllowedCandidate(s)) continue;
         const key = `${normalizeSearchText(s.title)}___${normalizeSearchText(s.artist)}`;
         map.set(key, s);
       }
 
       for (const s of [...itunesTracks, ...deezerTracks]) {
-        if (!s || !s.title) continue;
+        if (!isAllowedCandidate(s)) continue;
         const key = `${normalizeSearchText(s.title)}___${normalizeSearchText(s.artist)}`;
         if (map.has(key)) {
           const existing = map.get(key);

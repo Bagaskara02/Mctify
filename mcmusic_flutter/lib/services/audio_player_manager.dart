@@ -157,10 +157,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _acquireNativeLocks() async {
     try {
       await _nativeChannel.invokeMethod('acquireLocks');
-      final isIgnoring = await _nativeChannel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
-      if (isIgnoring == false) {
-        await _nativeChannel.invokeMethod('requestIgnoreBatteryOptimizations');
-      }
     } catch (_) {}
   }
 
@@ -311,6 +307,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
               Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
             } catch(e) {}
 
+            try {
+              Document.prototype.hasFocus = function() { return true; };
+            } catch(e) {}
+
             window.addEventListener('visibilitychange', function(e) {
               e.stopImmediatePropagation();
             }, true);
@@ -320,16 +320,40 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             window.addEventListener('pagehide', function(e) {
               e.stopImmediatePropagation();
             }, true);
+            window.addEventListener('blur', function(e) {
+              e.stopImmediatePropagation();
+            }, true);
           }
 
-          // 3. Instant auto-resume on unexpected media pause (Zero Jeda on Screen Off!)
+          // 3. Intercept HTMLMediaElement.prototype.pause (Zero Jeda on Screen Off / Background!)
+          // If the pause was not explicitly requested by user in McMusic, completely drop the pause call.
+          if (!window.__pausePatched) {
+            window.__pausePatched = true;
+            try {
+              var origPause = HTMLMediaElement.prototype.pause;
+              HTMLMediaElement.prototype.pause = function() {
+                if (window.__userRequestedPause) {
+                  return origPause.apply(this, arguments);
+                }
+                // Dropped unsolicited pause from OS screen off or Chromium visibility change
+                return;
+              };
+            } catch(e) {}
+          }
+
+          // 4. Instant auto-resume on unexpected media pause
           function protectVideo(v) {
             if (!v || v.__bgProtected) return;
             v.__bgProtected = true;
 
+            try {
+              v.removeAttribute('disableRemotePlayback');
+            } catch(e) {}
+
             v.addEventListener('pause', function(e) {
               if (v.ended || (v.duration && v.currentTime >= v.duration - 0.5)) return;
               if (!window.__userRequestedPause && !window.__isLoadingTrack) {
+                e.stopImmediatePropagation();
                 try {
                   var p = v.play();
                   if (p && typeof p.catch === 'function') p.catch(function(){});
@@ -465,6 +489,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _handlePlaybackNetworkError(Track? track, String reason) async {
     if (track == null || _isRecovering) return;
+    if (!_isNetworkOnline) {
+      debugPrint('[AudioPlayerManager] Playback error during network switch (offline). Retaining current song and waiting for reconnection...');
+      return;
+    }
 
     // 1. If error happens during network handover (WiFi <-> Cellular), RETRY the same video at current position first!
     if (_networkRetryCount < 3) {
@@ -492,6 +520,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _handlePlaybackFailure(Track? track, String reason) async {
     if (track == null || _isRecovering) return;
+    if (!_isNetworkOnline) {
+      debugPrint('[AudioPlayerManager] Playback failure while offline. Retaining current track.');
+      return;
+    }
     _isRecovering = true;
     debugPrint('[AudioPlayerManager] Failsafe recovery triggered ($reason) for: "${track.title}"');
 

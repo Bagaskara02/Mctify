@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mcmusic_flutter/models/audio_quality.dart';
 import 'package:mcmusic_flutter/models/equalizer_preset.dart';
 import 'package:mcmusic_flutter/services/equalizer_service.dart';
+import 'package:mcmusic_flutter/services/music_api_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,31 @@ void main() {
       expect(AudioQuality.fromString('standard'), AudioQuality.standard);
       expect(AudioQuality.fromString('high'), AudioQuality.high);
       expect(AudioQuality.fromString('invalid'), AudioQuality.high);
+    });
+  });
+
+  group('Anti-Junk & Instrumental Filter Tests', () {
+    test('filters out instrumental, backing track, and minus-one tracks by default', () {
+      expect(MusicApiService.isUnwantedJunkTrack('Unforgettable (Instrumental)', 'PnB Rock', 'Single'), isTrue);
+      expect(MusicApiService.isUnwantedJunkTrack('Hotel California (Backing Track)', 'Eagles', 'Single'), isTrue);
+      expect(MusicApiService.isUnwantedJunkTrack('Perfect - Minus One', 'Ed Sheeran', 'Single'), isTrue);
+      expect(MusicApiService.isUnwantedJunkTrack('Shape of You - Karaoke Version', 'Karaoke', 'Single'), isTrue);
+    });
+
+    test('filters out slowed + reverb and fake remix uploaders', () {
+      expect(MusicApiService.isUnwantedJunkTrack('Unforgettable (Slowed + Reverb)', 'French Montana', 'Single'), isTrue);
+      expect(MusicApiService.isUnwantedJunkTrack('Unforgettable Freestyle', 'Ombre2Choc Remix', 'Single'), isTrue);
+      expect(MusicApiService.isUnwantedJunkTrack('PnB Rock Unforgettable Type Beat', 'BeatMaker', 'Single'), isTrue);
+    });
+
+    test('permits legitimate studio original tracks', () {
+      expect(MusicApiService.isUnwantedJunkTrack('Unforgettable', 'PnB Rock', 'SWAG'), isFalse);
+      expect(MusicApiService.isUnwantedJunkTrack('Yellow', 'Coldplay', 'Parachutes'), isFalse);
+      expect(MusicApiService.isUnwantedJunkTrack('Location Unknown (feat. BEKA)', 'HONNE', 'Love Me'), isFalse);
+    });
+
+    test('permits instrumental tracks only if user explicitly searches for instrumental', () {
+      expect(MusicApiService.isUnwantedJunkTrack('Interstellar Theme (Instrumental)', 'Hans Zimmer', 'Soundtrack', 'interstellar instrumental'), isFalse);
     });
   });
 
