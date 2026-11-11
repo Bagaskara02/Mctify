@@ -163,7 +163,16 @@ export default function PlayerBar({
   const isYtThumbnail = (currentTrack?.artwork || '').includes('ytimg.com') || (currentTrack?.artwork || '').includes('youtube.com');
 
   return (
-    <footer className="h-20 bg-black/90 glass-panel border-t border-white/[0.06] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white">
+    <footer className="h-20 bg-[#0c0d10]/95 backdrop-blur-xl border-t border-white/[0.08] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
+      {/* Subtle Ambient Glow Effect (RiMusic / Apple Music style) */}
+      {currentTrack && (
+        <div 
+          className="absolute inset-0 pointer-events-none opacity-25 transition-opacity duration-700"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 10% 50%, rgba(59, 130, 246, 0.4), transparent 45%), radial-gradient(circle at 50% 120%, rgba(0, 163, 255, 0.2), transparent 50%)'
+          }}
+        />
+      )}
       {/* Left Column: Track Info */}
       <div className="flex items-center gap-3.5 w-1/4 min-w-[180px] max-w-[320px]">
         {currentTrack ? (

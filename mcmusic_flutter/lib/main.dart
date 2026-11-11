@@ -22,7 +22,7 @@ void main() async {
       builder: () => MediaAudioHandler(),
       config: const AudioServiceConfig(
         androidNotificationChannelId: 'com.mcmusic.app.channel.audio',
-        androidNotificationChannelName: 'McMusic Playback',
+        androidNotificationChannelName: 'McTify Playback',
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
         androidNotificationIcon: 'mipmap/ic_launcher',
@@ -32,18 +32,18 @@ void main() async {
     debugPrint('AudioService init note: $e');
   }
 
-  runApp(McMusicApp(mediaHandler: mediaHandler));
+  runApp(McTifyApp(mediaHandler: mediaHandler));
 }
 
-class McMusicApp extends StatelessWidget {
+class McTifyApp extends StatelessWidget {
   final MediaAudioHandler? mediaHandler;
 
-  const McMusicApp({super.key, this.mediaHandler});
+  const McTifyApp({super.key, this.mediaHandler});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'McMusic',
+      title: 'McTify',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,

@@ -36,7 +36,7 @@ export default function TopNavBar({
           <Music className="w-5 h-5 text-black stroke-[2.5]" />
         </div>
         <span className="font-bold text-lg tracking-tight text-white hidden sm:inline-block">
-          McMusic
+          McTify
         </span>
       </div>
 

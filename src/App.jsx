@@ -1119,7 +1119,7 @@ export default function App() {
         />
       </div>
 
-      {/* --- MOBILE FLOATING MINI-PLAYER --- */}
+      {/* --- MOBILE FLOATING MINI-PLAYER (ViMusic/RiMusic Swipe Support) --- */}
       <MobileMiniPlayer
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -1129,6 +1129,8 @@ export default function App() {
         onPlayPause={handlePlayPause}
         onToggleLike={handleToggleLike}
         onOpenFullscreen={() => setIsMobileFullscreenOpen(true)}
+        onNext={handleNext}
+        onPrev={handlePrev}
       />
 
       {/* --- MOBILE BOTTOM NAVIGATION BAR --- */}

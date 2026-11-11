@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Play, Pause, Heart, Mic2 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
@@ -11,14 +11,38 @@ export default function MobileMiniPlayer({
   onPlayPause,
   onToggleLike,
   onOpenFullscreen,
+  onNext,
+  onPrev,
 }) {
+  const touchStartX = useRef(null);
+
   if (!currentTrack) return null;
 
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const diffX = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+
+    if (diffX < -50) {
+      // Swiped left -> Next track (RiMusic / ViMusic spec)
+      onNext?.();
+    } else if (diffX > 50) {
+      // Swiped right -> Prev track
+      onPrev?.();
+    }
+  };
+
   return (
     <div 
       onClick={onOpenFullscreen}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       className="md:hidden fixed bottom-[60px] left-2 right-2 h-14 bg-[#242424]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl flex items-center justify-between px-2.5 z-40 select-none cursor-pointer group active:scale-[0.99] transition-all overflow-hidden"
     >
       {/* Bottom hairline progress bar indicator */}

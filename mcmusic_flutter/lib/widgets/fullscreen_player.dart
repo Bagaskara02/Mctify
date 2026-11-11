@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/track.dart';
 import '../models/lyric_line.dart';
 import '../services/audio_player_manager.dart';
 import '../services/equalizer_service.dart';
@@ -57,6 +58,20 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         setState(() => _lyrics = res);
       }
     } catch (_) {}
+  }
+
+  Color _getAmbientColor(Track track) {
+    // Harmonious deep ambient color palette (RiMusic / InnerTune inspired mood lighting)
+    final h = (track.title.hashCode ^ track.artist.hashCode).abs();
+    final palettes = [
+      const Color(0xFF0F213D), // Deep Azure / Midnight Blue
+      const Color(0xFF221138), // Deep Royal Velvet Purple
+      const Color(0xFF0B2922), // Deep Pine / Mystic Emerald
+      const Color(0xFF2C101B), // Deep Wine / Mulberry
+      const Color(0xFF142233), // Deep Oceanic Indigo
+      const Color(0xFF261D12), // Deep Warm Amber-Charcoal
+    ];
+    return palettes[h % palettes.length];
   }
 
   String _formatDuration(Duration d) {
@@ -337,19 +352,22 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
           }
         }
 
+        final ambientColor = _getAmbientColor(track);
+
         return Container(
           height: MediaQuery.of(context).size.height * 0.95,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF1A1A1E),
-                Color(0xFF131316),
-                Color(0xFF0F0F12),
+                ambientColor,
+                const Color(0xFF131316),
+                const Color(0xFF0C0C0E),
               ],
+              stops: const [0.0, 0.48, 1.0],
             ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: SafeArea(
             bottom: false,
@@ -402,32 +420,46 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
 
                 const Spacer(flex: 1),
 
-                // Main Square Album Artwork (Exact match to Spotify / reference screenshot)
+                // Main Square Album Artwork with Tap to Lyrics (ViMusic & RiMusic reference)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: AspectRatio(
                     aspectRatio: 1,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black54,
-                            blurRadius: 28,
-                            spreadRadius: 2,
-                            offset: Offset(0, 12),
+                    child: GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LyricsView(
+                              track: track,
+                              player: widget.player,
+                            ),
                           ),
-                        ],
-                      ),
-                      child: Hero(
-                        tag: 'current_artwork_${track.id}',
-                        child: ClipRRect(
+                        );
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(10),
-                          child: OptimizedImage(
-                            imageUrl: track.artwork,
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 28,
+                              spreadRadius: 2,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: Hero(
+                          tag: 'current_artwork_${track.id}',
+                          child: ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            memCacheWidth: 700,
-                            memCacheHeight: 700,
+                            child: OptimizedImage(
+                              imageUrl: track.artwork,
+                              borderRadius: BorderRadius.circular(10),
+                              memCacheWidth: 700,
+                              memCacheHeight: 700,
+                            ),
                           ),
                         ),
                       ),

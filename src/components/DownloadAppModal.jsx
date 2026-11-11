@@ -25,7 +25,7 @@ export default function DownloadAppModal({ isOpen, onClose }) {
           </div>
           <div>
             <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-              McMusic Mobile
+              McTify Mobile
             </h3>
             <p className="text-xs sm:text-sm text-[#00a3ff] font-semibold mt-0.5 flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5" />
@@ -68,17 +68,17 @@ export default function DownloadAppModal({ isOpen, onClose }) {
 
           <div className="pt-2 space-y-2">
             <a
-              href="https://files.catbox.moe/11ufzl.apk"
-              download="McMusic-v1.1.0-arm64.apk"
+              href="https://files.catbox.moe/9r5jfk.apk"
+              download="McTify-v1.1.0-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McMusic APK v1.1.0 (21.0 MB Direct)</span>
+              <span>Download McTify APK v1.1.0 (21.0 MB Direct)</span>
             </a>
             <div className="flex items-center justify-center gap-3 text-[11px] text-[#b3b3b3]">
               <span>Unduh instan file biner .apk (ExoPlayer Native)</span>
               <span>•</span>
-              <a href="https://litter.catbox.moe/yey4n7.apk" className="text-[#00a3ff] hover:underline">Mirror 2</a>
+              <a href="https://litter.catbox.moe/h1a037.apk" className="text-[#00a3ff] hover:underline">Mirror 2</a>
             </div>
           </div>
           <div className="text-center pt-1 flex items-center justify-center gap-4">

@@ -162,7 +162,7 @@ export default function PlaylistView({
           </p>
 
           <div className="flex items-center justify-center sm:justify-start gap-2 text-xs text-neutral-300 font-semibold pt-1">
-            <span className="text-white font-bold">McMusic</span>
+            <span className="text-white font-bold">McTify</span>
             <span>•</span>
             <span>{rawTracks.length} lagu</span>
             <span>•</span>
