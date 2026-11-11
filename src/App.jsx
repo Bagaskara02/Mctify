@@ -25,12 +25,14 @@ import CommandPaletteModal from './components/CommandPaletteModal';
 import { storageService } from './services/storageService';
 import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
+import { buildSpotifyShuffleDeck } from './utils/shuffle';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
   // Navigation & View State
   const [currentView, setCurrentView] = useState('discover');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
+  const [virtualPlaylist, setVirtualPlaylist] = useState(null);
   const [selectedArtist, setSelectedArtist] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [navHistory, setNavHistory] = useState([{ view: 'discover', plId: null }]);
@@ -77,6 +79,7 @@ export default function App() {
 
   // Audio Playback State - NO AUTOPLAY ON INITIAL LOAD
   const [currentTrack, setCurrentTrack] = useState(null);
+  const [originalQueue, setOriginalQueue] = useState([]);
   const [queue, setQueue] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -215,10 +218,12 @@ export default function App() {
   const handlePlayTrack = async (track, newQueue = null) => {
     if (!track) return;
 
-    if (newQueue) {
-      setQueue(newQueue);
+    if (newQueue && Array.isArray(newQueue) && newQueue.length > 0) {
+      setOriginalQueue(newQueue);
+      setQueue(isShuffle ? buildSpotifyShuffleDeck(newQueue, track) : newQueue);
     } else if (!queue.some(t => t.id === track.id)) {
-      setQueue([track, ...queue]);
+      setOriginalQueue(prev => [track, ...prev]);
+      setQueue(prev => [track, ...prev]);
     }
 
     setCurrentTime(0);
@@ -293,13 +298,14 @@ export default function App() {
     try {
       const radioTracks = await musicApi.getArtistGenreRadio(track, 18, [track]);
       if (radioTracks && radioTracks.length > 0) {
-        setQueue((prevQueue) => {
-          const current = prevQueue.find(t => t.id === track.id) || track;
-          const remaining = radioTracks.filter(
-            t => t.id !== current.id && t.title?.toLowerCase().trim() !== current.title?.toLowerCase().trim()
-          );
-          return [current, ...remaining];
-        });
+        const baseQueue = [
+          track,
+          ...radioTracks.filter(
+            t => t.id !== track.id && t.title?.toLowerCase().trim() !== track.title?.toLowerCase().trim()
+          ),
+        ];
+        setOriginalQueue(baseQueue);
+        setQueue(isShuffle ? buildSpotifyShuffleDeck(baseQueue, track) : baseQueue);
         setSmartToast(`Radio Hits: Lagu terpopuler dari ${track.artist} & lagu favorit siap diputar`);
         setTimeout(() => setSmartToast(null), 3500);
       }
@@ -329,25 +335,49 @@ export default function App() {
     }
   };
 
-  // Next Track in Queue with SMART AUTOPLAY (Spotify Radio)
+  // Toggle Shuffle (Spotify Balanced Fisher-Yates Deck Shuffle)
+  const handleToggleShuffle = () => {
+    const nextState = !isShuffle;
+    setIsShuffle(nextState);
+    const base = originalQueue.length > 0 ? originalQueue : queue;
+    if (base.length <= 1) return;
+
+    if (nextState) {
+      if (originalQueue.length === 0) setOriginalQueue(queue);
+      setQueue(buildSpotifyShuffleDeck(base, currentTrack));
+    } else if (originalQueue.length > 0) {
+      setQueue(originalQueue);
+    }
+  };
+
+  // Shuffle Play All from a Playlist / Daily Mix / Album
+  const handleShuffleAll = (tracks) => {
+    if (!tracks || tracks.length === 0) return;
+    setIsShuffle(true);
+    setOriginalQueue(tracks);
+    const deck = buildSpotifyShuffleDeck(tracks, null);
+    setQueue(deck);
+    handlePlayTrack(deck[0], deck);
+  };
+
+  // Next Track in Queue with Deterministic Shuffled Deck + SMART AUTOPLAY
   const handleNext = async (isAutoEnded = false) => {
     if (!currentTrack && queue.length === 0) return;
 
     const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
 
-    // 1. Shuffle mode: pick random next track in queue
-    if (isShuffle && queue.length > 1) {
-      let randIndex;
-      do {
-        randIndex = Math.floor(Math.random() * queue.length);
-      } while (randIndex === currentIndex && queue.length > 1);
-      handlePlayTrack(queue[randIndex]);
+    // 1. Sequential step on queue (already Fisher-Yates balanced when Shuffle is ON!)
+    if (currentIndex !== -1 && currentIndex < queue.length - 1) {
+      handlePlayTrack(queue[currentIndex + 1]);
       return;
     }
 
-    // 2. Normal queue playback: there are more tracks left
-    if (currentIndex !== -1 && currentIndex < queue.length - 1) {
-      handlePlayTrack(queue[currentIndex + 1]);
+    // 2. End of playlist / shuffled deck reached -> Repeat All re-shuffles cleanly if Shuffle ON
+    if (repeatMode === 'all' && queue.length > 0) {
+      const base = originalQueue.length > 0 ? originalQueue : queue;
+      const nextDeck = isShuffle ? buildSpotifyShuffleDeck(base, null) : base;
+      setQueue(nextDeck);
+      handlePlayTrack(nextDeck[0]);
       return;
     }
 
@@ -809,10 +839,51 @@ export default function App() {
     }
   };
 
+  const handleOpenVirtualPlaylist = async (pl) => {
+    if (!pl) return;
+    setVirtualPlaylist(pl);
+    navigateTo('virtual-playlist', null);
+    // Enrich Daily Mix asynchronously if fewer than 10 tracks
+    if ((pl.tracks?.length || 0) < 10 && pl.queryHint) {
+      try {
+        const extra = await musicApi.searchTracks(pl.queryHint, 15);
+        if (extra && extra.length > 0) {
+          const existingIds = new Set((pl.tracks || []).map(t => t.id));
+          const merged = [...(pl.tracks || []), ...extra.filter(t => !existingIds.has(t.id))].slice(0, 16);
+          setVirtualPlaylist((curr) =>
+            curr && curr.id === pl.id ? { ...curr, tracks: merged } : curr
+          );
+        }
+      } catch (_) {}
+    }
+  };
+
+  const handleSaveVirtualPlaylist = (pl) => {
+    if (!pl) return;
+    const exists = playlists.some((p) => p.name.toLowerCase() === pl.name.toLowerCase());
+    if (exists) {
+      setSmartToast(`"${pl.name}" sudah ada di Koleksi Kamu.`);
+      setTimeout(() => setSmartToast(null), 2500);
+      return;
+    }
+    const newPl = {
+      id: `pl-mix-${Date.now()}`,
+      name: pl.name,
+      description: pl.description || 'Disimpan dari McTify Mix',
+      cover: pl.cover,
+      source: pl.source || 'mix',
+      tracks: pl.tracks || [],
+    };
+    const updated = storageService.addPlaylist(newPl);
+    setPlaylists(updated);
+    setSmartToast(`"${pl.name}" disimpan ke Koleksi Kamu!`);
+    setTimeout(() => setSmartToast(null), 3000);
+  };
+
   const handleCopyShare = (item) => {
-    const shareText = item.title 
-      ? `Dengarkan "${item.title}" oleh ${item.artist} di McMusic: ${window.location.origin}`
-      : `Playlist "${item.name}" di McMusic: ${window.location.origin}`;
+    const shareText = item.title
+      ? `Dengarkan "${item.title}" oleh ${item.artist} di McTify: ${window.location.origin}`
+      : `Playlist "${item.name}" di McTify: ${window.location.origin}`;
     
     if (navigator.clipboard) {
       navigator.clipboard.writeText(shareText);
@@ -953,6 +1024,7 @@ export default function App() {
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onOpenImportModal={() => setIsImportModalOpen(true)}
               onSelectPlaylist={(plId) => navigateTo('playlist', plId)}
+              onOpenVirtualPlaylist={handleOpenVirtualPlaylist}
               onSelectLiked={() => navigateTo('liked', null)}
               onOpenArtist={handleOpenArtist}
               onTrackContextMenu={handleTrackContextMenu}
@@ -975,6 +1047,7 @@ export default function App() {
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onOpenArtist={handleOpenArtist}
               onSelectPlaylist={(plId) => navigateTo('playlist', plId)}
+              onOpenVirtualPlaylist={handleOpenVirtualPlaylist}
               onAddTrackToPlaylist={handleAddTrackToPlaylist}
               onTrackContextMenu={handleTrackContextMenu}
               onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
@@ -1017,10 +1090,7 @@ export default function App() {
               onPlayTrack={handlePlayTrack}
               onTogglePlayPause={handlePlayPause}
               onPlayAll={(tracks) => handlePlayTrack(tracks[0], tracks)}
-              onShuffleAll={(tracks) => {
-                const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-                handlePlayTrack(shuffled[0], shuffled);
-              }}
+              onShuffleAll={handleShuffleAll}
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onTrackContextMenu={handleTrackContextMenu}
@@ -1043,12 +1113,27 @@ export default function App() {
               onPlayTrack={handlePlayTrack}
               onTogglePlayPause={handlePlayPause}
               onPlayAll={(tracks) => handlePlayTrack(tracks[0], tracks)}
-              onShuffleAll={(tracks) => {
-                const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-                handlePlayTrack(shuffled[0], shuffled);
-              }}
+              onShuffleAll={handleShuffleAll}
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
+              onTrackContextMenu={handleTrackContextMenu}
+            />
+          )}
+
+          {currentView === 'virtual-playlist' && virtualPlaylist && !selectedPlaylistId && (
+            <PlaylistView
+              playlist={virtualPlaylist}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              likedTrackIds={likedTrackIds}
+              onPlayTrack={handlePlayTrack}
+              onTogglePlayPause={handlePlayPause}
+              onPlayAll={(tracks) => handlePlayTrack(tracks[0], tracks)}
+              onShuffleAll={handleShuffleAll}
+              onToggleLike={handleToggleLike}
+              onOpenLyrics={() => setIsLyricsOpen(true)}
+              onSaveMixToLibrary={handleSaveVirtualPlaylist}
+              isSavedInLibrary={playlists.some((p) => p.name.toLowerCase() === virtualPlaylist.name.toLowerCase())}
               onTrackContextMenu={handleTrackContextMenu}
             />
           )}
@@ -1062,10 +1147,7 @@ export default function App() {
               onPlayTrack={handlePlayTrack}
               onTogglePlayPause={handlePlayPause}
               onPlayAll={(tracks) => handlePlayTrack(tracks[0], tracks)}
-              onShuffleAll={(tracks) => {
-                const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-                handlePlayTrack(shuffled[0], shuffled);
-              }}
+              onShuffleAll={handleShuffleAll}
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onRemoveTrack={handleRemoveTrackFromPlaylist}
@@ -1149,7 +1231,7 @@ export default function App() {
           onSeek={handleSeek}
           onVolumeChange={handleVolumeChange}
           onToggleMute={handleToggleMute}
-          onToggleShuffle={() => setIsShuffle(!isShuffle)}
+          onToggleShuffle={handleToggleShuffle}
           onToggleRepeat={handleToggleRepeat}
           onToggleLike={handleToggleLike}
           onToggleLyrics={() => setIsLyricsOpen(!isLyricsOpen)}
@@ -1207,7 +1289,7 @@ export default function App() {
         onPrev={handlePrev}
         onNext={() => handleNext(false)}
         onSeek={handleSeek}
-        onToggleShuffle={() => setIsShuffle(!isShuffle)}
+        onToggleShuffle={handleToggleShuffle}
         onToggleRepeat={handleToggleRepeat}
         onToggleLike={handleToggleLike}
         onOpenLyrics={() => setIsLyricsOpen(true)}

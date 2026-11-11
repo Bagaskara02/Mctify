@@ -65,23 +65,72 @@ class _HomeViewState extends State<HomeView> {
 
   List<Map<String, dynamic>> _buildDailyMixes(List<Track> pool) {
     final mixConfigs = [
-      {'title': 'Daily Mix 01', 'badge': '01', 'color': const Color(0xFF3B82F6), 'query': 'Pop Hits Trending'},
-      {'title': 'Daily Mix 02', 'badge': '02', 'color': const Color(0xFF10B981), 'query': 'Lagu Indonesia Hits Bernadya Tulus'},
-      {'title': 'Release Radar', 'badge': 'NEW', 'color': const Color(0xFFA855F7), 'query': 'New Music Release 2025'},
-      {'title': 'Discover Weekly', 'badge': 'MIX', 'color': const Color(0xFFF59E0B), 'query': 'Rex Orange County NIKI Daniel Caesar'},
+      {
+        'title': 'Daily Mix 01',
+        'badge': 'MIX 1',
+        'color': const Color(0xFF3B82F6),
+        'query': 'Pop Hits Trending The Weeknd Bruno Mars Coldplay',
+        'keywords': ['weeknd', 'coldplay', 'bruno', 'taylor', 'dua lipa', 'billie', 'ariana', 'pop', 'sabrina', 'charlie'],
+      },
+      {
+        'title': 'Daily Mix 02',
+        'badge': 'MIX 2',
+        'color': const Color(0xFF10B981),
+        'query': 'Lagu Indonesia Hits Bernadya Tulus Hindia Mahalini',
+        'keywords': ['tulus', 'bernadya', 'mahalini', 'hindia', 'pamungkas', 'feby', 'tiara', 'lyodra', 'sal priadi', 'for revenge', 'sheila', 'dewa'],
+      },
+      {
+        'title': 'Release Radar',
+        'badge': 'NEW',
+        'color': const Color(0xFFA855F7),
+        'query': 'New Music Release Hits 2025',
+        'keywords': ['2025', '2026', 'new', 'single', 'lady gaga', 'rosé', 'kendrick', 'sza', 'keshi', 'newjeans'],
+      },
+      {
+        'title': 'Discover Weekly',
+        'badge': 'DISCOVER',
+        'color': const Color(0xFFF59E0B),
+        'query': 'Rex Orange County NIKI Daniel Caesar Joji Chill',
+        'keywords': ['niki', 'joji', 'daniel caesar', 'rex orange', 'frank ocean', 'lany', 'lauv', 'clairo', 'boy pablo', 'chill'],
+      },
     ];
 
+    final usedGlobalIds = <String>{};
     final mixes = <Map<String, dynamic>>[];
+
     for (int i = 0; i < mixConfigs.length; i++) {
       final cfg = mixConfigs[i];
-      final offset = (i * 3) % (pool.isEmpty ? 1 : pool.length);
-      final subset = pool.isNotEmpty
-          ? [...pool.skip(offset), ...pool.take(offset)].take(10).toList()
-          : <Track>[];
-      final cover = subset.isNotEmpty ? subset.first.artwork : MusicApiService.defaultArtwork;
-      final artistsLabel = subset.isNotEmpty
-          ? subset.map((t) => t.artist.split(',').first.trim()).toSet().take(3).join(', ')
-          : 'Campuran lagu pilihan untukmu';
+      final keywords = (cfg['keywords'] as List<String>);
+      final matched = <Track>[];
+
+      // 1. Prioritize tracks matching the mix's vibe/keywords without cross-mix duplicates
+      for (final t in pool) {
+        if (usedGlobalIds.contains(t.id)) continue;
+        final hay = '${t.title} ${t.artist} ${t.album}'.toLowerCase();
+        if (keywords.any((kw) => hay.contains(kw))) {
+          matched.add(t);
+          usedGlobalIds.add(t.id);
+          if (matched.length >= 14) break;
+        }
+      }
+
+      // 2. Fill remaining slots with distinct offset tracks from pool so every card is rich
+      if (matched.length < 10 && pool.isNotEmpty) {
+        final offset = (i * 4) % pool.length;
+        final rotated = [...pool.skip(offset), ...pool.take(offset)];
+        for (final t in rotated) {
+          if (matched.any((m) => m.id == t.id)) continue;
+          if (usedGlobalIds.contains(t.id) && matched.length >= 6) continue;
+          matched.add(t);
+          usedGlobalIds.add(t.id);
+          if (matched.length >= 12) break;
+        }
+      }
+
+      final cover = matched.isNotEmpty ? matched.first.artwork : MusicApiService.defaultArtwork;
+      final artistsLabel = matched.isNotEmpty
+          ? matched.map((t) => t.artist.split(',').first.trim()).toSet().take(3).join(', ')
+          : 'Campuran playlist kurasi untukmu';
 
       mixes.add({
         'title': cfg['title'],
@@ -89,7 +138,7 @@ class _HomeViewState extends State<HomeView> {
         'color': cfg['color'],
         'cover': cover,
         'subtitle': '$artistsLabel, dan lainnya',
-        'tracks': subset,
+        'tracks': matched,
         'query': cfg['query'],
       });
     }
@@ -299,18 +348,31 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
+  Future<List<Track>> _resolveMixTracks(Map<String, dynamic> mix) async {
+    final existing = List<Track>.from((mix['tracks'] as List<Track>?) ?? []);
+    if (existing.length >= 12) return existing;
+    try {
+      final fetched = await _api.searchTracks(mix['query'] as String);
+      final seenIds = existing.map((t) => t.id).toSet();
+      for (final t in fetched) {
+        if (seenIds.add(t.id)) {
+          existing.add(t);
+          if (existing.length >= 16) break;
+        }
+      }
+    } catch (_) {}
+    return existing;
+  }
+
   Future<void> _openDailyMix(Map<String, dynamic> mix) async {
     HapticFeedback.lightImpact();
-    var tracks = (mix['tracks'] as List<Track>?) ?? [];
-    if (tracks.isEmpty) {
-      tracks = await _api.searchTracks(mix['query'] as String);
-    }
+    final tracks = await _resolveMixTracks(mix);
     if (!mounted) return;
     final pl = Playlist(
       id: 'mix-${mix['title'].hashCode}',
       name: mix['title'] as String,
-      description: mix['subtitle'] as String,
-      cover: mix['cover'] as String,
+      description: 'Dibuat khusus untukmu • ${mix['subtitle']}',
+      cover: tracks.isNotEmpty ? tracks.first.artwork : (mix['cover'] as String),
       tracks: tracks,
     );
     Navigator.push(
@@ -320,9 +382,18 @@ class _HomeViewState extends State<HomeView> {
           playlist: pl,
           player: widget.player,
           onPlaylistChanged: _loadHomeData,
+          isVirtualMix: true,
         ),
       ),
     );
+  }
+
+  Future<void> _playMixDirectly(Map<String, dynamic> mix) async {
+    HapticFeedback.mediumImpact();
+    final tracks = await _resolveMixTracks(mix);
+    if (tracks.isNotEmpty) {
+      await widget.player.playTrack(tracks.first, tracks);
+    }
   }
 
   void _openRadioStation(String query) async {
@@ -951,6 +1022,30 @@ class _HomeViewState extends State<HomeView> {
                         ),
                       ),
                     ),
+                    // Subtle Play trigger: tapping Play starts playback; tapping card opens PlaylistView
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: GestureDetector(
+                        onTap: () => _playMixDirectly(mix),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: accent,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 22),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -964,7 +1059,7 @@ class _HomeViewState extends State<HomeView> {
             ),
             const SizedBox(height: 2),
             Text(
-              subtitle,
+              'Playlist • $subtitle',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppTheme.textMuted, fontSize: 11, height: 1.25),

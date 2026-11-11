@@ -35,11 +35,14 @@ class _SearchViewState extends State<SearchView> {
   final StorageService _storage = StorageService();
 
   Timer? _debounceTimer;
+  Timer? _suggestTimer;
   int _searchToken = 0;
 
   String _selectedTab = 'Semua'; // Semua, Lagu, Artis, Album, Playlist, Lirik
+  bool _isSearchFocused = false;
   List<Track> _searchResults = [];
   List<Artist> _artistResults = [];
+  List<String> _suggestions = [];
   List<Playlist> _userPlaylists = [];
   List<Map<String, String>> _recentSearches = [];
   bool _isLoading = false;
@@ -132,12 +135,21 @@ class _SearchViewState extends State<SearchView> {
   void initState() {
     super.initState();
     _loadInitialData();
+    _searchFocus.addListener(_onFocusChanged);
     StorageService.playlistRevision.addListener(_loadInitialData);
+  }
+
+  void _onFocusChanged() {
+    if (mounted) {
+      setState(() => _isSearchFocused = _searchFocus.hasFocus);
+    }
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _suggestTimer?.cancel();
+    _searchFocus.removeListener(_onFocusChanged);
     _searchController.dispose();
     _searchFocus.dispose();
     StorageService.playlistRevision.removeListener(_loadInitialData);
@@ -181,12 +193,14 @@ class _SearchViewState extends State<SearchView> {
 
   void _onSearch(String query, {bool forceLyrics = false}) {
     _debounceTimer?.cancel();
+    _suggestTimer?.cancel();
     final trimmed = query.trim();
     if (trimmed.isEmpty) {
       _searchToken++;
       setState(() {
         _searchResults = [];
         _artistResults = MusicApiService.catalogArtists;
+        _suggestions = [];
         _isLoading = false;
       });
       return;
@@ -195,6 +209,16 @@ class _SearchViewState extends State<SearchView> {
     setState(() => _isLoading = true);
 
     final currentToken = ++_searchToken;
+    // Fast Spotify-style typeahead autocomplete suggestions
+    _suggestTimer = Timer(const Duration(milliseconds: 120), () async {
+      try {
+        final sugs = await _api.getSearchSuggestions(trimmed);
+        if (mounted && currentToken == _searchToken) {
+          setState(() => _suggestions = sugs);
+        }
+      } catch (_) {}
+    });
+
     _debounceTimer = Timer(const Duration(milliseconds: 220), () async {
       try {
         late Future<List<Track>> tracksFuture;
@@ -289,8 +313,30 @@ class _SearchViewState extends State<SearchView> {
   bool _shouldShowArtistAsTopResult(String query) {
     if (_artistResults.isEmpty) return false;
     final cleanQ = query.trim().toLowerCase();
-    final topArtistName = _artistResults.first.name.toLowerCase();
-    return topArtistName == cleanQ || topArtistName.contains(cleanQ) && cleanQ.split(' ').length <= 2;
+    final topArtist = _artistResults.first;
+    final topArtistName = topArtist.name.toLowerCase();
+    final topTrack = _searchResults.isNotEmpty ? _searchResults.first : null;
+
+    final isExactArtist = topArtistName == cleanQ;
+    final isStrongPrefix =
+        topArtistName.startsWith(cleanQ) && cleanQ.length >= 3 && cleanQ.split(' ').length <= 2;
+    if (!isExactArtist && !isStrongPrefix) return false;
+
+    if (topTrack != null) {
+      final trackTitleLower = topTrack.title.toLowerCase();
+      final trackArtistLower = topTrack.artist.toLowerCase();
+      final primaryArtist = trackArtistLower.split(',').first.trim();
+      final trackMatchesArtist =
+          trackArtistLower.contains(topArtistName) || topArtistName.contains(primaryArtist);
+
+      // If the top track title is an exact match (e.g. "Yellow", "Hello", "Perfect")
+      // for a different artist, promote the track as Top Result instead of the namesake artist.
+      if ((trackTitleLower == cleanQ || trackTitleLower.startsWith('$cleanQ (')) &&
+          !trackMatchesArtist) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @override
@@ -397,7 +443,16 @@ class _SearchViewState extends State<SearchView> {
                   decoration: InputDecoration(
                     hintText: 'Apa yang ingin kamu dengarkan?',
                     hintStyle: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w600),
-                    prefixIcon: const Icon(Icons.search_rounded, color: Colors.black87, size: 24),
+                    prefixIcon: (_isSearchFocused || isSearching)
+                        ? IconButton(
+                            icon: const Icon(Icons.arrow_back_rounded, color: Colors.black87, size: 22),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearch('');
+                              _searchFocus.unfocus();
+                            },
+                          )
+                        : const Icon(Icons.search_rounded, color: Colors.black87, size: 24),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.close_rounded, color: Colors.black87, size: 20),
@@ -473,13 +528,57 @@ class _SearchViewState extends State<SearchView> {
                 ),
               ),
 
+            // Live Spotify Autocomplete Suggestions Strip while typing
+            if (isSearching && _suggestions.isNotEmpty)
+              Container(
+                height: 36,
+                margin: const EdgeInsets.only(top: 6, bottom: 2),
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _suggestions.take(6).length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (context, idx) {
+                    final sug = _suggestions[idx];
+                    return GestureDetector(
+                      onTap: () => _triggerQuickQuery(sug),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1B1C20),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.search_rounded, color: AppTheme.textMuted, size: 14),
+                            const SizedBox(width: 6),
+                            Text(
+                              sug,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            const Icon(Icons.north_west_rounded, color: AppTheme.textMuted, size: 13),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
             // Body Content
             Expanded(
               child: _isLoading
                   ? _buildSearchSkeleton()
                   : isSearching
                       ? _buildSearchResults()
-                      : _buildBrowseCategories(),
+                      : (_isSearchFocused ? _buildFocusedRecentView() : _buildBrowseCategories()),
             ),
           ],
         ),
@@ -519,6 +618,114 @@ class _SearchViewState extends State<SearchView> {
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  // Focused Search Mode (Exact Spotify Mobile: tap Search -> shows Recent Searches cleanly)
+  Widget _buildFocusedRecentView() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 160),
+      children: [
+        if (_recentSearches.isNotEmpty) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Pencarian Terkini',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await _storage.clearRecentSearches();
+                  setState(() => _recentSearches = []);
+                },
+                child: const Text(
+                  'Hapus semua',
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ..._recentSearches.take(8).map((item) {
+            final q = item['query'] ?? '';
+            final title = item['title'] ?? q;
+            final subtitle = item['subtitle'] ?? 'Pencarian';
+            final artwork = item['artwork'] ?? '';
+            final isArtist = item['type'] == 'artist';
+
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(vertical: 2),
+              leading: artwork.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(isArtist ? 24 : 6),
+                      child: OptimizedImage(
+                        imageUrl: artwork,
+                        width: 48,
+                        height: 48,
+                        memCacheWidth: 96,
+                        memCacheHeight: 96,
+                      ),
+                    )
+                  : Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF242428),
+                        borderRadius: BorderRadius.circular(isArtist ? 24 : 6),
+                      ),
+                      child: const Icon(Icons.history_rounded, color: AppTheme.textMuted, size: 22),
+                    ),
+              title: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.close_rounded, color: AppTheme.textMuted, size: 20),
+                onPressed: () async {
+                  await _storage.removeRecentSearch(q, type: item['type']);
+                  final updated = await _storage.getRecentSearches();
+                  if (mounted) setState(() => _recentSearches = updated);
+                },
+              ),
+              onTap: () => _triggerQuickQuery(q),
+            );
+          }),
+        ] else ...[
+          const SizedBox(height: 48),
+          const Center(
+            child: Column(
+              children: [
+                Icon(Icons.music_note_rounded, color: Colors.white24, size: 52),
+                SizedBox(height: 14),
+                Text(
+                  'Putar apa yang kamu suka',
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Cari artis, lagu, album, playlist, atau penggalan lirik.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -919,7 +1126,11 @@ class _SearchViewState extends State<SearchView> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => PlaylistDetailView(playlist: pl, player: widget.player),
+                  builder: (_) => PlaylistDetailView(
+                    playlist: pl,
+                    player: widget.player,
+                    isVirtualMix: index >= matchingLocal.length,
+                  ),
                 ),
               );
             },

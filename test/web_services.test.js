@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { AUDIO_QUALITIES, audioQualityService } from '../src/services/audioQualityService.js';
 import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudioEqualizer.js';
 import { storageService } from '../src/services/storageService.js';
+import { buildSpotifyShuffleDeck } from '../src/utils/shuffle.js';
 import { 
   getHighResArtworkUrl, 
   isCleanPopularTrack, 
@@ -157,5 +158,36 @@ describe('Spotify Search History Persistence Tests', () => {
 
     storageService.clearRecentSearches();
     assert.deepEqual(storageService.getRecentSearches(), []);
+  });
+});
+
+describe('Spotify Balanced Fisher-Yates Shuffle Deck Tests', () => {
+  it('plays every song once without repeats, keeps anchor at index 0, and spreads artists', () => {
+    const playlist = [
+      { id: '1', title: 'Track A1', artist: 'Tulus' },
+      { id: '2', title: 'Track A2', artist: 'Tulus' },
+      { id: '3', title: 'Track B1', artist: 'NIKI' },
+      { id: '4', title: 'Track B2', artist: 'NIKI' },
+      { id: '5', title: 'Track C1', artist: 'Coldplay' },
+      { id: '6', title: 'Track C2', artist: 'Coldplay' },
+      { id: '7', title: 'Track D1', artist: 'Bernadya' },
+    ];
+
+    const anchor = playlist[0];
+    const deck = buildSpotifyShuffleDeck(playlist, anchor);
+
+    assert.equal(deck.length, playlist.length, 'Shuffled deck must contain every track once');
+    assert.equal(deck[0].id, anchor.id, 'Anchor track must remain at index 0');
+
+    const uniqueIds = new Set(deck.map((t) => t.id));
+    assert.equal(uniqueIds.size, playlist.length, 'No duplicate or skipped tracks in deck');
+
+    for (let i = 1; i < deck.length; i++) {
+      assert.notEqual(
+        deck[i].artist.toLowerCase(),
+        deck[i - 1].artist.toLowerCase(),
+        `Expected adjacent tracks ${i - 1} and ${i} not to share the same artist when avoidable`
+      );
+    }
   });
 });

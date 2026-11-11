@@ -1579,45 +1579,124 @@ class MusicApiService {
     return list;
   }
 
-  // Search Artists matching query
+  static String _formatFanCount(dynamic rawCount) {
+    final n = rawCount is num ? rawCount.toInt() : int.tryParse(rawCount?.toString() ?? '') ?? 0;
+    if (n >= 1000000) {
+      return '${(n / 1000000).toStringAsFixed(1).replaceAll('.', ',')} jt pendengar';
+    } else if (n >= 1000) {
+      return '${(n / 1000).toStringAsFixed(0)} rb pendengar';
+    }
+    return n > 0 ? '$n penggemar' : 'Artis Terverifikasi';
+  }
+
+  // Real Spotify-grade Artist Search (Deezer Artist Catalog + YouTube Music + Local Verified Catalog)
   Future<List<Artist>> searchArtists(String query) async {
     final cleanQ = query.trim().toLowerCase();
     if (cleanQ.isEmpty) return catalogArtists;
 
-    final matched = catalogArtists.where((a) => a.name.toLowerCase().contains(cleanQ)).toList();
-    if (matched.isNotEmpty) return matched;
+    final map = <String, Artist>{};
 
-    // Fallback generate from query
-    return [
-      Artist(
-        id: 'art-${Uri.encodeComponent(query)}',
-        name: query,
-        headerBanner: defaultArtwork,
-        avatar: defaultArtwork,
-        monthlyListeners: '3,2 jt pendengar bulanan',
-        isVerified: true,
-      ),
-      ...catalogArtists.take(4),
-    ];
+    // 1. Catalog preset artists matching query
+    for (final a in catalogArtists) {
+      if (a.name.toLowerCase().contains(cleanQ)) {
+        map[a.name.toLowerCase().trim()] = a;
+      }
+    }
+
+    // 2. Parallel real artist search from Deezer Artist API & YT Music multi-search
+    Future<List<Artist>> fetchDeezerArtists() async {
+      try {
+        final url = Uri.parse('https://api.deezer.com/search/artist?q=${Uri.encodeComponent(query.trim())}&limit=8');
+        final res = await http.get(url).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final list = (data['data'] as List?) ?? [];
+          return list
+              .where((item) => item['name'] != null && item['picture_big'] != null)
+              .map<Artist>((item) {
+                final picXl = (item['picture_xl'] ?? item['picture_big'] ?? item['picture_medium'] ?? defaultArtwork).toString();
+                final picMed = (item['picture_big'] ?? item['picture_medium'] ?? defaultArtwork).toString();
+                return Artist(
+                  id: 'dz_art_${item['id']}',
+                  name: item['name'].toString(),
+                  headerBanner: picXl,
+                  avatar: picMed,
+                  monthlyListeners: _formatFanCount(item['nb_fan']),
+                  isVerified: true,
+                );
+              })
+              .toList();
+        }
+      } catch (_) {}
+      return [];
+    }
+
+    Future<List<Artist>> fetchYtArtists() async {
+      try {
+        final url = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent(query.trim())}');
+        final res = await http.get(url).timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final list = (data['artists'] as List?) ?? [];
+          return list
+              .where((item) => item['name'] != null)
+              .map<Artist>((item) {
+                final art = Track.toHighResArtwork(item['artwork']?.toString() ?? defaultArtwork);
+                return Artist(
+                  id: (item['id'] ?? 'yt_art_${item['name']}').toString(),
+                  name: item['name'].toString(),
+                  headerBanner: art,
+                  avatar: art,
+                  monthlyListeners: (item['subscribers'] ?? 'Artis Populer').toString(),
+                  isVerified: true,
+                );
+              })
+              .toList();
+        }
+      } catch (_) {}
+      return [];
+    }
+
+    final parallel = await Future.wait([fetchDeezerArtists(), fetchYtArtists()]);
+    for (final artistList in parallel) {
+      for (final a in artistList) {
+        final key = a.name.toLowerCase().trim();
+        if (key.isEmpty) continue;
+        if (!map.containsKey(key)) {
+          map[key] = a;
+        }
+      }
+    }
+
+    final list = map.values.toList();
+    // Prioritize exact / prefix name matches
+    list.sort((a, b) {
+      final an = a.name.toLowerCase();
+      final bn = b.name.toLowerCase();
+      int scoreA = an == cleanQ ? 3 : (an.startsWith(cleanQ) ? 2 : (an.contains(cleanQ) ? 1 : 0));
+      int scoreB = bn == cleanQ ? 3 : (bn.startsWith(cleanQ) ? 2 : (bn.contains(cleanQ) ? 1 : 0));
+      return scoreB.compareTo(scoreA);
+    });
+
+    return list;
   }
 
-  // Get Artist Profile Details & Popular Songs
+  // Get Artist Profile Details & Popular Songs with Real Artwork Lookup
   Future<Map<String, dynamic>> getArtistDetails(String artistName) async {
     final clean = artistName.toLowerCase().trim();
-    Artist artist = catalogArtists.firstWhere(
-      (a) => a.name.toLowerCase() == clean,
-      orElse: () => Artist(
-        id: 'art-${Uri.encodeComponent(artistName)}',
-        name: artistName,
-        headerBanner: defaultArtwork,
-        avatar: defaultArtwork,
-        monthlyListeners: '4,9 jt pendengar bulanan',
-        isVerified: true,
-      ),
-    );
+    Artist? artist;
 
-    List<Track> topSongs = [];
-    topSongs = await searchTracks(artistName);
+    final presetIdx = catalogArtists.indexWhere((a) => a.name.toLowerCase() == clean);
+    if (presetIdx != -1) {
+      artist = catalogArtists[presetIdx];
+    } else {
+      final fetchedArtists = await searchArtists(artistName);
+      if (fetchedArtists.isNotEmpty) {
+        artist = fetchedArtists.first;
+      }
+    }
+
+    List<Track> topSongs = await searchTracks(artistName);
     if (topSongs.isEmpty) {
       topSongs = officialTopTracks.where((t) => t.artist.toLowerCase() == clean).toList();
       if (topSongs.isEmpty) {
@@ -1625,10 +1704,36 @@ class MusicApiService {
       }
     }
 
+    artist ??= Artist(
+      id: 'art-${Uri.encodeComponent(artistName)}',
+      name: artistName,
+      headerBanner: topSongs.isNotEmpty ? topSongs.first.artwork : defaultArtwork,
+      avatar: topSongs.isNotEmpty ? topSongs.first.artwork : defaultArtwork,
+      monthlyListeners: 'Artis Terverifikasi',
+      isVerified: true,
+    );
+
     return {
       'artist': artist,
       'topSongs': topSongs,
     };
+  }
+
+  /// Spotify-style live autocomplete suggestions as user types
+  Future<List<String>> getSearchSuggestions(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return [];
+    try {
+      final url = Uri.parse(
+          'https://mctify.vercel.app/api/yt/search-multi?mode=suggest&q=${Uri.encodeComponent(trimmed)}');
+      final res = await http.get(url).timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final raw = (data['suggestions'] as List?) ?? [];
+        return raw.map((e) => e.toString()).where((s) => s.isNotEmpty).take(8).toList();
+      }
+    } catch (_) {}
+    return [];
   }
 
   static String detectTrackRegion(String artistName, String title, String genre) {

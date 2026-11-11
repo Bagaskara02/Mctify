@@ -27,6 +27,7 @@ export default function DiscoverView({
   onOpenLyrics,
   onOpenImportModal,
   onSelectPlaylist,
+  onOpenVirtualPlaylist,
   onSelectLiked,
   onOpenArtist,
   onTrackContextMenu,
@@ -71,7 +72,7 @@ export default function DiscoverView({
     };
   }, [hoveredArtwork, currentTrack?.artwork, quickCards[0]?.artwork]);
 
-  // Build Spotify-style Daily Mixes from dynamic tracks pool
+  // Build distinct Spotify Daily Mix Playlists from user sections & trending catalog
   const allPoolTracks = [
     ...quickCards,
     ...(sections.flatMap((s) => s.tracks || [])),
@@ -79,27 +80,61 @@ export default function DiscoverView({
   ].filter((t, i, arr) => t && arr.findIndex((x) => x.id === t.id) === i);
 
   const dailyMixConfigs = [
-    { id: 'mix-1', title: 'Daily Mix 01', badge: '01', accent: '#3B82F6', offset: 0 },
-    { id: 'mix-2', title: 'Daily Mix 02', badge: '02', accent: '#10B981', offset: 3 },
-    { id: 'mix-3', title: 'Release Radar', badge: 'NEW', accent: '#A855F7', offset: 6 },
-    { id: 'mix-4', title: 'Discover Weekly', badge: 'MIX', accent: '#F59E0B', offset: 9 },
+    {
+      id: 'mix-daily-1',
+      title: 'Daily Mix 01',
+      badge: '01',
+      accent: '#3B82F6',
+      sectionIdx: 0,
+      queryHint: 'Rex Orange County NIKI Daniel Caesar HONNE',
+    },
+    {
+      id: 'mix-daily-2',
+      title: 'Daily Mix 02',
+      badge: '02',
+      accent: '#10B981',
+      sectionIdx: 1,
+      queryHint: 'Tulus Bernadya Mahalini Sheila On 7 Raisa',
+    },
+    {
+      id: 'mix-release-radar',
+      title: 'Release Radar',
+      badge: 'NEW',
+      accent: '#A855F7',
+      sectionIdx: 2,
+      queryHint: 'Pop Hits Terbaru The Weeknd Billie Eilish Bruno Mars',
+    },
+    {
+      id: 'mix-discover-weekly',
+      title: 'Discover Weekly',
+      badge: 'MIX',
+      accent: '#F59E0B',
+      sectionIdx: 3,
+      queryHint: 'Joji Keshi Coldplay Taylor Swift',
+    },
   ];
 
   const dailyMixes = allPoolTracks.length > 0
-    ? dailyMixConfigs.map((cfg) => {
-        const len = allPoolTracks.length;
-        const start = cfg.offset % len;
-        const mixTracks = [
-          ...allPoolTracks.slice(start),
-          ...allPoolTracks.slice(0, start),
-        ].slice(0, 12);
-        const topArtists = [...new Set(mixTracks.map((t) => t.artist.split(',')[0].trim()))]
+    ? dailyMixConfigs.map((cfg, i) => {
+        const secTracks = sections[cfg.sectionIdx]?.tracks || [];
+        const fallbackSlice = [
+          ...allPoolTracks.slice((i * 4) % allPoolTracks.length),
+          ...allPoolTracks.slice(0, (i * 4) % allPoolTracks.length),
+        ];
+        const mixTracks = (secTracks.length >= 6 ? secTracks : [...secTracks, ...fallbackSlice])
+          .filter((t, idx, arr) => t && arr.findIndex((x) => x.id === t.id) === idx)
+          .slice(0, 14);
+        const topArtists = [...new Set(mixTracks.map((t) => (t.artist || '').split(',')[0].trim()))]
+          .filter(Boolean)
           .slice(0, 3)
           .join(', ');
         return {
           ...cfg,
+          name: cfg.title,
           cover: mixTracks[0]?.artwork || DEFAULT_ARTWORK,
-          subtitle: `${topArtists || 'Beragam Artis'} & lainnya`,
+          subtitle: `${topArtists || 'Pilihan Artis'} dan lainnya`,
+          description: `Dibuat khusus untukmu • Dengan ${topArtists || 'lagu favoritmu'}`,
+          source: 'mix',
           tracks: mixTracks,
         };
       })
@@ -326,7 +361,7 @@ export default function DiscoverView({
               {dailyMixes.map((mix) => (
                 <div
                   key={mix.id}
-                  onClick={() => onPlayTrack(mix.tracks[0], mix.tracks)}
+                  onClick={() => onOpenVirtualPlaylist ? onOpenVirtualPlaylist(mix) : onPlayTrack(mix.tracks[0], mix.tracks)}
                   className="group p-3 sm:p-4 rounded-lg bg-[#181818] hover:bg-[#282828] transition-colors duration-200 cursor-pointer flex flex-col justify-between"
                 >
                   <div className="relative aspect-square rounded-md overflow-hidden mb-3 bg-[#282828] shadow-lg">
@@ -354,9 +389,16 @@ export default function DiscoverView({
                       {mix.badge}
                     </div>
 
-                    <div className="absolute right-2.5 bottom-2.5 w-11 h-11 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 transition-all duration-300">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPlayTrack(mix.tracks[0], mix.tracks);
+                      }}
+                      title={`Putar ${mix.title}`}
+                      className="absolute right-2.5 bottom-2.5 w-11 h-11 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 transition-all duration-300"
+                    >
                       <Play className="w-5 h-5 fill-black ml-0.5" />
-                    </div>
+                    </button>
                   </div>
 
                   <div>

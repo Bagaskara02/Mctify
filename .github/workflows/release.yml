@@ -18,17 +18,17 @@ jobs:
 
       - name: Prepare McTify APK Asset
         run: |
-          cp public/downloads/McMusic-arm64.apk McTify-v1.2.0-arm64.apk
+          cp public/downloads/McMusic-arm64.apk McTify-v1.3.0-arm64.apk
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="${GITHUB_REF_NAME:-v1.2.0}"
+          TAG_NAME="${GITHUB_REF_NAME:-v1.3.0}"
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" McTify-v1.2.0-arm64.apk public/downloads/McMusic-arm64.apk --clobber
+            gh release upload "$TAG_NAME" McTify-v1.3.0-arm64.apk public/downloads/McMusic-arm64.apk --clobber
           else
-            gh release create "$TAG_NAME" McTify-v1.2.0-arm64.apk public/downloads/McMusic-arm64.apk \
-              --title "McTify Mobile ${TAG_NAME} (Spotify + FMHY UI Overhaul & ExoPlayer Native)" \
-              --notes "Rilis ${TAG_NAME}: Rebranding ke McTify, desain ulang UI & Search lengkap mengikuti standar Spotify & FMHY (MySpoti/Spotube/BitChord), ekstraksi warna ambient cover lagu real-time, kartu lirik sinkron langsung di player, serta pemutaran latar belakang layar mati dengan AndroidX Media3 ExoPlayer native."
+            gh release create "$TAG_NAME" McTify-v1.3.0-arm64.apk public/downloads/McMusic-arm64.apk \
+              --title "McTify Mobile ${TAG_NAME} (Authentic Spotify Search, Shuffle & Daily Mix)" \
+              --notes "Rilis ${TAG_NAME}: Search ala Spotify dengan live autocomplete suggestions & real artist portraits, Balanced Bucket-Spaced Fisher-Yates Shuffle (zero repeats), dan Daily Mix yang membuka full PlaylistView lengkap dengan Simpan ke Koleksi."
           fi

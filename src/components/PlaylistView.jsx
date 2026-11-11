@@ -41,6 +41,8 @@ export default function PlaylistView({
   onOpenLyrics,
   onRemoveTrack,
   onDeletePlaylist,
+  onSaveMixToLibrary,
+  isSavedInLibrary = false,
   onTrackContextMenu,
 }) {
   const [isHeaderSticky, setIsHeaderSticky] = useState(false);
@@ -175,7 +177,15 @@ export default function PlaylistView({
 
         <div className="space-y-2 text-center sm:text-left flex-1 min-w-0">
           <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-300">
-            {playlist.source === 'spotify' ? '🟢 Playlist Spotify' : playlist.source === 'youtube' ? '🔴 YouTube Music' : 'Playlist Publik'}
+            {playlist.source === 'spotify'
+              ? '🟢 Playlist Spotify'
+              : playlist.source === 'youtube'
+              ? '🔴 YouTube Music'
+              : playlist.source === 'mix'
+              ? '✨ Dibuat Untuk Kamu'
+              : playlist.source === 'album'
+              ? '💿 Album'
+              : 'Playlist Publik'}
           </span>
 
           <h1 className="text-white text-2xl sm:text-5xl font-black tracking-tight truncate leading-tight">
@@ -212,11 +222,27 @@ export default function PlaylistView({
           <button
             onClick={() => onShuffleAll(processedTracks.length > 0 ? processedTracks : rawTracks)}
             disabled={rawTracks.length === 0}
-            className="p-2 text-[#b3b3b3] hover:text-white transition-colors"
+            className="p-2 text-[#b3b3b3] hover:text-[#3B82F6] transition-colors"
             title="Putar Acak"
           >
             <Shuffle className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
+
+          {onSaveMixToLibrary && (
+            <button
+              onClick={() => onSaveMixToLibrary(playlist)}
+              disabled={isSavedInLibrary}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                isSavedInLibrary
+                  ? 'border-[#3B82F6]/40 bg-[#3B82F6]/15 text-[#3B82F6]'
+                  : 'border-white/30 hover:border-white text-white hover:bg-white/10'
+              }`}
+              title={isSavedInLibrary ? 'Tersimpan di Koleksi Kamu' : 'Simpan ke Koleksi Kamu'}
+            >
+              {isSavedInLibrary ? <Check className="w-3.5 h-3.5" /> : null}
+              <span>{isSavedInLibrary ? 'Tersimpan di Koleksi' : '+ Simpan ke Koleksi'}</span>
+            </button>
+          )}
 
           <button
             onClick={() => playlistImporter.exportToJson(playlist)}

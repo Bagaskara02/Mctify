@@ -821,10 +821,27 @@ export const musicApi = {
       return {
         songs: uniqueSongs,
         artists: ytData.artists || [],
+        albums: ytData.albums || [],
+        suggestions: ytData.suggestions || [],
       };
     } catch (e) {
       console.error('searchAll error:', e);
-      return { songs: [], artists: [] };
+      return { songs: [], artists: [], albums: [], suggestions: [] };
+    }
+  },
+
+  /**
+   * Fast Spotify-style typeahead search suggestions
+   */
+  async getSearchSuggestions(query) {
+    if (!query || !query.trim()) return [];
+    try {
+      const res = await fetch(`/api/yt/search-multi?mode=suggest&q=${encodeURIComponent(query.trim())}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.suggestions || [];
+    } catch {
+      return [];
     }
   },
 

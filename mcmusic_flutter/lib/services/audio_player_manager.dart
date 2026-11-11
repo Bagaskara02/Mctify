@@ -27,6 +27,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _userRequestedPause = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  List<Track> _originalQueue = [];
   List<Track> _queue = [];
   bool _isShuffle = false;
   bool _isRepeat = false;
@@ -935,10 +936,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         MusicApiService.recordRecentRadioTrack(t.title);
       }
       if (structuredQueue.isNotEmpty) {
-        _queue = [
-          if (_currentTrack != null) _currentTrack! else track,
-          ...structuredQueue,
-        ];
+        final anchor = _currentTrack ?? track;
+        _originalQueue = [anchor, ...structuredQueue];
+        _queue = _isShuffle
+            ? buildSpotifyShuffleDeck(_originalQueue, anchor)
+            : List.from(_originalQueue);
         notifyListeners();
       }
     } catch (e) {
@@ -968,8 +970,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // Instantly reflect track title, album, cover, and playing state on UI & Lockscreen
     _currentTrack = track;
     if (newQueue != null && newQueue.isNotEmpty) {
-      _queue = List.from(newQueue);
+      _originalQueue = List.from(newQueue);
+      _queue = _isShuffle
+          ? buildSpotifyShuffleDeck(_originalQueue, track)
+          : List.from(_originalQueue);
     } else if (!_queue.any((t) => t.id == track.id)) {
+      _originalQueue.insert(0, track);
       _queue.insert(0, track);
     }
 
@@ -1210,23 +1216,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
     final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
 
-    if (_isShuffle && _queue.length > 1) {
-      int nextIndex;
-      do {
-        nextIndex = Random().nextInt(_queue.length);
-      } while (nextIndex == currentIndex && _queue.length > 1);
-      await playTrack(_queue[nextIndex]);
-      return;
-    }
-
+    // Spotify Deck Playback: Play next sequential item in _queue
+    // (When Shuffle is ON, _queue IS already deterministically shuffled with zero repeats!)
     if (currentIndex != -1 && currentIndex < _queue.length - 1) {
       await playTrack(_queue[currentIndex + 1]);
       return;
     }
 
-    // End of playlist reached!
+    // End of playlist/shuffled deck reached!
     if (_isRepeat) {
-      // Repeat is active, repeat playlist from beginning
+      if (_isShuffle && _originalQueue.length > 1) {
+        _queue = buildSpotifyShuffleDeck(_originalQueue, null);
+      }
       await playTrack(_queue.first);
       return;
     }
@@ -1392,8 +1393,107 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  static String _primaryArtistKey(Track t) {
+    final key = t.artist.split(',').first.trim().toLowerCase();
+    return key.isEmpty ? '__unknown__' : key;
+  }
+
+  /// Spotify-style balanced bucket-spaced Fisher-Yates shuffle:
+  /// - Groups by primary artist and Fisher-Yates shuffles within each artist bucket.
+  /// - Distributes each artist's tracks evenly across [0, 1) with random phase & jitter
+  ///   so consecutive tracks from the same artist don't cluster at the end.
+  /// - Guarantees EVERY track plays once before any track repeats.
+  /// - Keeps [anchorTrack] at index 0 when provided so active playback isn't interrupted.
+  static List<Track> buildSpotifyShuffleDeck(List<Track> source, Track? anchorTrack, {Random? rng}) {
+    if (source.isEmpty) return [];
+    final random = rng ?? Random();
+    final remaining = <Track>[];
+    Track? resolvedAnchor;
+
+    for (final t in source) {
+      if (anchorTrack != null && t.id == anchorTrack.id && resolvedAnchor == null) {
+        resolvedAnchor = t;
+      } else {
+        remaining.add(t);
+      }
+    }
+
+    if (remaining.length <= 1) {
+      return resolvedAnchor != null ? [resolvedAnchor, ...remaining] : remaining;
+    }
+
+    // Group tracks by primary artist
+    final buckets = <String, List<Track>>{};
+    for (final t in remaining) {
+      buckets.putIfAbsent(_primaryArtistKey(t), () => []).add(t);
+    }
+
+    // Fisher-Yates shuffle within each bucket and assign spaced positions in [0, 1)
+    final weighted = <({Track track, double pos})>[];
+    for (final group in buckets.values) {
+      for (int i = group.length - 1; i > 0; i--) {
+        final j = random.nextInt(i + 1);
+        final tmp = group[i];
+        group[i] = group[j];
+        group[j] = tmp;
+      }
+      final step = 1.0 / group.length;
+      final phase = random.nextDouble() * step;
+      for (int k = 0; k < group.length; k++) {
+        final jitter = (random.nextDouble() - 0.5) * step * 0.35;
+        weighted.add((track: group[k], pos: phase + k * step + jitter));
+      }
+    }
+
+    weighted.sort((a, b) => a.pos.compareTo(b.pos));
+    final deck = weighted.map((e) => e.track).toList();
+
+    // Adjacent repair pass respecting anchorTrack and neighbors
+    final anchorKey = resolvedAnchor != null ? _primaryArtistKey(resolvedAnchor) : null;
+    for (int i = 0; i < deck.length; i++) {
+      final curKey = _primaryArtistKey(deck[i]);
+      final prevKey = i == 0 ? anchorKey : _primaryArtistKey(deck[i - 1]);
+      if (prevKey != null && curKey == prevKey) {
+        for (int j = i + 1; j < deck.length; j++) {
+          final candKey = _primaryArtistKey(deck[j]);
+          final jPrev = _primaryArtistKey(deck[j - 1]);
+          final jNext = j + 1 < deck.length ? _primaryArtistKey(deck[j + 1]) : null;
+          if (candKey != prevKey && curKey != jPrev && curKey != jNext) {
+            final tmp = deck[i];
+            deck[i] = deck[j];
+            deck[j] = tmp;
+            break;
+          }
+        }
+      }
+    }
+
+    if (resolvedAnchor != null) {
+      return [resolvedAnchor, ...deck];
+    }
+    return deck;
+  }
+
+  Future<void> shufflePlayPlaylist(List<Track> tracks) async {
+    if (tracks.isEmpty) return;
+    _isShuffle = true;
+    _originalQueue = List.from(tracks);
+    _queue = buildSpotifyShuffleDeck(_originalQueue, null);
+    await playTrack(_queue.first);
+  }
+
   void toggleShuffle() {
     _isShuffle = !_isShuffle;
+    if (_originalQueue.isEmpty && _queue.isNotEmpty) {
+      _originalQueue = List.from(_queue);
+    }
+    if (_isShuffle && _originalQueue.length > 1) {
+      _queue = buildSpotifyShuffleDeck(_originalQueue, _currentTrack);
+    } else if (!_isShuffle && _originalQueue.isNotEmpty) {
+      _queue = List.from(_originalQueue);
+    }
+    _hasPrefetchedNextTrack = false;
+    _prefetchNextTrackStream();
     notifyListeners();
   }
 

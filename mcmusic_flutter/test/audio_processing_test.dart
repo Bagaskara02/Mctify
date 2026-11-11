@@ -1,7 +1,10 @@
+import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mcmusic_flutter/models/audio_quality.dart';
 import 'package:mcmusic_flutter/models/equalizer_preset.dart';
+import 'package:mcmusic_flutter/models/track.dart';
+import 'package:mcmusic_flutter/services/audio_player_manager.dart';
 import 'package:mcmusic_flutter/services/equalizer_service.dart';
 import 'package:mcmusic_flutter/services/music_api_service.dart';
 import 'package:mcmusic_flutter/services/storage_service.dart';
@@ -118,6 +121,31 @@ void main() {
       expect(c1.primary, equals(c2.primary));
       expect(c1.secondary, equals(c2.secondary));
       expect(c1.surfaceTint, equals(c2.surfaceTint));
+    });
+  });
+
+  group('Spotify Balanced Shuffle Deck Tests', () {
+    test('plays every song once without repeats, keeps anchor at index 0, and spreads artists', () {
+      final playlist = [
+        Track(id: '1', title: 'Track A1', artist: 'Tulus', artwork: 'https://example.com/1.jpg'),
+        Track(id: '2', title: 'Track A2', artist: 'Tulus', artwork: 'https://example.com/2.jpg'),
+        Track(id: '3', title: 'Track B1', artist: 'NIKI', artwork: 'https://example.com/3.jpg'),
+        Track(id: '4', title: 'Track B2', artist: 'NIKI', artwork: 'https://example.com/4.jpg'),
+        Track(id: '5', title: 'Track C1', artist: 'Coldplay', artwork: 'https://example.com/5.jpg'),
+        Track(id: '6', title: 'Track C2', artist: 'Coldplay', artwork: 'https://example.com/6.jpg'),
+        Track(id: '7', title: 'Track D1', artist: 'Bernadya', artwork: 'https://example.com/7.jpg'),
+      ];
+
+      final anchor = playlist.first;
+      final deck = AudioPlayerManager.buildSpotifyShuffleDeck(playlist, anchor, rng: Random(42));
+
+      expect(deck.length, playlist.length);
+      expect(deck.first.id, anchor.id);
+      expect(deck.map((t) => t.id).toSet().length, playlist.length);
+
+      for (int i = 1; i < deck.length; i++) {
+        expect(deck[i].artist.toLowerCase(), isNot(equals(deck[i - 1].artist.toLowerCase())));
+      }
     });
   });
 }

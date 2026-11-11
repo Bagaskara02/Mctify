@@ -7,6 +7,7 @@ import '../services/music_api_service.dart';
 import '../services/playlist_importer_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/artwork_palette.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/track_action_sheet.dart';
@@ -26,12 +27,14 @@ class PlaylistDetailView extends StatefulWidget {
   final Playlist playlist;
   final AudioPlayerManager player;
   final VoidCallback? onPlaylistChanged;
+  final bool isVirtualMix;
 
   const PlaylistDetailView({
     super.key,
     required this.playlist,
     required this.player,
     this.onPlaylistChanged,
+    this.isVirtualMix = false,
   });
 
   @override
@@ -48,6 +51,8 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
   PlaylistSortOption _sortOption = PlaylistSortOption.custom;
   final TextEditingController _searchCtrl = TextEditingController();
   bool _isLiked = false;
+  bool _isMixSaved = false;
+  ArtworkColors _headerPalette = ArtworkColors.fallbackDefault;
   String? _lastCheckedTrackId;
 
   @override
@@ -55,6 +60,18 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     super.initState();
     widget.player.addListener(_onPlayerStateChanged);
     _checkLikedStatus();
+    ArtworkPalette.extract(widget.playlist.cover, seed: widget.playlist.name).then((pal) {
+      if (mounted) setState(() => _headerPalette = pal);
+    });
+    if (widget.isVirtualMix) {
+      _storage.getPlaylists().then((pls) {
+        if (mounted) {
+          setState(() {
+            _isMixSaved = pls.any((p) => p.name.toLowerCase() == widget.playlist.name.toLowerCase());
+          });
+        }
+      });
+    }
     // Auto-clean any duplicate tracks that might exist in storage
     final seen = <String>{};
     final uniqueTracks = <Track>[];
@@ -135,12 +152,39 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     return '$mins menit';
   }
 
+  Future<void> _saveVirtualMixToLibrary() async {
+    HapticFeedback.lightImpact();
+    final existing = await _storage.getPlaylists();
+    if (existing.any((p) => p.name.toLowerCase() == _currentPlaylist.name.toLowerCase())) {
+      if (mounted) setState(() => _isMixSaved = true);
+      return;
+    }
+    final savedPl = Playlist(
+      id: 'pl-mix-${DateTime.now().millisecondsSinceEpoch}',
+      name: _currentPlaylist.name,
+      description: _currentPlaylist.description,
+      cover: _currentPlaylist.cover,
+      tracks: _currentPlaylist.tracks,
+    );
+    await _storage.savePlaylists([...existing, savedPl]);
+    widget.onPlaylistChanged?.call();
+    if (mounted) {
+      setState(() => _isMixSaved = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${_currentPlaylist.name}" disimpan ke Koleksi Kamu!'),
+          duration: const Duration(milliseconds: 1400),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   void _playAll(List<Track> targetTracks, {bool shuffle = false}) {
     if (targetTracks.isEmpty) return;
     HapticFeedback.mediumImpact();
     if (shuffle) {
-      final shuffled = List<Track>.from(targetTracks)..shuffle();
-      widget.player.playTrack(shuffled.first, shuffled);
+      widget.player.shufflePlayPlaylist(targetTracks);
     } else {
       widget.player.playTrack(targetTracks.first, targetTracks);
     }
@@ -409,14 +453,14 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
             ],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xFF132A4F),
-                      Color(0xFF0E1A30),
-                      Color(0xFF080C14),
+                      _headerPalette.primary,
+                      _headerPalette.secondary,
+                      const Color(0xFF080C14),
                     ],
                   ),
                 ),
@@ -526,18 +570,36 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                         ),
                       ),
                       const SizedBox(width: 14),
-                      // Shuffle Button
-                      IconButton(
-                        icon: const Icon(Icons.shuffle, color: Colors.white70, size: 26),
-                        onPressed: () => _playAll(filteredTracks, shuffle: true),
-                        tooltip: 'Putar Acak',
+                      // Shuffle Button (Spotify Balanced Deck Shuffle)
+                      ListenableBuilder(
+                        listenable: widget.player,
+                        builder: (context, _) => IconButton(
+                          icon: Icon(
+                            Icons.shuffle_rounded,
+                            color: widget.player.isShuffle ? AppTheme.primaryAzure : Colors.white70,
+                            size: 26,
+                          ),
+                          onPressed: () => _playAll(filteredTracks, shuffle: true),
+                          tooltip: 'Putar Acak',
+                        ),
                       ),
-                      // Add Songs Button
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: Colors.white70, size: 26),
-                        onPressed: _openAddSongsModal,
-                        tooltip: 'Tambah Lagu',
-                      ),
+                      if (widget.isVirtualMix)
+                        IconButton(
+                          icon: Icon(
+                            _isMixSaved ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                            color: _isMixSaved ? AppTheme.primaryAzure : Colors.white70,
+                            size: 26,
+                          ),
+                          onPressed: _saveVirtualMixToLibrary,
+                          tooltip: _isMixSaved ? 'Tersimpan di Koleksi' : 'Simpan ke Koleksi',
+                        )
+                      else
+                        // Add Songs Button
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Colors.white70, size: 26),
+                          onPressed: _openAddSongsModal,
+                          tooltip: 'Tambah Lagu',
+                        ),
                       const Spacer(),
 
                       // Spotify-style Sort Menu Button

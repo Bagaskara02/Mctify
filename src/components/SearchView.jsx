@@ -10,6 +10,8 @@ import {
   Mic2,
   Disc3,
   Clock,
+  Search,
+  ArrowUpLeft,
 } from 'lucide-react';
 import { musicApi, DEFAULT_ARTWORK } from '../services/musicApi';
 import { storageService } from '../services/storageService';
@@ -28,6 +30,7 @@ export default function SearchView({
   onOpenLyrics,
   onOpenArtist,
   onSelectPlaylist,
+  onOpenVirtualPlaylist,
   onAddTrackToPlaylist,
   onTrackContextMenu,
   onOpenImportYouTube,
@@ -35,6 +38,8 @@ export default function SearchView({
   const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Lagu' | 'Artis' | 'Album' | 'Playlist' | 'Cocok Lirik'
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
+  const [apiAlbums, setApiAlbums] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
   const [recentSearches, setRecentSearches] = useState(() => storageService.getRecentSearches());
   const [isLoading, setIsLoading] = useState(false);
 
@@ -121,44 +126,70 @@ export default function SearchView({
     },
   ];
 
-  // Perform multi-search across tracks, artists, and lyrics
+  // Perform multi-search across tracks, artists, albums, live autocomplete suggestions, and lyrics
   useEffect(() => {
     const trimmed = (searchQuery || '').trim();
     if (!trimmed) {
       setSongs([]);
       setArtists([]);
+      setApiAlbums([]);
+      setSuggestions([]);
       setIsLoading(false);
       setRecentSearches(storageService.getRecentSearches());
       return;
     }
 
+    let cancelled = false;
     setIsLoading(true);
+
+    // Fast typeahead suggestions
+    const suggestTimeout = setTimeout(async () => {
+      try {
+        const sugs = await musicApi.getSearchSuggestions(trimmed);
+        if (!cancelled && Array.isArray(sugs) && sugs.length > 0) {
+          setSuggestions(sugs);
+        }
+      } catch (_) {}
+    }, 120);
+
     const timeout = setTimeout(async () => {
       try {
         if (activeTab === 'Cocok Lirik') {
           const lyricSongs = await musicApi.searchTracksByLyrics(trimmed);
-          setSongs(lyricSongs || []);
-          const artistData = await musicApi.searchAll(trimmed).catch(() => ({ artists: [] }));
-          setArtists(artistData.artists || []);
+          if (!cancelled) setSongs(lyricSongs || []);
+          const artistData = await musicApi.searchAll(trimmed).catch(() => ({ artists: [], albums: [], suggestions: [] }));
+          if (!cancelled) {
+            setArtists(artistData.artists || []);
+            setApiAlbums(artistData.albums || []);
+            if (artistData.suggestions?.length > 0) setSuggestions(artistData.suggestions);
+          }
         } else {
           const data = await musicApi.searchAll(trimmed);
           const rawSongs = data.songs || [];
           if (rawSongs.length === 0 && trimmed.split(' ').length >= 3) {
             const lyricSongs = await musicApi.searchTracksByLyrics(trimmed);
-            setSongs(lyricSongs || []);
+            if (!cancelled) setSongs(lyricSongs || []);
           } else {
-            setSongs(rawSongs);
+            if (!cancelled) setSongs(rawSongs);
           }
-          setArtists(data.artists || []);
+          if (!cancelled) {
+            setArtists(data.artists || []);
+            setApiAlbums(data.albums || []);
+            if (data.suggestions?.length > 0) setSuggestions(data.suggestions);
+          }
         }
       } catch (err) {
         console.warn('Search failed:', err);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
-    }, 260);
+    }, 240);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      clearTimeout(suggestTimeout);
+      clearTimeout(timeout);
+    };
   }, [searchQuery, activeTab]);
 
   const recordTrackHistory = (track) => {
@@ -194,8 +225,26 @@ export default function SearchView({
     setRecentSearches(updated);
   };
 
-  // Group distinct albums from tracks for Spotify Album grid & tab
+  // Group distinct albums from API albums & track groups for Spotify Album grid & tab
   const albumMap = new Map();
+  for (const alb of apiAlbums) {
+    const key = `${(alb.title || '').toLowerCase()}__${(alb.artist || '').toLowerCase()}`;
+    if (!alb.title || albumMap.has(key)) continue;
+    const matchingTracks = songs.filter(
+      (s) =>
+        (s.album && s.album.toLowerCase().includes(alb.title.toLowerCase())) ||
+        (alb.artist && s.artist?.toLowerCase().includes(alb.artist.toLowerCase()))
+    );
+    albumMap.set(key, {
+      id: alb.id || `alb-${key}`,
+      title: alb.title,
+      artist: alb.artist || 'Artis',
+      year: alb.year || '',
+      artwork: alb.artwork || matchingTracks[0]?.artwork || DEFAULT_ARTWORK,
+      tracks: matchingTracks,
+      queryHint: `${alb.title} ${alb.artist || ''}`.trim(),
+    });
+  }
   for (const t of songs) {
     const albTitle =
       t.album && !String(t.album).startsWith('Lirik:') ? String(t.album).trim() : t.title;
@@ -207,8 +256,9 @@ export default function SearchView({
         artist: t.artist,
         artwork: t.artwork || DEFAULT_ARTWORK,
         tracks: [t],
+        queryHint: `${albTitle} ${t.artist || ''}`.trim(),
       });
-    } else {
+    } else if (!albumMap.get(key).tracks.some((ex) => ex.id === t.id)) {
       albumMap.get(key).tracks.push(t);
     }
   }
@@ -217,11 +267,47 @@ export default function SearchView({
   const cleanQ = (searchQuery || '').trim().toLowerCase();
   const topArtist = artists[0];
   const topSong = songs[0];
-  const promoteArtistTopResult =
+  const topArtistName = (topArtist?.name || '').toLowerCase();
+  const topSongTitle = (topSong?.title || '').toLowerCase();
+  const topSongArtist = (topSong?.artist || '').toLowerCase();
+  const primarySongArtist = topSongArtist.split(',')[0].trim();
+  const trackMatchesTopArtist = Boolean(
+    topArtistName &&
+      primarySongArtist &&
+      (topSongArtist.includes(topArtistName) || topArtistName.includes(primarySongArtist))
+  );
+  const exactTrackClash =
+    Boolean(topSong) &&
+    (topSongTitle === cleanQ || topSongTitle.startsWith(`${cleanQ} (`)) &&
+    !trackMatchesTopArtist;
+  const hasVerifiedAuthority =
+    Number(topArtist?.fans || 0) >= 50000 || trackMatchesTopArtist || !topSong;
+
+  const promoteArtistTopResult = Boolean(
     topArtist &&
-    cleanQ &&
-    (topArtist.name.toLowerCase() === cleanQ ||
-      (topArtist.name.toLowerCase().includes(cleanQ) && cleanQ.split(' ').length <= 2));
+      cleanQ &&
+      !exactTrackClash &&
+      hasVerifiedAuthority &&
+      (topArtistName === cleanQ ||
+        (topArtistName.startsWith(cleanQ) && cleanQ.length >= 3 && cleanQ.split(' ').length <= 2))
+  );
+
+  const openAlbumPlaylist = (alb) => {
+    const playlistObj = {
+      id: alb.id || `alb-${Date.now()}`,
+      name: alb.title,
+      description: `Album${alb.year ? ` • ${alb.year}` : ''} • ${alb.artist}`,
+      cover: alb.artwork || DEFAULT_ARTWORK,
+      source: 'album',
+      tracks: alb.tracks || [],
+      queryHint: alb.queryHint || `${alb.title} ${alb.artist || ''}`.trim(),
+    };
+    if (onOpenVirtualPlaylist) {
+      onOpenVirtualPlaylist(playlistObj);
+    } else if (alb.tracks?.[0]) {
+      onPlayTrack(alb.tracks[0], alb.tracks);
+    }
+  };
 
   const matchingPlaylists = playlists.filter(
     (p) => !cleanQ || p.name.toLowerCase().includes(cleanQ)
@@ -263,6 +349,23 @@ export default function SearchView({
           </button>
         )}
       </div>
+
+      {/* Live Spotify Autocomplete Suggestions Strip */}
+      {searchQuery.trim() && suggestions.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+          {suggestions.slice(0, 6).map((sug) => (
+            <button
+              key={sug}
+              onClick={() => triggerQuickQuery(sug)}
+              className="px-3 py-1.5 rounded-full bg-[#1a1a1d] hover:bg-[#2a2a2e] border border-white/10 text-xs text-white/90 font-semibold flex items-center gap-1.5 flex-shrink-0 transition-colors"
+            >
+              <Search className="w-3 h-3 text-[#b3b3b3]" />
+              <span>{sug}</span>
+              <ArrowUpLeft className="w-3 h-3 text-[#b3b3b3]" />
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Loading Shimmer Skeleton */}
       {isLoading && (
@@ -701,7 +804,7 @@ export default function SearchView({
                     {albums.slice(0, 6).map((alb) => (
                       <div
                         key={alb.id}
-                        onClick={() => onPlayTrack(alb.tracks[0], alb.tracks)}
+                        onClick={() => openAlbumPlaylist(alb)}
                         className="group p-3 sm:p-4 rounded-md bg-[#181818] hover:bg-[#282828] transition-colors cursor-pointer flex flex-col justify-between"
                       >
                         <div className="relative aspect-square rounded-md overflow-hidden mb-3 bg-[#282828] shadow-md">
@@ -714,7 +817,17 @@ export default function SearchView({
                             }}
                             className="w-full h-full object-cover"
                           />
-                          <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (alb.tracks?.[0]) {
+                                onPlayTrack(alb.tracks[0], alb.tracks);
+                              } else {
+                                openAlbumPlaylist(alb);
+                              }
+                            }}
+                            className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-105"
+                          >
                             <Play className="w-4 h-4 fill-black ml-0.5" />
                           </div>
                         </div>
@@ -901,7 +1014,7 @@ export default function SearchView({
                 {albums.map((alb) => (
                   <div
                     key={alb.id}
-                    onClick={() => onPlayTrack(alb.tracks[0], alb.tracks)}
+                    onClick={() => openAlbumPlaylist(alb)}
                     className="group p-4 rounded-md bg-[#181818] hover:bg-[#282828] transition-colors cursor-pointer flex flex-col justify-between"
                   >
                     <div className="relative aspect-square rounded-md overflow-hidden mb-3 bg-[#282828] shadow-md">
@@ -914,7 +1027,17 @@ export default function SearchView({
                         }}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (alb.tracks?.[0]) {
+                            onPlayTrack(alb.tracks[0], alb.tracks);
+                          } else {
+                            openAlbumPlaylist(alb);
+                          }
+                        }}
+                        className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-105"
+                      >
                         <Play className="w-4 h-4 fill-black ml-0.5" />
                       </div>
                     </div>
@@ -943,7 +1066,22 @@ export default function SearchView({
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {songs.length > 0 && (
                   <div
-                    onClick={() => onPlayTrack(songs[0], songs)}
+                    onClick={() => {
+                      const mixObj = {
+                        id: `search-mix-${searchQuery.trim()}`,
+                        name: `Mix McTify: ${searchQuery}`,
+                        description: `${songs.length} lagu kurasi untuk "${searchQuery}"`,
+                        cover: songs[0].artwork || DEFAULT_ARTWORK,
+                        source: 'mix',
+                        tracks: songs,
+                        queryHint: searchQuery.trim(),
+                      };
+                      if (onOpenVirtualPlaylist) {
+                        onOpenVirtualPlaylist(mixObj);
+                      } else {
+                        onPlayTrack(songs[0], songs);
+                      }
+                    }}
                     className="group p-4 rounded-md bg-[#181818] hover:bg-[#282828] transition-colors cursor-pointer flex flex-col justify-between"
                   >
                     <div className="relative aspect-square rounded-md overflow-hidden mb-3 bg-[#282828] shadow-md">
@@ -952,7 +1090,13 @@ export default function SearchView({
                         alt="Mix"
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPlayTrack(songs[0], songs);
+                        }}
+                        className="absolute right-2 bottom-2 w-10 h-10 rounded-full bg-[#3B82F6] text-black flex items-center justify-center shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-105"
+                      >
                         <Play className="w-4 h-4 fill-black ml-0.5" />
                       </div>
                     </div>
