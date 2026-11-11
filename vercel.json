@@ -2,6 +2,19 @@
   "framework": "vite",
   "headers": [
     {
+      "source": "/downloads/(.*)\\.apk",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.android.package-archive"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment; filename=\"McMusic-arm64.apk\""
+        }
+      ]
+    },
+    {
       "source": "/(.*)\\.apk",
       "headers": [
         {
@@ -11,10 +24,6 @@
         {
           "key": "Content-Disposition",
           "value": "attachment; filename=\"McMusic-arm64.apk\""
-        },
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }
@@ -27,18 +36,6 @@
     {
       "source": "/downloads",
       "destination": "/downloads/index.html"
-    },
-    {
-      "source": "/downloads/:match*",
-      "destination": "/downloads/:match*"
-    },
-    {
-      "source": "/:match*\\.apk",
-      "destination": "/:match*.apk"
-    },
-    {
-      "source": "/((?!assets|downloads|.*\\..*).*)",
-      "destination": "/index.html"
     }
   ]
 }
