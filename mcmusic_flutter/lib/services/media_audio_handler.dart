@@ -46,6 +46,7 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
     required bool isPlaying,
     required Duration position,
     required Duration duration,
+    Duration? bufferedPosition,
   }) {
     playbackState.add(PlaybackState(
       controls: [
@@ -62,9 +63,14 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
       processingState: AudioProcessingState.ready,
       playing: isPlaying,
       updatePosition: position,
-      bufferedPosition: position,
+      bufferedPosition: bufferedPosition ?? position,
       speed: 1.0,
     ));
+  }
+
+  void updateBufferedPosition(Duration buffered) {
+    final cur = playbackState.value;
+    playbackState.add(cur.copyWith(bufferedPosition: buffered));
   }
 
   @override

@@ -43,6 +43,7 @@ dependencies:
   youtube_player_iframe: ^6.0.2
   webview_flutter: ^4.13.1
   google_fonts: ^8.2.1
+  just_audio: ^0.10.6
 
 dev_dependencies:
   flutter_test:

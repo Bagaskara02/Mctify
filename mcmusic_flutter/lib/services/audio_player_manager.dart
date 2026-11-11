@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:just_audio/just_audio.dart' as ja;
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
@@ -13,7 +13,10 @@ import 'storage_service.dart';
 
 class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _nativeChannel = MethodChannel('com.mcmusic.app/wakelock');
-  final AudioPlayer _player = AudioPlayer();
+  final ja.AudioPlayer _player = ja.AudioPlayer(
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    handleInterruptions: true,
+  );
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
   final MediaAudioHandler? _mediaHandler;
@@ -58,7 +61,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (_isUsingYoutubeIframe && _ytController != null) {
         _ytController!.setPlaybackRate(speed);
       } else {
-        await _player.setPlaybackRate(speed);
+        await _player.setSpeed(speed);
       }
     } catch (e) {
       debugPrint('Error setting playback speed: $e');
@@ -146,8 +149,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             }
           }
         } else {
-          if (_player.state != PlayerState.playing) {
-            _player.resume();
+          if (!_player.playing) {
+            _player.play();
           }
         }
       }
@@ -225,11 +228,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             }
           }
         } else {
-          // Native player check
-          if (_player.state == PlayerState.paused) {
+          // Native ExoPlayer check
+          if (!_player.playing && !_userRequestedPause && _player.processingState != ja.ProcessingState.completed) {
             debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly, auto-resuming...');
             _acquireNativeLocks();
-            _player.resume();
+            _player.play();
           } else if (_duration > Duration.zero && _duration.inSeconds > 10) {
             final now = DateTime.now();
             final elapsed = now.difference(_trackStartTime ?? now);
@@ -241,7 +244,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                 _triggerSleepTimerStop();
               } else if (_isRepeat) {
                 seek(Duration.zero);
-                _player.resume();
+                _player.play();
               } else {
                 next();
               }
@@ -520,9 +523,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (!_userRequestedPause && _currentTrack?.id == track.id) {
         if (!_isUsingYoutubeIframe) {
           try {
-            debugPrint('[AudioPlayerManager] Retrying native player at ${_position.inSeconds}s...');
+            debugPrint('[AudioPlayerManager] Retrying native ExoPlayer at ${_position.inSeconds}s...');
             await _player.seek(_position);
-            await _player.resume();
+            await _player.play();
             return;
           } catch (_) {}
         } else {
@@ -568,7 +571,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       );
 
       if (altStream != null && altStream.isNotEmpty && !MusicApiService.isPreviewUrl(altStream)) {
-        debugPrint('[AudioPlayerManager] Recovery: alternative native stream resolved for "${track.title}"');
+        debugPrint('[AudioPlayerManager] Recovery: alternative native ExoPlayer stream resolved for "${track.title}"');
         _isUsingYoutubeIframe = false;
         _isPlaying = true;
         _userRequestedPause = false;
@@ -576,7 +579,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _ytController?.pauseVideo();
         } catch (_) {}
         await _player.stop();
-        await _player.play(UrlSource(altStream));
+        final audioSource = ja.AudioSource.uri(
+          Uri.parse(altStream),
+          headers: const {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Range': 'bytes=0-',
+          },
+        );
+        await _player.setAudioSource(audioSource);
+        await _player.play();
         if (_position > Duration.zero) {
           try {
             await _player.seek(_position);
@@ -635,26 +647,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   void _initAudioContext() {
     try {
-      AudioPlayer.global.setAudioContext(
-        AudioContext(
-          android: const AudioContextAndroid(
-            isSpeakerphoneOn: false,
-            stayAwake: true,
-            contentType: AndroidContentType.music,
-            usageType: AndroidUsageType.media,
-            audioFocus: AndroidAudioFocus.gain,
-          ),
-          iOS: AudioContextIOS(
-            category: AVAudioSessionCategory.playback,
-            options: const {
-              AVAudioSessionOptions.defaultToSpeaker,
-              AVAudioSessionOptions.mixWithOthers,
-            },
-          ),
-        ),
-      );
-      _player.setPlayerMode(PlayerMode.mediaPlayer);
-      _player.setReleaseMode(ReleaseMode.stop);
+      _player.setVolume(1.0);
     } catch (e) {
       debugPrint('AudioContext init note: $e');
     }
@@ -696,16 +689,28 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _initAudioListeners() {
-    _player.onPlayerStateChanged.listen((state) {
+    _player.playerStateStream.listen((state) {
       if (!_isUsingYoutubeIframe) {
-        _isPlaying = state == PlayerState.playing;
+        _isPlaying = state.playing;
         _syncMediaHandler();
         notifyListeners();
+
+        if (state.processingState == ja.ProcessingState.completed) {
+          debugPrint('[AudioPlayerManager] onPlayerComplete: Track finished naturally!');
+          if (_sleepTimerAtTrackEnd) {
+            _triggerSleepTimerStop();
+          } else if (_isRepeat) {
+            seek(Duration.zero);
+            _player.play();
+          } else {
+            next();
+          }
+        }
       }
     });
 
     int lastNotifiedMs = -1;
-    _player.onPositionChanged.listen((pos) {
+    _player.positionStream.listen((pos) {
       if (!_isUsingYoutubeIframe) {
         _position = pos;
         if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 250) {
@@ -724,8 +729,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
     });
 
-    _player.onDurationChanged.listen((dur) {
-      if (!_isUsingYoutubeIframe) {
+    _player.durationStream.listen((dur) {
+      if (!_isUsingYoutubeIframe && dur != null) {
         _duration = dur;
         if (_currentTrack != null) {
           _mediaHandler?.updateTrack(_currentTrack!, dur);
@@ -735,24 +740,16 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
     });
 
-    _player.onPlayerComplete.listen((_) {
+    _player.bufferedPositionStream.listen((buffered) {
       if (!_isUsingYoutubeIframe) {
-        debugPrint('[AudioPlayerManager] onPlayerComplete: Track finished naturally!');
-        if (_sleepTimerAtTrackEnd) {
-          _triggerSleepTimerStop();
-        } else if (_isRepeat) {
-          seek(Duration.zero);
-          _player.resume();
-        } else {
-          next();
-        }
+        _mediaHandler?.updateBufferedPosition(buffered);
       }
     });
 
-    _player.eventStream.listen((event) {
+    _player.playbackEventStream.listen((event) {
       // Event stream monitoring
     }, onError: (err) {
-      debugPrint('[AudioPlayerManager] Native player stream error: $err');
+      debugPrint('[AudioPlayerManager] Native ExoPlayer stream error: $err');
       if (!_isUsingYoutubeIframe && _currentTrack != null) {
         _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err');
       }
@@ -997,16 +994,24 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (track.audioUrl.isNotEmpty &&
           !MusicApiService.isPreviewUrl(track.audioUrl) &&
           !track.audioUrl.contains('googlevideo.com')) {
-        debugPrint('[AudioPlayerManager] Playing direct audio stream via ExoPlayer');
+        debugPrint('[AudioPlayerManager] Playing direct audio stream via Native ExoPlayer');
         try {
           _ytController?.pauseVideo();
         } catch (_) {}
         _isUsingYoutubeIframe = false;
         await _player.stop();
-        await _player.play(UrlSource(track.audioUrl));
+        final audioSource = ja.AudioSource.uri(
+          Uri.parse(track.audioUrl),
+          headers: const {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+          },
+        );
+        await _player.setAudioSource(audioSource);
+        await _player.play();
         if (_playbackSpeed != 1.0) {
           try {
-            await _player.setPlaybackRate(_playbackSpeed);
+            await _player.setSpeed(_playbackSpeed);
           } catch (_) {}
         }
         _isPlaying = true;
@@ -1036,10 +1041,19 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           } catch (_) {}
           _isUsingYoutubeIframe = false;
           await _player.stop();
-          await _player.play(UrlSource(directStreamUrl));
+          final audioSource = ja.AudioSource.uri(
+            Uri.parse(directStreamUrl),
+            headers: const {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': '*/*',
+              'Range': 'bytes=0-',
+            },
+          );
+          await _player.setAudioSource(audioSource);
+          await _player.play();
           if (_playbackSpeed != 1.0) {
             try {
-              await _player.setPlaybackRate(_playbackSpeed);
+              await _player.setSpeed(_playbackSpeed);
             } catch (_) {}
           }
           _isPlaying = true;
@@ -1147,8 +1161,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       _userRequestedPause = false;
       _acquireNativeLocks();
       _startWatchdog();
-      if (_player.state == PlayerState.paused) {
-        await _player.resume();
+      if (_player.processingState == ja.ProcessingState.ready ||
+          _player.processingState == ja.ProcessingState.buffering) {
+        await _player.play();
       } else if (_currentTrack != null) {
         await playTrack(_currentTrack!);
         return;
@@ -1177,9 +1192,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         }
       } else {
         await _player.seek(pos);
-        if (wasPlaying && _player.state != PlayerState.playing) {
+        if (wasPlaying && !_player.playing) {
           _userRequestedPause = false;
-          await _player.resume();
+          await _player.play();
           _isPlaying = true;
         }
       }

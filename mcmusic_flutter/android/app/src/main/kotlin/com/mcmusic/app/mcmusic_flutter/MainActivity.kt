@@ -361,17 +361,13 @@ class MainActivity : AudioServiceActivity() {
             e.printStackTrace()
         }
 
-        // Instant Screen-Off WakeLock & WebView Keeper (Zero jeda / zero stutter when power button is pressed)
+        // Instant Screen-Off WakeLock (Zero jeda / zero stutter when power button is pressed)
         try {
             val screenFilter = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
             screenOffReceiver = object : android.content.BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
                     if (intent?.action == Intent.ACTION_SCREEN_OFF && isAudioPlaying) {
                         acquirePlaybackLocks()
-                        notifyWebViewsForeground()
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            if (isAudioPlaying) notifyWebViewsForeground()
-                        }, 25)
                     }
                 }
             }
@@ -472,7 +468,6 @@ class MainActivity : AudioServiceActivity() {
             if (isWifiConnected() && wifiLock?.isHeld != true) {
                 wifiLock?.acquire()
             }
-            notifyWebViewsForeground()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
@@ -498,19 +493,10 @@ class MainActivity : AudioServiceActivity() {
             if (isAudioPlaying) {
                 acquirePlaybackLocks()
             }
-            notifyWebViewsForeground()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onPause()
-        if (isAudioPlaying) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (isAudioPlaying) notifyWebViewsForeground()
-            }, 25)
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (isAudioPlaying) notifyWebViewsForeground()
-            }, 100)
-        }
     }
 
     override fun onStop() {
@@ -518,19 +504,10 @@ class MainActivity : AudioServiceActivity() {
             if (isAudioPlaying) {
                 acquirePlaybackLocks()
             }
-            notifyWebViewsForeground()
         } catch (e: Throwable) {
             e.printStackTrace()
         }
         super.onStop()
-        if (isAudioPlaying) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (isAudioPlaying) notifyWebViewsForeground()
-            }, 25)
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (isAudioPlaying) notifyWebViewsForeground()
-            }, 100)
-        }
     }
 
     override fun onResume() {
