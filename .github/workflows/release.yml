@@ -1,0 +1,26 @@
+name: Publish GitHub Release v1.1.0
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v1.1.0*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create v1.1.0 public/downloads/McMusic-arm64.apk \
+            --title "McMusic Mobile v1.1.0 (AndroidX Media3 ExoPlayer Native)" \
+            --notes "Release v1.1.0 with AndroidX Media3 ExoPlayer native engine, full background playback without WebView, and screen-off battery optimization." \
+            --clobber

@@ -68,15 +68,15 @@ export default function DownloadAppModal({ isOpen, onClose }) {
 
           <div className="pt-2 space-y-2">
             <a
-              href="/downloads/McMusic-arm64.apk"
+              href="https://litter.catbox.moe/yey4n7.apk"
               download="McMusic-v1.1.0-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McMusic APK Direct v1.1.0 (21.0 MB)</span>
+              <span>Download McMusic APK v1.1.0 (21.0 MB Direct)</span>
             </a>
             <p className="text-center text-[11px] text-[#b3b3b3]">
-              Unduh instan langsung (Media3 ExoPlayer & Background Playback Aktif) • Mendukung Android (ARM64)
+              Unduh langsung file biner APK (ExoPlayer Native, Bebas Jeda Saat Layar Mati)
             </p>
           </div>
           <div className="text-center pt-1 flex items-center justify-center gap-4">
