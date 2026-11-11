@@ -66,18 +66,17 @@ export default function DownloadAppModal({ isOpen, onClose }) {
             </span>
           </div>
 
-          <div className="pt-2">
+          <div className="pt-2 space-y-2">
             <a
-              href="https://github.com/Bagaskara02/Mctify/releases/latest/download/McMusic-arm64.apk"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/downloads/McMusic-arm64.apk"
+              download="McMusic-v1.1.0-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McMusic APK via GitHub Release (20.9 MB)</span>
+              <span>Download McMusic APK Direct v1.1.0 (21.0 MB)</span>
             </a>
-            <p className="text-center text-[11px] text-[#b3b3b3] mt-2">
-              Unduh cepat & stabil via GitHub Releases • Mendukung Android (ARM64)
+            <p className="text-center text-[11px] text-[#b3b3b3]">
+              Unduh instan langsung (Media3 ExoPlayer & Background Playback Aktif) • Mendukung Android (ARM64)
             </p>
           </div>
           <div className="text-center pt-1 flex items-center justify-center gap-4">

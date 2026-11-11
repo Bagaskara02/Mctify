@@ -32,7 +32,6 @@ mcmusic_flutter/.pub/
 mcmusic_flutter/build/
 mcmusic_flutter/android/.gradle/
 mcmusic_flutter/android/app/build/
-# APK binaries (distribute via GitHub Releases)
-*.apk
-public/downloads/*.apk
-dist/downloads/*.apk
+# APK binaries inside build outputs
+mcmusic_flutter/build/app/outputs/flutter-apk/*.apk
+!public/downloads/McMusic-arm64.apk
