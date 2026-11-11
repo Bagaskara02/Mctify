@@ -1,10 +1,10 @@
-name: Publish GitHub Release v1.1.0
+name: Publish GitHub Release
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v1.1.0*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -16,11 +16,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare McTify APK Asset
+        run: |
+          cp public/downloads/McMusic-arm64.apk McTify-v1.2.0-arm64.apk
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create v1.1.0 public/downloads/McMusic-arm64.apk \
-            --title "McMusic Mobile v1.1.0 (AndroidX Media3 ExoPlayer Native)" \
-            --notes "Release v1.1.0 with AndroidX Media3 ExoPlayer native engine, full background playback without WebView, and screen-off battery optimization." \
+          TAG_NAME="${GITHUB_REF_NAME:-v1.2.0}"
+          gh release create "$TAG_NAME" McTify-v1.2.0-arm64.apk public/downloads/McMusic-arm64.apk \
+            --title "McTify Mobile ${TAG_NAME} (Spotify + FMHY UI Overhaul & ExoPlayer Native)" \
+            --notes "Rilis ${TAG_NAME}: Rebranding ke McTify, desain ulang UI & Search lengkap mengikuti standar Spotify & FMHY (MySpoti/Spotube/BitChord), ekstraksi warna ambient cover lagu real-time, kartu lirik sinkron langsung di player, serta pemutaran latar belakang layar mati dengan AndroidX Media3 ExoPlayer native." \
             --clobber

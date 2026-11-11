@@ -160,7 +160,7 @@ class _CarModeViewState extends State<CarModeView> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        track?.artist ?? 'McMusic Player',
+                        track?.artist ?? 'McTify Player',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,

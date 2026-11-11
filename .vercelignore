@@ -1,7 +1,7 @@
 # Vercel Deployment Ignore
-# Do not upload the Flutter source tree, binaries, or test scripts to Vercel
+# Do not upload the Flutter source tree or duplicate binaries to Vercel
 mcmusic_flutter/
-*.apk
+public/McMusic-arm64.apk
 *.zip
 lyra-direct*
 test_*.js

@@ -17,6 +17,7 @@ import {
   Moon
 } from 'lucide-react';
 import { DEFAULT_ARTWORK, cleanTrackTitle } from '../services/musicApi';
+import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 // cleanTrackTitle imported from musicApi.js
 
@@ -51,6 +52,20 @@ export default function MobileFullscreenPlayer({
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState(0);
   const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+  const [palette, setPalette] = useState({ primary: '#182a44', secondary: '#121212' });
+
+  useEffect(() => {
+    if (!currentTrack?.artwork) return;
+    let cancelled = false;
+    extractPaletteFromImage(currentTrack.artwork).then((pal) => {
+      if (!cancelled && pal?.primary) {
+        setPalette(pal);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.artwork]);
 
   useEffect(() => {
     return audioQualityService.subscribe((qId) => {
@@ -102,7 +117,12 @@ export default function MobileFullscreenPlayer({
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (activeDisplayTime / duration) * 100)) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-b from-[#182a44] via-[#121212] to-[#000000] text-white flex flex-col justify-between p-6 select-none animate-in fade-in slide-in-from-bottom duration-300">
+    <div
+      style={{
+        background: `linear-gradient(180deg, ${palette.primary} 0%, ${palette.secondary} 54%, #09090b 100%)`,
+      }}
+      className="fixed inset-0 z-50 text-white flex flex-col justify-between p-6 select-none animate-in fade-in slide-in-from-bottom duration-300 transition-colors duration-700"
+    >
       {/* Top Header */}
       <div className="flex items-center justify-between">
         <button
@@ -132,9 +152,14 @@ export default function MobileFullscreenPlayer({
         </button>
       </div>
 
-      {/* Big Cover Art */}
+      {/* Big Cover Art with Play/Pause Scale Bounce */}
       <div className="my-auto flex justify-center py-4">
-        <div className="relative aspect-square w-full max-w-[320px] rounded-2xl shadow-2xl overflow-hidden bg-[#242424]">
+        <div
+          onClick={onOpenLyrics}
+          className={`relative aspect-square w-full max-w-[320px] rounded-2xl shadow-2xl overflow-hidden bg-[#242424] cursor-pointer transition-transform duration-300 ${
+            isPlaying ? 'scale-100' : 'scale-[0.93]'
+          }`}
+        >
           <img
             src={currentTrack.artwork || DEFAULT_ARTWORK}
             alt={currentTrack.title}

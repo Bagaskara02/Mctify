@@ -21,6 +21,7 @@ import RightSidebarNowPlaying from './components/RightSidebarNowPlaying';
 import ContextMenu from './components/ContextMenu';
 import TopNavBar from './components/TopNavBar';
 import ArtistView from './components/ArtistView';
+import CommandPaletteModal from './components/CommandPaletteModal';
 import { storageService } from './services/storageService';
 import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
@@ -32,6 +33,41 @@ export default function App() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [selectedArtist, setSelectedArtist] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [navHistory, setNavHistory] = useState([{ view: 'discover', plId: null }]);
+  const [navIdx, setNavIdx] = useState(0);
+
+  const navigateTo = (view, plId = null) => {
+    setCurrentView(view);
+    setSelectedPlaylistId(plId);
+    setNavHistory((prev) => {
+      const sliced = prev.slice(0, navIdx + 1);
+      const last = sliced[sliced.length - 1];
+      if (last && last.view === view && last.plId === plId) return sliced;
+      const next = [...sliced, { view, plId }];
+      setNavIdx(next.length - 1);
+      return next;
+    });
+  };
+
+  const handleGoBack = () => {
+    if (navIdx > 0) {
+      const targetIdx = navIdx - 1;
+      const entry = navHistory[targetIdx];
+      setNavIdx(targetIdx);
+      setCurrentView(entry.view);
+      setSelectedPlaylistId(entry.plId);
+    }
+  };
+
+  const handleGoForward = () => {
+    if (navIdx < navHistory.length - 1) {
+      const targetIdx = navIdx + 1;
+      const entry = navHistory[targetIdx];
+      setNavIdx(targetIdx);
+      setCurrentView(entry.view);
+      setSelectedPlaylistId(entry.plId);
+    }
+  };
   
   // Library State
   const [playlists, setPlaylists] = useState([]);
@@ -62,6 +98,7 @@ export default function App() {
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isEqualizerOpen, setIsEqualizerOpen] = useState(false);
   const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
   const sleepTimerIntervalRef = useRef(null);
@@ -548,7 +585,13 @@ export default function App() {
   // Global Desktop Spotify Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Don't trigger if user is actively typing in an input or textarea
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      // Don't trigger playback keys if user is actively typing in an input or textarea
       const target = e.target;
       if (
         target &&
@@ -567,7 +610,8 @@ export default function App() {
         e.preventDefault();
         handlePlayPause();
       } else if (e.key === 'Escape') {
-        // Escape: Close Right Sidebar, Lyrics, Modals, Menus
+        // Escape: Close Command Palette, Right Sidebar, Lyrics, Modals, Menus
+        if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
         if (isRightSidebarOpen) setIsRightSidebarOpen(false);
         if (isLyricsOpen) setIsLyricsOpen(false);
         if (isQueueOpen) setIsQueueOpen(false);
@@ -581,12 +625,7 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft') {
         // Ctrl+Left / Cmd+Left: Previous
         e.preventDefault();
-        handlePrevious();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        // Ctrl+K / Cmd+K: Focus Search View
-        e.preventDefault();
-        setCurrentView('search');
-        setSelectedPlaylistId(null);
+        handlePrev();
       }
     };
 
@@ -596,6 +635,7 @@ export default function App() {
     isPlaying,
     currentTrack,
     queue,
+    isCommandPaletteOpen,
     isRightSidebarOpen,
     isLyricsOpen,
     isQueueOpen,
@@ -798,15 +838,17 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Header Bar matching Spotify Desktop media_1791347940843.png */}
+      {/* Top Header Bar matching Spotify Desktop & Monochrome Web */}
       <TopNavBar
         currentView={currentView}
-        setCurrentView={(view) => {
-          setCurrentView(view);
-          setSelectedPlaylistId(null);
-        }}
+        setCurrentView={(view) => navigateTo(view, null)}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        canGoBack={navIdx > 0}
+        canGoForward={navIdx < navHistory.length - 1}
+        onGoBack={handleGoBack}
+        onGoForward={handleGoForward}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenDownloadApp={() => setIsDownloadModalOpen(true)}
         onCreatePlaylist={handleCreatePlaylist}
         onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
@@ -910,10 +952,9 @@ export default function App() {
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onOpenImportModal={() => setIsImportModalOpen(true)}
-              onSelectPlaylist={(plId) => {
-                setSelectedPlaylistId(plId);
-                setCurrentView('playlist');
-              }}
+              onSelectPlaylist={(plId) => navigateTo('playlist', plId)}
+              onSelectLiked={() => navigateTo('liked', null)}
+              onOpenArtist={handleOpenArtist}
               onTrackContextMenu={handleTrackContextMenu}
               onPlaylistContextMenu={handlePlaylistContextMenu}
             />
@@ -933,6 +974,7 @@ export default function App() {
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onOpenArtist={handleOpenArtist}
+              onSelectPlaylist={(plId) => navigateTo('playlist', plId)}
               onAddTrackToPlaylist={handleAddTrackToPlaylist}
               onTrackContextMenu={handleTrackContextMenu}
               onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
@@ -1234,6 +1276,20 @@ export default function App() {
       <AudioQualityModal
         isOpen={isAudioQualityOpen}
         onClose={() => setIsAudioQualityOpen(false)}
+      />
+
+      {/* --- SPOTLIGHT COMMAND PALETTE (CTRL+K - FMHY Monochrome Spec) --- */}
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigate={(view) => navigateTo(view, null)}
+        onPlayTrackFromSearch={handlePlayTrackFromSearch}
+        onOpenImportSpotify={() => setIsImportModalOpen(true)}
+        onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
+        onOpenEqualizer={() => setIsEqualizerOpen(true)}
+        onOpenAudioQuality={() => setIsAudioQualityOpen(true)}
+        onOpenLyrics={() => setIsLyricsOpen(true)}
+        onOpenDownloadApp={() => setIsDownloadModalOpen(true)}
       />
 
       {/* --- SLEEP TIMER MODAL --- */}

@@ -10,7 +10,7 @@
         },
         {
           "key": "Content-Disposition",
-          "value": "attachment; filename=\"McMusic-arm64.apk\""
+          "value": "attachment; filename=\"McTify-v1.2.0-arm64.apk\""
         }
       ]
     },
@@ -23,7 +23,7 @@
         },
         {
           "key": "Content-Disposition",
-          "value": "attachment; filename=\"McMusic-arm64.apk\""
+          "value": "attachment; filename=\"McTify-v1.2.0-arm64.apk\""
         }
       ]
     }

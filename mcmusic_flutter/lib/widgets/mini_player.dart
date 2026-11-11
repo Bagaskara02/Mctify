@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
 import '../theme/app_theme.dart';
+import '../utils/artwork_palette.dart';
 import 'audio_quality_modal.dart';
 import 'fullscreen_player.dart';
 import 'optimized_image.dart';
 
-class MiniPlayer extends StatelessWidget {
+class MiniPlayer extends StatefulWidget {
   final AudioPlayerManager player;
   final bool isLiked;
   final VoidCallback onToggleLike;
@@ -23,12 +24,33 @@ class MiniPlayer extends StatelessWidget {
   });
 
   @override
+  State<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<MiniPlayer> {
+  ArtworkColors _palette = ArtworkColors.fallbackDefault;
+  String? _lastArtworkUrl;
+
+  void _syncPalette(String url, String title) {
+    if (url == _lastArtworkUrl) return;
+    _lastArtworkUrl = url;
+    _palette = ArtworkPalette.getCachedOrFallback(url, seed: title);
+    ArtworkPalette.extract(url, seed: title).then((extracted) {
+      if (mounted && _lastArtworkUrl == url) {
+        setState(() => _palette = extracted);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final track = player.currentTrack;
+    final track = widget.player.currentTrack;
     if (track == null) return const SizedBox.shrink();
 
-    final progress = player.duration.inSeconds > 0
-        ? (player.position.inSeconds / player.duration.inSeconds).clamp(0.0, 1.0)
+    _syncPalette(track.artwork, track.title);
+
+    final progress = widget.player.duration.inSeconds > 0
+        ? (widget.player.position.inSeconds / widget.player.duration.inSeconds).clamp(0.0, 1.0)
         : 0.0;
 
     return GestureDetector(
@@ -39,19 +61,18 @@ class MiniPlayer extends StatelessWidget {
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
           builder: (_) => FullscreenPlayer(
-            player: player,
-            isLiked: isLiked,
-            onToggleLike: onToggleLike,
+            player: widget.player,
+            isLiked: widget.isLiked,
+            onToggleLike: widget.onToggleLike,
           ),
         );
       },
-      // Spotify-style Horizontal Swipe to Skip / Previous
+      // Spotify / RiMusic Horizontal Swipe to Skip / Previous
       onHorizontalDragEnd: (details) {
         final velocity = details.primaryVelocity ?? 0;
         if (velocity < -200) {
-          // Swiped left -> Skip Next
           HapticFeedback.lightImpact();
-          player.next();
+          widget.player.next();
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -67,9 +88,8 @@ class MiniPlayer extends StatelessWidget {
             ),
           );
         } else if (velocity > 200) {
-          // Swiped right -> Undo / Previous
           HapticFeedback.lightImpact();
-          player.previous();
+          widget.player.previous();
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -86,58 +106,85 @@ class MiniPlayer extends StatelessWidget {
           );
         }
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        height: 56,
+        height: 58,
         decoration: BoxDecoration(
-          color: const Color(0xFF222429),
-          borderRadius: BorderRadius.circular(8),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              _palette.surfaceTint,
+              _palette.primary,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 0.7),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(160),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              color: Colors.black.withValues(alpha: 0.65),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            // Hairline progress indicator at the very bottom edge (Spotify exact match)
+            // Hairline progress track + fill at the bottom edge (Spotify exact match)
             Positioned(
-              left: 0,
-              right: 0,
+              left: 8,
+              right: 8,
               bottom: 0,
-              child: RepaintBoundary(
-                child: FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: progress,
-                  child: Container(
-                    height: 2.5,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
+              child: Container(
+                height: 2.2,
+                color: Colors.white.withValues(alpha: 0.16),
+                alignment: Alignment.centerLeft,
+                child: RepaintBoundary(
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: progress,
+                    child: Container(
+                      height: 2.2,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
 
-            // Content row
+            // Content Row
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
-                  // Album Artwork (Spotify style rounded square with Hero flight animation)
+                  // Album Artwork with Hero flight animation
                   Hero(
                     tag: 'current_artwork_${track.id}',
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: OptimizedImage(
-                        imageUrl: track.artwork,
-                        width: 40,
-                        height: 40,
-                        memCacheWidth: 80,
-                        memCacheHeight: 80,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: OptimizedImage(
+                          imageUrl: track.artwork,
+                          width: 40,
+                          height: 40,
+                          memCacheWidth: 80,
+                          memCacheHeight: 80,
+                        ),
                       ),
                     ),
                   ),
@@ -155,67 +202,85 @@ class MiniPlayer extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white60,
-                            fontSize: 11,
-                          ),
+                        const SizedBox(height: 1),
+                        Row(
+                          children: [
+                            if (widget.player.isPlaying) ...[
+                              const Icon(Icons.graphic_eq, color: AppTheme.primaryAzure, size: 12),
+                              const SizedBox(width: 4),
+                            ],
+                            Expanded(
+                              child: Text(
+                                track.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
 
-                  // Devices Connect Button (Spotify icon)
+                  // Devices / Audio Quality pill icon
                   IconButton(
-                    icon: const Icon(Icons.devices_rounded, color: Colors.white70, size: 20),
-                    tooltip: 'Perangkat',
-                    onPressed: () => AudioQualityModal.show(context, player),
+                    icon: const Icon(Icons.speaker_group_outlined, color: Colors.white70, size: 19),
+                    tooltip: 'Kualitas & Perangkat',
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: () => AudioQualityModal.show(context, widget.player),
                   ),
 
-                  // Saved Checkmark Button (Blue Accent Palette!)
+                  const SizedBox(width: 6),
+
+                  // Saved Checkmark Button (Spotify 2025 style with Electric Azure accent)
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.lightImpact();
-                      onToggleLike();
+                      widget.onToggleLike();
                     },
                     child: Container(
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
-                        color: isLiked ? AppTheme.primaryAzure : Colors.transparent,
+                        color: widget.isLiked ? AppTheme.primaryAzure : Colors.transparent,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: isLiked ? AppTheme.primaryAzure : Colors.white54,
+                          color: widget.isLiked ? AppTheme.primaryAzure : Colors.white60,
                           width: 1.8,
                         ),
                       ),
                       child: Icon(
-                        isLiked ? Icons.check : Icons.add,
-                        color: isLiked ? Colors.black : Colors.white70,
+                        widget.isLiked ? Icons.check : Icons.add,
+                        color: widget.isLiked ? Colors.black : Colors.white,
                         size: 15,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
 
-                  // Play / Pause Icon Button (Solid white Spotify style)
+                  // Play / Pause Icon Button
                   IconButton(
                     icon: Icon(
-                      player.isPlaying ? Icons.pause : Icons.play_arrow,
+                      widget.player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                       color: Colors.white,
-                      size: 28,
+                      size: 30,
                     ),
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(),
                     onPressed: () {
                       HapticFeedback.mediumImpact();
-                      player.togglePlayPause();
+                      widget.player.togglePlayPause();
                     },
                   ),
                 ],

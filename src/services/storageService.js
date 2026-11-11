@@ -261,4 +261,59 @@ export const storageService = {
       console.error(e);
     }
   },
+
+  getRecentSearches() {
+    try {
+      const saved = localStorage.getItem('mctify_recent_searches_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addRecentSearch(item) {
+    if (!item || !item.query || !item.query.trim()) return [];
+    const trimmed = item.query.trim();
+    const type = item.type || 'query';
+    try {
+      const current = this.getRecentSearches().filter(
+        (x) => !((x.query || '').toLowerCase() === trimmed.toLowerCase() && (x.type || 'query') === type)
+      );
+      const updated = [
+        {
+          query: trimmed,
+          title: item.title || trimmed,
+          subtitle: item.subtitle || 'Pencarian',
+          artwork: item.artwork || '',
+          type,
+        },
+        ...current,
+      ].slice(0, 14);
+      localStorage.setItem('mctify_recent_searches_v1', JSON.stringify(updated));
+      return updated;
+    } catch {
+      return [];
+    }
+  },
+
+  removeRecentSearch(query, type) {
+    try {
+      const updated = this.getRecentSearches().filter(
+        (x) => !((x.query || '').toLowerCase() === (query || '').toLowerCase() && (!type || x.type === type))
+      );
+      localStorage.setItem('mctify_recent_searches_v1', JSON.stringify(updated));
+      return updated;
+    } catch {
+      return [];
+    }
+  },
+
+  clearRecentSearches() {
+    try {
+      localStorage.removeItem('mctify_recent_searches_v1');
+      return [];
+    } catch {
+      return [];
+    }
+  },
 };

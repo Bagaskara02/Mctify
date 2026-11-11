@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/track.dart';
 import '../models/playlist.dart';
+import '../models/track.dart';
 import '../services/audio_player_manager.dart';
 import '../services/music_api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/artwork_palette.dart';
 import '../widgets/optimized_image.dart';
+import '../widgets/shimmer_skeleton.dart';
 import '../widgets/track_action_sheet.dart';
 import 'playlist_detail_view.dart';
 
@@ -26,24 +28,72 @@ class _HomeViewState extends State<HomeView> {
   final MusicApiService _api = MusicApiService();
   final StorageService _storage = StorageService();
 
-  String _selectedFilter = 'All'; // All, Music, Podcasts
+  String _selectedFilter = 'Semua'; // Semua, Musik, Mix, Podcast
   List<Track> _quickCards = [];
   List<Track> _recentRotation = [];
   List<Track> _startListening = [];
-  String _startListeningTitle = 'Rekomendasi Cerdas';
+  List<Track> _trendingHits = [];
+  String _startListeningTitle = 'Diputar Baru-Baru Ini & Rekomendasi';
   String _startListeningSubtitle = 'Berdasarkan selera musikmu';
   List<Track> _likedTracks = [];
   List<Playlist> _playlists = [];
   bool _isLoading = true;
   final Set<String> _likedIds = {};
   List<Map<String, dynamic>> _popularRadios = [];
+  List<Map<String, dynamic>> _dailyMixes = [];
   String? _lastRecordedTrackId;
+  ArtworkColors _ambientColors = ArtworkColors.fallbackDefault;
+  String? _lastAmbientUrl;
 
   String get _greeting {
     final hour = DateTime.now().hour;
-    if (hour < 12) return 'Selamat Pagi';
-    if (hour < 18) return 'Selamat Siang';
+    if (hour < 11) return 'Selamat Pagi';
+    if (hour < 15) return 'Selamat Siang';
+    if (hour < 19) return 'Selamat Sore';
     return 'Selamat Malam';
+  }
+
+  void _syncAmbientHeader(String? url, String seed) {
+    if (url == null || url.isEmpty || url == _lastAmbientUrl) return;
+    _lastAmbientUrl = url;
+    ArtworkPalette.extract(url, seed: seed).then((colors) {
+      if (mounted && _lastAmbientUrl == url) {
+        setState(() => _ambientColors = colors);
+      }
+    });
+  }
+
+  List<Map<String, dynamic>> _buildDailyMixes(List<Track> pool) {
+    final mixConfigs = [
+      {'title': 'Daily Mix 01', 'badge': '01', 'color': const Color(0xFF3B82F6), 'query': 'Pop Hits Trending'},
+      {'title': 'Daily Mix 02', 'badge': '02', 'color': const Color(0xFF10B981), 'query': 'Lagu Indonesia Hits Bernadya Tulus'},
+      {'title': 'Release Radar', 'badge': 'NEW', 'color': const Color(0xFFA855F7), 'query': 'New Music Release 2025'},
+      {'title': 'Discover Weekly', 'badge': 'MIX', 'color': const Color(0xFFF59E0B), 'query': 'Rex Orange County NIKI Daniel Caesar'},
+    ];
+
+    final mixes = <Map<String, dynamic>>[];
+    for (int i = 0; i < mixConfigs.length; i++) {
+      final cfg = mixConfigs[i];
+      final offset = (i * 3) % (pool.isEmpty ? 1 : pool.length);
+      final subset = pool.isNotEmpty
+          ? [...pool.skip(offset), ...pool.take(offset)].take(10).toList()
+          : <Track>[];
+      final cover = subset.isNotEmpty ? subset.first.artwork : MusicApiService.defaultArtwork;
+      final artistsLabel = subset.isNotEmpty
+          ? subset.map((t) => t.artist.split(',').first.trim()).toSet().take(3).join(', ')
+          : 'Campuran lagu pilihan untukmu';
+
+      mixes.add({
+        'title': cfg['title'],
+        'badge': cfg['badge'],
+        'color': cfg['color'],
+        'cover': cover,
+        'subtitle': '$artistsLabel, dan lainnya',
+        'tracks': subset,
+        'query': cfg['query'],
+      });
+    }
+    return mixes;
   }
 
   List<Map<String, dynamic>> _buildDynamicRadios({
@@ -53,7 +103,7 @@ class _HomeViewState extends State<HomeView> {
   }) {
     final List<Map<String, dynamic>> radios = [];
     final List<Color> colors = [
-      const Color(0xFF00A3FF), // Electric Azure
+      const Color(0xFF3B82F6), // Electric Azure
       const Color(0xFF68D391), // Mint
       const Color(0xFFF6AD55), // Coral
       const Color(0xFF9F7AEA), // Violet
@@ -63,10 +113,10 @@ class _HomeViewState extends State<HomeView> {
     final artistsToFeature = <String>{};
     if (topArtist != null && topArtist.isNotEmpty) artistsToFeature.add(topArtist);
     if (lastArtist != null && lastArtist.isNotEmpty) artistsToFeature.add(lastArtist);
-    artistsToFeature.addAll(['The Weeknd', 'Bruno Mars', 'Coldplay', 'Sheila On 7', 'Mahalini', 'Linkin Park']);
+    artistsToFeature.addAll(['The Weeknd', 'Tulus', 'Coldplay', 'NIKI', 'Bernadya', 'Bruno Mars']);
 
     int colorIdx = 0;
-    for (final artist in artistsToFeature.take(5)) {
+    for (final artist in artistsToFeature.take(6)) {
       final matching = tracksPool.where((t) => t.artist.toLowerCase().contains(artist.toLowerCase())).toList();
       final images = <String>[];
       if (matching.isNotEmpty) {
@@ -79,7 +129,7 @@ class _HomeViewState extends State<HomeView> {
       radios.add({
         'title': artist,
         'bgColor': colors[colorIdx % colors.length],
-        'artists': 'Radio $artist • Campuran hits terbaik dan lagu serupa',
+        'artists': 'Dengan hits $artist & artis serupa',
         'images': images,
         'search': artist,
       });
@@ -101,6 +151,7 @@ class _HomeViewState extends State<HomeView> {
     final current = widget.player.currentTrack;
     if (current != null && current.id != _lastRecordedTrackId) {
       _lastRecordedTrackId = current.id;
+      _syncAmbientHeader(current.artwork, current.title);
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) _loadHomeData();
       });
@@ -121,68 +172,32 @@ class _HomeViewState extends State<HomeView> {
       final playlists = await _storage.getPlaylists();
       final topArtist = await _storage.getTopArtist();
 
-      // Gather candidate tracks for dynamic 6 Quick Cards matching web
+      final trending = await _api.getTrendingTracks();
+
+      // Gather candidate tracks for 7 Quick Cards (+ 1 Liked Songs fixed slot #1 = 8 tiles!)
       final candidateTracks = <Track>[...history, ...liked];
       for (final pl in playlists) {
         candidateTracks.addAll(pl.tracks);
       }
-      candidateTracks.shuffle();
+      candidateTracks.addAll(trending);
 
       final seenKeys = <String>{};
-      final artistCount = <String, int>{};
       final List<Track> quickCards = [];
-
-      // Pass 1: max 1 track per artist
       for (final t in candidateTracks) {
-        final artKey = t.artist.trim().toLowerCase();
-        final titleKey = t.title.trim().toLowerCase();
-        final fullKey = '${titleKey}_$artKey';
-        if (!seenKeys.contains(fullKey) && (artistCount[artKey] ?? 0) < 1) {
+        final fullKey = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+        if (!seenKeys.contains(fullKey)) {
           seenKeys.add(fullKey);
-          artistCount[artKey] = (artistCount[artKey] ?? 0) + 1;
           quickCards.add(t);
-          if (quickCards.length >= 6) break;
-        }
-      }
-
-      // Pass 2: max 2 tracks per artist
-      if (quickCards.length < 6) {
-        for (final t in candidateTracks) {
-          final artKey = t.artist.trim().toLowerCase();
-          final titleKey = t.title.trim().toLowerCase();
-          final fullKey = '${titleKey}_$artKey';
-          if (!seenKeys.contains(fullKey) && (artistCount[artKey] ?? 0) < 2) {
-            seenKeys.add(fullKey);
-            artistCount[artKey] = (artistCount[artKey] ?? 0) + 1;
-            quickCards.add(t);
-            if (quickCards.length >= 6) break;
-          }
-        }
-      }
-
-      // Pass 3: supplement from live trending hits if fewer than 6
-      if (quickCards.length < 6) {
-        final trending = await _api.getTrendingTracks();
-        final shuffledTrending = List<Track>.from(trending)..shuffle();
-        for (final t in shuffledTrending) {
-          final artKey = t.artist.trim().toLowerCase();
-          final titleKey = t.title.trim().toLowerCase();
-          final fullKey = '${titleKey}_$artKey';
-          if (!seenKeys.contains(fullKey)) {
-            seenKeys.add(fullKey);
-            quickCards.add(t);
-            if (quickCards.length >= 6) break;
-          }
+          if (quickCards.length >= 7) break;
         }
       }
 
       List<Track> recentRotation = [];
       List<Track> startListening = [];
-      String startListeningSubtitle = 'Berdasarkan selera musikmu';
-      String startListeningTitle = 'Rekomendasi Cerdas';
+      String startListeningSubtitle = 'Dipilih sesuai riwayat putarmu';
+      String startListeningTitle = 'Putar Lagi & Rekomendasi';
 
       if (history.isNotEmpty) {
-        // Collect diverse recent rotation with maximum 1 track per artist
         final seenArtists = <String>{};
         final seenIds = <String>{};
         final List<Track> diverseRecent = [];
@@ -192,50 +207,38 @@ class _HomeViewState extends State<HomeView> {
             seenIds.add(t.id);
             seenArtists.add(a);
             diverseRecent.add(t);
-            if (diverseRecent.length >= 4) break;
+            if (diverseRecent.length >= 6) break;
           }
         }
-        if (diverseRecent.length < 4) {
-          for (final t in history) {
-            if (!seenIds.contains(t.id)) {
-              seenIds.add(t.id);
-              diverseRecent.add(t);
-              if (diverseRecent.length >= 4) break;
-            }
-          }
-        }
-        recentRotation = diverseRecent;
+        recentRotation = diverseRecent.isNotEmpty ? diverseRecent : history.take(6).toList();
         final lastTrack = history.first;
-        final lastArtist = lastTrack.artist;
 
-        // Fetch smart recommendations dynamically based on actual played track
         final recommended = await _api.getSmartRecommendations(lastTrack);
-        startListening = recommended.take(4).toList();
+        startListening = recommended.take(6).toList();
 
         if (topArtist != null && topArtist.isNotEmpty) {
-          startListeningSubtitle = 'Karena kamu sering memutar $topArtist & ${lastTrack.title}';
+          startListeningSubtitle = 'Karena kamu sering mendengarkan $topArtist';
           startListeningTitle = 'Rekomendasi Untukmu';
         } else {
-          startListeningSubtitle = 'Berdasarkan "${lastTrack.title}"';
-          startListeningTitle = 'Radio & Rekomendasi';
+          startListeningSubtitle = 'Mirip dengan "${lastTrack.title}"';
+          startListeningTitle = 'Radio & Lagu Serupa';
         }
-
-        final pool = [...history, ...startListening, ...liked];
-        _popularRadios = _buildDynamicRadios(
-          topArtist: topArtist,
-          lastArtist: lastArtist,
-          tracksPool: pool,
-        );
       } else {
-        // Brand new user: fetch live trending hits
-        final trending = await _api.getTrendingTracks();
-        recentRotation = trending.take(3).toList();
-        startListening = trending.skip(3).take(4).toList();
-        _popularRadios = _buildDynamicRadios(
-          topArtist: null,
-          lastArtist: null,
-          tracksPool: trending,
-        );
+        recentRotation = trending.take(6).toList();
+        startListening = trending.skip(3).take(6).toList();
+      }
+
+      final pool = [...history, ...startListening, ...liked, ...trending];
+      final radios = _buildDynamicRadios(
+        topArtist: topArtist,
+        lastArtist: history.isNotEmpty ? history.first.artist : null,
+        tracksPool: pool,
+      );
+      final mixes = _buildDailyMixes(pool);
+
+      final heroTrack = widget.player.currentTrack ?? (quickCards.isNotEmpty ? quickCards.first : null);
+      if (heroTrack != null) {
+        _syncAmbientHeader(heroTrack.artwork, heroTrack.title);
       }
 
       if (mounted) {
@@ -243,10 +246,13 @@ class _HomeViewState extends State<HomeView> {
           _quickCards = quickCards;
           _recentRotation = recentRotation;
           _startListening = startListening;
+          _trendingHits = trending;
           _startListeningTitle = startListeningTitle;
           _startListeningSubtitle = startListeningSubtitle;
           _likedTracks = liked;
           _playlists = playlists;
+          _popularRadios = radios;
+          _dailyMixes = mixes;
           _likedIds.clear();
           _likedIds.addAll(liked.map((t) => t.id));
           _isLoading = false;
@@ -272,12 +278,50 @@ class _HomeViewState extends State<HomeView> {
     });
   }
 
-  void _showTrackMenu(Track track) {
-    showTrackActionSheet(
-      context: context,
-      track: track,
-      player: widget.player,
-      onPlaylistModified: _loadHomeData,
+  void _openLikedPlaylist() {
+    HapticFeedback.lightImpact();
+    final likedPlaylist = Playlist(
+      id: 'pl-liked-shortcut',
+      name: 'Lagu yang Disukai',
+      description: 'Daftar putar lagu favoritmu tersimpan lokal di McTify',
+      cover: _likedTracks.isNotEmpty ? _likedTracks.first.artwork : MusicApiService.defaultArtwork,
+      tracks: _likedTracks,
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistDetailView(
+          playlist: likedPlaylist,
+          player: widget.player,
+          onPlaylistChanged: _loadHomeData,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDailyMix(Map<String, dynamic> mix) async {
+    HapticFeedback.lightImpact();
+    var tracks = (mix['tracks'] as List<Track>?) ?? [];
+    if (tracks.isEmpty) {
+      tracks = await _api.searchTracks(mix['query'] as String);
+    }
+    if (!mounted) return;
+    final pl = Playlist(
+      id: 'mix-${mix['title'].hashCode}',
+      name: mix['title'] as String,
+      description: mix['subtitle'] as String,
+      cover: mix['cover'] as String,
+      tracks: tracks,
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistDetailView(
+          playlist: pl,
+          player: widget.player,
+          onPlaylistChanged: _loadHomeData,
+        ),
+      ),
     );
   }
 
@@ -288,309 +332,455 @@ class _HomeViewState extends State<HomeView> {
     }
   }
 
+  void _showTrackMenu(Track track) {
+    showTrackActionSheet(
+      context: context,
+      track: track,
+      player: widget.player,
+      onPlaylistModified: _loadHomeData,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFF121212),
-        body: Center(
-          child: CircularProgressIndicator(color: AppTheme.primaryAzure),
+        body: SafeArea(
+          bottom: false,
+          child: SingleChildScrollView(child: HomeSkeletonLoader()),
         ),
       );
     }
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        bottom: false,
-        child: CustomScrollView(
-          slivers: [
-            // Top Bar: Filter Chips ("All", "Music", "Podcasts") - NO PROFILE ICON!
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Row(
-                  children: [
-                    _buildFilterPill('All', 'Semua'),
-                    const SizedBox(width: 8),
-                    _buildFilterPill('Music', 'Musik'),
-                    const SizedBox(width: 8),
-                    _buildFilterPill('Podcasts', 'Podcast'),
+      body: Stack(
+        children: [
+          // Top Spotify Dynamic Ambient Header Gradient (reacts to active artwork)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 290,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    _ambientColors.primary.withValues(alpha: 0.85),
+                    _ambientColors.secondary.withValues(alpha: 0.45),
+                    const Color(0xFF121212),
                   ],
+                  stops: const [0.0, 0.55, 1.0],
                 ),
               ),
             ),
+          ),
 
-            // Section 1: Dynamic Greeting + 6 Quick Cards Grid (Matching web screenshot)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _greeting,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: -0.5,
+          SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              color: AppTheme.primaryAzure,
+              backgroundColor: const Color(0xFF1E1E24),
+              onRefresh: _loadHomeData,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                slivers: [
+                  // Spotify Header Bar: Brand Emblem Avatar + Filter Pills
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            onTap: _openLikedPlaylist,
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: const BoxDecoration(
+                                color: AppTheme.primaryAzure,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'M',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: const [
-                                  Icon(Icons.auto_awesome, color: AppTheme.primaryAzure, size: 12),
-                                  SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      'Dipersonalisasi berdasarkan lagu & artis yang sering kamu putar',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: AppTheme.textMuted,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  _buildFilterPill('Semua', 'Semua'),
+                                  const SizedBox(width: 8),
+                                  _buildFilterPill('Musik', 'Musik'),
+                                  const SizedBox(width: 8),
+                                  _buildFilterPill('Mix', 'Mix & Radio'),
+                                  const SizedBox(width: 8),
+                                  _buildFilterPill('Podcast', 'Trending'),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.refresh, color: AppTheme.primaryAzure, size: 22),
-                          tooltip: 'Segarkan Rekomendasi',
-                          onPressed: () {
-                            HapticFeedback.lightImpact();
-                            _loadHomeData();
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    if (_quickCards.isNotEmpty)
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          childAspectRatio: 2.7,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
-                        itemCount: _quickCards.length,
-                        itemBuilder: (context, idx) {
-                          return _buildQuickCard(_quickCards[idx]);
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // Section 2: "Radio Campuran Artis" (Exact Spotify radio cards)
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'Radio Campuran Artis',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 220,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
+
+                  // 8-Card 2-Column Spotify Shortcuts Grid (Tile 1 = Lagu yang Disukai)
+                  if (_selectedFilter == 'Semua' || _selectedFilter == 'Musik')
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  _greeting,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 23,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: () {
+                                    HapticFeedback.lightImpact();
+                                    _loadHomeData();
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(6),
+                                    child: Icon(Icons.refresh_rounded, color: Colors.white70, size: 21),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                childAspectRatio: 3.05,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                              itemCount: (_quickCards.length + 1).clamp(1, 8),
+                              itemBuilder: (context, idx) {
+                                if (idx == 0) {
+                                  return _buildLikedShortcutTile();
+                                }
+                                return _buildQuickCard(_quickCards[idx - 1]);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
+                  // Section 2: "Dibuat Untuk Kamu" (Daily Mixes & Release Radar)
+                  if (_selectedFilter == 'Semua' || _selectedFilter == 'Mix' || _selectedFilter == 'Musik')
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Dibuat Untuk Kamu',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 205,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _dailyMixes.length,
+                              itemBuilder: (context, idx) => _buildDailyMixCard(_dailyMixes[idx]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+
+                  // Section 3: "Baru Saja Diputar" (Jump Back In compact square cards)
+                  if ((_selectedFilter == 'Semua' || _selectedFilter == 'Musik') && _recentRotation.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Lompat Kembali',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 168,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _recentRotation.length,
+                              separatorBuilder: (_, _) => const SizedBox(width: 12),
+                              itemBuilder: (context, idx) {
+                                final track = _recentRotation[idx];
+                                return GestureDetector(
+                                  onTap: () {
+                                    HapticFeedback.lightImpact();
+                                    widget.player.playTrack(track, _recentRotation);
+                                  },
+                                  child: SizedBox(
+                                    width: 120,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: OptimizedImage(
+                                            imageUrl: track.artwork,
+                                            width: 120,
+                                            height: 120,
+                                            memCacheWidth: 240,
+                                            memCacheHeight: 240,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 7),
+                                        Text(
+                                          track.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        Text(
+                                          track.artist,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 22)),
+
+                  // Section 4: "Radio Campuran Artis"
+                  if (_selectedFilter == 'Semua' || _selectedFilter == 'Mix')
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Radio Artis Populer',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 205,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _popularRadios.length,
+                              itemBuilder: (context, idx) => _buildRadioCard(_popularRadios[idx]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 18)),
+
+                  // Section 5: "Pilihan Trending & Rekomendasi"
+                  SliverToBoxAdapter(
+                    child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _popularRadios.length,
-                      itemBuilder: (context, idx) {
-                        final r = _popularRadios[idx];
-                        return _buildRadioCard(r);
-                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _startListeningSubtitle,
+                            style: const TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedFilter == 'Podcast' ? 'Trending Saat Ini' : _startListeningTitle,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          ...((_selectedFilter == 'Podcast' && _trendingHits.isNotEmpty
+                                  ? _trendingHits.take(8)
+                                  : _startListening)
+                              .map(_buildRecentTrackTile)),
+                        ],
+                      ),
                     ),
                   ),
+
+                  // User Playlists shelf if exists
+                  if (_playlists.isNotEmpty) ...[
+                    const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'Playlist Kamu',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 192,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _playlists.length,
+                              separatorBuilder: (_, _) => const SizedBox(width: 12),
+                              itemBuilder: (context, idx) {
+                                final pl = _playlists[idx];
+                                return SizedBox(
+                                  width: 136,
+                                  child: _buildRecentPlaylistCard(pl),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // Extra bottom clearance for translucent MiniPlayer + Bottom Dock
+                  const SliverToBoxAdapter(child: SizedBox(height: 160)),
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // Section 3: "Koleksi & Playlist Kamu"
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text(
-                          'Koleksi & Playlist Kamu',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        Text(
-                          'Lihat semua',
-                          style: TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        // Left Recent Card: Top Playlist or First Playlist
-                        Expanded(
-                          child: _playlists.isNotEmpty
-                              ? _buildRecentPlaylistCard(_playlists.first)
-                              : _buildRecentFallbackCard(),
-                        ),
-                        const SizedBox(width: 12),
-                        // Right Recent Card: Liked Songs Card with purple gradient
-                        Expanded(
-                          child: _buildLikedSongsCard(),
-                        ),
-                      ],
-                    ),
-                  ],
+  // Slot #1 Signature Spotify Purple-Blue Liked Songs Shortcut
+  Widget _buildLikedShortcutTile() {
+    return InkWell(
+      onTap: _openLikedPlaylist,
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        height: 54,
+        decoration: BoxDecoration(
+          color: const Color(0xFF23252C).withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(5),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
+                ),
+              ),
+              child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Lagu Disukai',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
                 ),
               ),
             ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // Section 4: "Start listening" ("Jump into a session based on your tastes")
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _startListeningSubtitle,
-                      style: const TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _startListeningTitle,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ..._startListening.map((t) => _buildRecentTrackTile(t)),
-                  ],
-                ),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // Section 5: Featured Banner Card ("It's Midnight Darling" from screenshot 3)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildFeaturedBanner(),
-              ),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
-
-            // Section 6: "It's New Music Friday!"
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      "It's New Music Friday!",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 210,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      children: [
-                        _buildNewFridayCard(
-                          title: 'New Music Friday Indonesia',
-                          subtitle: 'Bernadya, Mahalini, Juicy Luicy, Nadin...',
-                          imageUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&q=80&w=400',
-                          badge: 'NEW MUSIC FRIDAY',
-                        ),
-                        const SizedBox(width: 14),
-                        _buildNewFridayCard(
-                          title: 'Release Radar',
-                          subtitle: 'Lagu baru rilisan artis favorit kamu minggu ini',
-                          imageUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=400',
-                          badge: 'RELEASE RADAR',
-                        ),
-                        const SizedBox(width: 14),
-                        _buildNewFridayCard(
-                          title: 'Indo Best Hits',
-                          subtitle: 'Pamungkas, Tulus, Dewa 19, Sheila On 7',
-                          imageUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=400',
-                          badge: 'BEST HITS',
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Extra clearance for MiniPlayer and BottomNavigationBar
-            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+            const SizedBox(width: 6),
           ],
         ),
       ),
     );
   }
 
-  // 6 Quick Cards matching web screenshot
   Widget _buildQuickCard(Track t) {
     final isCurrent = widget.player.currentTrack?.id == t.id;
     final isPlaying = isCurrent && widget.player.isPlaying;
@@ -604,70 +794,60 @@ class _HomeViewState extends State<HomeView> {
           widget.player.playTrack(t, _quickCards);
         }
       },
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(5),
       child: Container(
-        height: 56,
+        height: 54,
         decoration: BoxDecoration(
-          color: isCurrent ? AppTheme.primaryAzure.withValues(alpha: 0.18) : const Color(0xFF1E232E),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isCurrent ? AppTheme.primaryAzure.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.06),
-          ),
+          color: isCurrent
+              ? AppTheme.primaryAzure.withValues(alpha: 0.22)
+              : const Color(0xFF23252C).withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(5),
+          border: isCurrent
+              ? Border.all(color: AppTheme.primaryAzure.withValues(alpha: 0.45), width: 1)
+              : null,
         ),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
             OptimizedImage(
               imageUrl: t.artwork,
-              width: 56,
-              height: 56,
+              width: 54,
+              height: 54,
+              memCacheWidth: 110,
+              memCacheHeight: 110,
               borderRadius: BorderRadius.zero,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 9),
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isCurrent ? AppTheme.primaryAzure : Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    t.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppTheme.textMuted,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+              child: Text(
+                t.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isCurrent ? AppTheme.primaryAzure : Colors.white,
+                  fontSize: 12.2,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
               ),
             ),
             if (isCurrent)
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: 8, left: 4),
                 child: Icon(
-                  isPlaying ? Icons.equalizer : Icons.play_arrow,
+                  isPlaying ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded,
                   color: AppTheme.primaryAzure,
-                  size: 18,
+                  size: 16,
                 ),
-              ),
+              )
+            else
+              const SizedBox(width: 6),
           ],
         ),
       ),
     );
   }
 
-  // Filter Pill ("All", "Music", "Podcasts")
   Widget _buildFilterPill(String key, String label) {
     final isSelected = _selectedFilter == key;
     return GestureDetector(
@@ -675,25 +855,126 @@ class _HomeViewState extends State<HomeView> {
         HapticFeedback.selectionClick();
         setState(() => _selectedFilter = key);
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryAzure : const Color(0xFF242426),
+          color: isSelected ? AppTheme.primaryAzure : const Color(0xFF27272D),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
           style: TextStyle(
             color: isSelected ? Colors.black : Colors.white,
-            fontSize: 13,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            fontSize: 12.5,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
       ),
     );
   }
 
-  // Track Tile matching "Your recent rotation" & "Start listening" in screenshots
+  Widget _buildDailyMixCard(Map<String, dynamic> mix) {
+    final accent = mix['color'] as Color;
+    final title = mix['title'] as String;
+    final badge = mix['badge'] as String;
+    final cover = mix['cover'] as String;
+    final subtitle = mix['subtitle'] as String;
+
+    return GestureDetector(
+      onTap: () => _openDailyMix(mix),
+      child: Container(
+        width: 146,
+        margin: const EdgeInsets.only(right: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 146,
+                height: 146,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    OptimizedImage(
+                      imageUrl: cover,
+                      width: 146,
+                      height: 146,
+                      memCacheWidth: 280,
+                      memCacheHeight: 280,
+                    ),
+                    // Subtle bottom vignette + Spotify Daily Mix corner badge
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.72)],
+                            stops: const [0.45, 1.0],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
+                        ),
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(color: accent, fontSize: 10, fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 11, height: 1.25),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRecentTrackTile(Track t) {
     final isLiked = _likedIds.contains(t.id);
     final isCurrent = widget.player.currentTrack?.id == t.id;
@@ -712,9 +993,8 @@ class _HomeViewState extends State<HomeView> {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           children: [
-            // Artwork (Spotify style rounded square ~48x48)
             ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(5),
               child: OptimizedImage(
                 imageUrl: t.artwork,
                 width: 48,
@@ -724,29 +1004,37 @@ class _HomeViewState extends State<HomeView> {
               ),
             ),
             const SizedBox(width: 12),
-
-            // Track details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    t.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isCurrent ? AppTheme.primaryAzure : Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    children: [
+                      if (isCurrent) ...[
+                        const Icon(Icons.graphic_eq_rounded, color: AppTheme.primaryAzure, size: 15),
+                        const SizedBox(width: 5),
+                      ],
+                      Expanded(
+                        child: Text(
+                          t.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isCurrent ? AppTheme.primaryAzure : Colors.white,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Row(
                     children: [
                       if (t.isExplicit) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                          margin: const EdgeInsets.only(right: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          margin: const EdgeInsets.only(right: 5),
                           decoration: BoxDecoration(
                             color: Colors.white24,
                             borderRadius: BorderRadius.circular(2),
@@ -759,10 +1047,7 @@ class _HomeViewState extends State<HomeView> {
                           t.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 13,
-                          ),
+                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 12.5),
                         ),
                       ),
                     ],
@@ -770,20 +1055,16 @@ class _HomeViewState extends State<HomeView> {
                 ],
               ),
             ),
-
-            // Saved Checkmark Button (Blue Accent Palette!)
             IconButton(
               icon: Icon(
-                isLiked ? Icons.check_circle : Icons.check_circle_outline,
-                color: isLiked ? AppTheme.primaryAzure : Colors.white24,
+                isLiked ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                color: isLiked ? AppTheme.primaryAzure : Colors.white38,
                 size: 22,
               ),
               onPressed: () => _toggleLike(t),
             ),
-
-            // 3-dots Menu Button
             IconButton(
-              icon: const Icon(Icons.more_horiz, color: Colors.white60, size: 22),
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.white54, size: 21),
               onPressed: () => _showTrackMenu(t),
             ),
           ],
@@ -792,7 +1073,6 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  // Radio Card matching "Popular radio" in screenshots
   Widget _buildRadioCard(Map<String, dynamic> r) {
     final bgColor = r['bgColor'] as Color;
     final title = r['title'] as String;
@@ -805,29 +1085,30 @@ class _HomeViewState extends State<HomeView> {
         _openRadioStation(r['search'] ?? title);
       },
       child: Container(
-        width: 145,
+        width: 142,
         margin: const EdgeInsets.only(right: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top styled radio art box
             Container(
-              height: 145,
-              width: 145,
+              height: 142,
+              width: 142,
               decoration: BoxDecoration(
-                color: bgColor,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [bgColor, bgColor.withValues(alpha: 0.72)],
+                ),
                 borderRadius: BorderRadius.circular(8),
               ),
               clipBehavior: Clip.antiAlias,
               child: Stack(
                 children: [
-                  // Logo tag top left
                   const Positioned(
                     top: 8,
                     left: 8,
-                    child: Icon(Icons.graphic_eq, color: Colors.black87, size: 16),
+                    child: Icon(Icons.graphic_eq_rounded, color: Colors.black87, size: 16),
                   ),
-                  // "RADIO" tag top right
                   const Positioned(
                     top: 8,
                     right: 8,
@@ -841,8 +1122,6 @@ class _HomeViewState extends State<HomeView> {
                       ),
                     ),
                   ),
-
-                  // Center circular artist portraits
                   Center(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -856,8 +1135,8 @@ class _HomeViewState extends State<HomeView> {
                           child: ClipOval(
                             child: OptimizedImage(
                               imageUrl: img,
-                              width: 50,
-                              height: 50,
+                              width: 48,
+                              height: 48,
                               memCacheWidth: 100,
                               memCacheHeight: 100,
                             ),
@@ -866,8 +1145,6 @@ class _HomeViewState extends State<HomeView> {
                       }).toList(),
                     ),
                   ),
-
-                  // Bottom Title inside card
                   Positioned(
                     bottom: 8,
                     left: 10,
@@ -878,7 +1155,7 @@ class _HomeViewState extends State<HomeView> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.black,
-                        fontSize: 16,
+                        fontSize: 15.5,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -887,16 +1164,11 @@ class _HomeViewState extends State<HomeView> {
               ),
             ),
             const SizedBox(height: 6),
-            // Subtitle artist roster
             Text(
               artists,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.textMuted,
-                fontSize: 11,
-                height: 1.25,
-              ),
+              style: const TextStyle(color: AppTheme.textMuted, fontSize: 11, height: 1.25),
             ),
           ],
         ),
@@ -904,55 +1176,6 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  // Liked Songs Card matching screenshot 2
-  Widget _buildLikedSongsCard() {
-    return GestureDetector(
-      onTap: () {
-        if (_likedTracks.isNotEmpty) {
-          widget.player.playTrack(_likedTracks.first, _likedTracks);
-        }
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 140,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Center(
-              child: Icon(Icons.favorite, color: Colors.white, size: 48),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Liked Songs',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              const Icon(Icons.check_circle, color: AppTheme.primaryAzure, size: 12),
-              const SizedBox(width: 4),
-              Text(
-                '${_likedTracks.length} lagu disukai',
-                style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Recent Playlist Card matching screenshot 2
   Widget _buildRecentPlaylistCard(Playlist pl) {
     return GestureDetector(
       onTap: () {
@@ -974,13 +1197,13 @@ class _HomeViewState extends State<HomeView> {
             borderRadius: BorderRadius.circular(8),
             child: OptimizedImage(
               imageUrl: pl.cover,
-              height: 140,
-              width: double.infinity,
+              height: 136,
+              width: 136,
               memCacheWidth: 280,
               memCacheHeight: 280,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           Text(
             pl.name,
             maxLines: 1,
@@ -990,182 +1213,6 @@ class _HomeViewState extends State<HomeView> {
           const SizedBox(height: 2),
           Text(
             'Playlist • ${pl.tracks.length} lagu',
-            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentFallbackCard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          height: 140,
-          decoration: BoxDecoration(
-            color: const Color(0xFF242426),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Center(
-            child: Icon(Icons.music_note, color: Colors.white54, size: 40),
-          ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Top Hits Indonesia',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          'Playlist • McMusic',
-          style: TextStyle(color: AppTheme.textMuted, fontSize: 11),
-        ),
-      ],
-    );
-  }
-
-  // Featured Banner matching screenshot 3 ("It's Midnight Darling")
-  Widget _buildFeaturedBanner() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF26262B),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: OptimizedImage(
-                  imageUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=300',
-                  width: 90,
-                  height: 90,
-                  memCacheWidth: 180,
-                  memCacheHeight: 180,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      'RILISAN PILIHAN',
-                      style: TextStyle(
-                        color: AppTheme.primaryAzure,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      "IT'S MIDNIGHT DARLING",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 3),
-                    Text(
-                      'Album debut oleh The Midnight Darlings',
-                      style: TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'The Midnight Darlings',
-                style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                ),
-                onPressed: () {
-                  if (_recentRotation.isNotEmpty) {
-                    widget.player.playTrack(_recentRotation.first, _recentRotation);
-                  }
-                },
-                child: const Text('Dengarkan sekarang', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // New Music Friday Carousel card matching screenshot 3
-  Widget _buildNewFridayCard({
-    required String title,
-    required String subtitle,
-    required String imageUrl,
-    required String badge,
-  }) {
-    return SizedBox(
-      width: 140,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: OptimizedImage(
-                  imageUrl: imageUrl,
-                  width: 140,
-                  height: 140,
-                  memCacheWidth: 280,
-                  memCacheHeight: 280,
-                ),
-              ),
-              Positioned(
-                top: 8,
-                left: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withAlpha(160),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    badge,
-                    style: const TextStyle(color: AppTheme.primaryAzure, fontSize: 8, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
           ),
         ],

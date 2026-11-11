@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Play, 
   Pause,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { playlistImporter } from '../services/playlistImporter';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 function cleanTrackTitle(title) {
   if (!title) return '';
@@ -47,7 +48,26 @@ export default function PlaylistView({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState('custom'); // 'custom' | 'title' | 'artist' | 'duration-desc' | 'duration-asc'
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const [bannerColor, setBannerColor] = useState('#1e3264');
   const scrollContainerRef = useRef(null);
+
+  useEffect(() => {
+    const artUrl = playlist?.id === 'pl-liked' ? null : (playlist?.cover || playlist?.tracks?.[0]?.artwork);
+    if (playlist?.id === 'pl-liked') {
+      setBannerColor('#450af5');
+      return;
+    }
+    if (!artUrl) return;
+    let cancelled = false;
+    extractPaletteFromImage(artUrl).then((pal) => {
+      if (!cancelled && pal?.primary) {
+        setBannerColor(pal.primary);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [playlist?.id, playlist?.cover]);
 
   const rawTracks = playlist?.tracks || [];
   const totalDuration = rawTracks.reduce((acc, t) => acc + (t.duration || 0), 0);
@@ -136,8 +156,13 @@ export default function PlaylistView({
         </span>
       </div>
 
-      {/* Spotify Playlist Banner Header */}
-      <div className="p-4 sm:p-8 bg-gradient-to-b from-[#1e3264] via-[#161616] to-[#121212] flex flex-col sm:flex-row items-center sm:items-end gap-5 sm:gap-8 pb-6 border-b border-white/[0.04]">
+      {/* Dynamic Spotify Playlist Banner Header matching Cover Artwork */}
+      <div
+        style={{
+          background: `linear-gradient(180deg, ${bannerColor} 0%, #161616 78%, #121212 100%)`,
+        }}
+        className="p-4 sm:p-8 flex flex-col sm:flex-row items-center sm:items-end gap-5 sm:gap-8 pb-6 border-b border-white/[0.04] transition-colors duration-700"
+      >
         <img
           src={playlist.cover || DEFAULT_ARTWORK}
           alt={playlist.name}

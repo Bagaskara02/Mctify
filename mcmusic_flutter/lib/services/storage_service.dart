@@ -265,4 +265,68 @@ class StorageService {
       await prefs.setDouble('$_keyLyricsSyncPrefix$trackKey', rounded);
     } catch (_) {}
   }
+
+  static const String _keyRecentSearches = 'mctify_recent_searches';
+
+  Future<List<Map<String, String>>> getRecentSearches() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_keyRecentSearches);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded
+          .whereType<Map>()
+          .map((m) => m.map((k, v) => MapEntry(k.toString(), v?.toString() ?? '')))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> addRecentSearch({
+    required String query,
+    String title = '',
+    String subtitle = '',
+    String artwork = '',
+    String type = 'query',
+  }) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = await getRecentSearches();
+      current.removeWhere((item) =>
+          (item['query'] ?? '').toLowerCase() == trimmed.toLowerCase() &&
+          (item['type'] ?? 'query') == type);
+      current.insert(0, {
+        'query': trimmed,
+        'title': title.isNotEmpty ? title : trimmed,
+        'subtitle': subtitle,
+        'artwork': artwork,
+        'type': type,
+      });
+      if (current.length > 15) {
+        current.removeRange(15, current.length);
+      }
+      await prefs.setString(_keyRecentSearches, jsonEncode(current));
+    } catch (_) {}
+  }
+
+  Future<void> removeRecentSearch(String query, {String? type}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = await getRecentSearches();
+      current.removeWhere((item) =>
+          (item['query'] ?? '').toLowerCase() == query.toLowerCase() &&
+          (type == null || item['type'] == type));
+      await prefs.setString(_keyRecentSearches, jsonEncode(current));
+    } catch (_) {}
+  }
+
+  Future<void> clearRecentSearches() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyRecentSearches);
+    } catch (_) {}
+  }
 }

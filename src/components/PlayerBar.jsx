@@ -21,6 +21,7 @@ import {
   Moon
 } from 'lucide-react';
 import { DEFAULT_ARTWORK, cleanTrackTitle } from '../services/musicApi';
+import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 // cleanTrackTitle imported from musicApi.js
 
@@ -80,6 +81,20 @@ export default function PlayerBar({
   const [isVolumeScrubbing, setIsVolumeScrubbing] = useState(false);
   const [isVolumeHovered, setIsVolumeHovered] = useState(false);
   const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+  const [ambientHex, setAmbientHex] = useState('#3b82f6');
+
+  useEffect(() => {
+    if (!currentTrack?.artwork) return;
+    let cancelled = false;
+    extractPaletteFromImage(currentTrack.artwork).then((pal) => {
+      if (!cancelled && pal?.primary) {
+        setAmbientHex(pal.primary);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.artwork]);
 
   useEffect(() => {
     return audioQualityService.subscribe((qId) => {
@@ -164,12 +179,12 @@ export default function PlayerBar({
 
   return (
     <footer className="h-20 bg-[#0c0d10]/95 backdrop-blur-xl border-t border-white/[0.08] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
-      {/* Subtle Ambient Glow Effect (RiMusic / Apple Music style) */}
+      {/* Dynamic Artwork-Matched Ambient Glow */}
       {currentTrack && (
-        <div 
-          className="absolute inset-0 pointer-events-none opacity-25 transition-opacity duration-700"
+        <div
+          className="absolute inset-0 pointer-events-none opacity-35 transition-all duration-700"
           style={{
-            backgroundImage: 'radial-gradient(circle at 10% 50%, rgba(59, 130, 246, 0.4), transparent 45%), radial-gradient(circle at 50% 120%, rgba(0, 163, 255, 0.2), transparent 50%)'
+            backgroundImage: `radial-gradient(circle at 12% 50%, ${ambientHex}aa, transparent 48%), radial-gradient(circle at 50% 130%, ${ambientHex}55, transparent 55%)`,
           }}
         />
       )}

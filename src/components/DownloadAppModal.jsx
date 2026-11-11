@@ -68,17 +68,17 @@ export default function DownloadAppModal({ isOpen, onClose }) {
 
           <div className="pt-2 space-y-2">
             <a
-              href="https://files.catbox.moe/9r5jfk.apk"
-              download="McTify-v1.1.0-arm64.apk"
+              href="/downloads/McMusic-arm64.apk"
+              download="McTify-v1.2.0-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McTify APK v1.1.0 (21.0 MB Direct)</span>
+              <span>Download McTify APK v1.2.0 (21.1 MB Direct)</span>
             </a>
             <div className="flex items-center justify-center gap-3 text-[11px] text-[#b3b3b3]">
-              <span>Unduh instan file biner .apk (ExoPlayer Native)</span>
+              <span>Unduh instan file biner .apk (UI Spotify Baru + ExoPlayer)</span>
               <span>•</span>
-              <a href="https://litter.catbox.moe/h1a037.apk" className="text-[#00a3ff] hover:underline">Mirror 2</a>
+              <a href="https://github.com/Bagaskara02/Mctify/raw/main/public/downloads/McMusic-arm64.apk" target="_blank" rel="noopener noreferrer" className="text-[#00a3ff] hover:underline">Mirror GitHub</a>
             </div>
           </div>
           <div className="text-center pt-1 flex items-center justify-center gap-4">

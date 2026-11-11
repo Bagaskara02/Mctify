@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { AUDIO_QUALITIES, audioQualityService } from '../src/services/audioQualityService.js';
 import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudioEqualizer.js';
+import { storageService } from '../src/services/storageService.js';
 import { 
   getHighResArtworkUrl, 
   isCleanPopularTrack, 
@@ -128,5 +129,33 @@ describe('Yugen Inspirations: Title Cleaning & Artist Spreading Tests', () => {
     const first3Artists = spread.slice(0, 3).map(t => t.artist.toLowerCase());
     const uniqueFirst3 = new Set(first3Artists);
     assert.equal(uniqueFirst3.size, 3, 'First round must contain one track per unique artist');
+  });
+});
+
+describe('Spotify Search History Persistence Tests', () => {
+  it('adds, deduplicates, removes, and clears recent search queries', () => {
+    const store = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+
+    storageService.clearRecentSearches();
+    assert.deepEqual(storageService.getRecentSearches(), []);
+
+    storageService.addRecentSearch({ query: 'Tulus', title: 'Tulus', subtitle: 'Artis', type: 'artist' });
+    storageService.addRecentSearch({ query: 'Hati-Hati di Jalan', title: 'Hati-Hati di Jalan', subtitle: 'Lagu • Tulus', type: 'track' });
+    storageService.addRecentSearch({ query: 'Tulus', title: 'Tulus', subtitle: 'Artis', type: 'artist' });
+
+    const list = storageService.getRecentSearches();
+    assert.equal(list.length, 2, 'Should deduplicate identical search entries');
+    assert.equal(list[0].title, 'Tulus', 'Most recent entry should move to top');
+
+    storageService.removeRecentSearch('Tulus', 'artist');
+    assert.equal(storageService.getRecentSearches().length, 1);
+
+    storageService.clearRecentSearches();
+    assert.deepEqual(storageService.getRecentSearches(), []);
   });
 });

@@ -381,7 +381,7 @@ class _LibraryViewState extends State<LibraryView> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAzure))
                   : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 160),
                       children: [
                         // Pinned: "Liked Songs" Card (Spotify exact match with Blue pin!)
                         InkWell(
@@ -482,7 +482,7 @@ class _LibraryViewState extends State<LibraryView> {
                                         ),
                                         const SizedBox(height: 3),
                                         Text(
-                                          'Playlist • McMusic • ${pl.tracks.length} songs',
+                                          'Playlist • McTify • ${pl.tracks.length} lagu',
                                           style: const TextStyle(
                                             color: AppTheme.textMuted,
                                             fontSize: 13,

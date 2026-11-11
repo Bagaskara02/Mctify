@@ -4,6 +4,8 @@ import 'package:mcmusic_flutter/models/audio_quality.dart';
 import 'package:mcmusic_flutter/models/equalizer_preset.dart';
 import 'package:mcmusic_flutter/services/equalizer_service.dart';
 import 'package:mcmusic_flutter/services/music_api_service.dart';
+import 'package:mcmusic_flutter/services/storage_service.dart';
+import 'package:mcmusic_flutter/utils/artwork_palette.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -88,6 +90,34 @@ void main() {
       expect(eq.selectedPresetName, 'Kustom');
       expect(eq.currentBands[0], 8.0);
       expect(eq.preampCompensation, lessThanOrEqualTo(-8.0));
+    });
+  });
+
+  group('Spotify Search History & Artwork Palette Tests', () {
+    test('StorageService stores, deduplicates, removes, and clears recent searches', () async {
+      final storage = StorageService();
+      await storage.addRecentSearch(query: 'Tulus', title: 'Tulus', subtitle: 'Artis', type: 'artist');
+      await storage.addRecentSearch(query: 'Komang', title: 'Komang', subtitle: 'Lagu • Raim Laode', type: 'track');
+      await storage.addRecentSearch(query: 'Tulus', title: 'Tulus', subtitle: 'Artis', type: 'artist');
+
+      final recents = await storage.getRecentSearches();
+      expect(recents.length, 2);
+      expect(recents.first['title'], 'Tulus');
+
+      await storage.removeRecentSearch('Tulus', type: 'artist');
+      final afterRemove = await storage.getRecentSearches();
+      expect(afterRemove.length, 1);
+
+      await storage.clearRecentSearches();
+      expect(await storage.getRecentSearches(), isEmpty);
+    });
+
+    test('ArtworkPalette returns deterministic harmonious fallback colors', () {
+      final c1 = ArtworkPalette.getCachedOrFallback('', seed: 'Yellow');
+      final c2 = ArtworkPalette.getCachedOrFallback('', seed: 'Yellow');
+      expect(c1.primary, equals(c2.primary));
+      expect(c1.secondary, equals(c2.secondary));
+      expect(c1.surfaceTint, equals(c2.surfaceTint));
     });
   });
 }

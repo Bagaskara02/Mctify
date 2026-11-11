@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
-import { Play, Pause, Heart, Mic2 } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Play, Pause, Heart } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 export default function MobileMiniPlayer({
   currentTrack,
@@ -15,6 +16,20 @@ export default function MobileMiniPlayer({
   onPrev,
 }) {
   const touchStartX = useRef(null);
+  const [tint, setTint] = useState('#1d2b3a');
+
+  useEffect(() => {
+    if (!currentTrack?.artwork) return;
+    let cancelled = false;
+    extractPaletteFromImage(currentTrack.artwork).then((pal) => {
+      if (!cancelled && pal?.primary) {
+        setTint(pal.primary);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.artwork]);
 
   if (!currentTrack) return null;
 
@@ -30,26 +45,27 @@ export default function MobileMiniPlayer({
     touchStartX.current = null;
 
     if (diffX < -50) {
-      // Swiped left -> Next track (RiMusic / ViMusic spec)
       onNext?.();
     } else if (diffX > 50) {
-      // Swiped right -> Prev track
       onPrev?.();
     }
   };
 
   return (
-    <div 
+    <div
       onClick={onOpenFullscreen}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="md:hidden fixed bottom-[60px] left-2 right-2 h-14 bg-[#242424]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl flex items-center justify-between px-2.5 z-40 select-none cursor-pointer group active:scale-[0.99] transition-all overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${tint}f2 0%, #14161be8 100%)`,
+      }}
+      className="md:hidden fixed bottom-[60px] left-2 right-2 h-14 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex items-center justify-between px-2.5 z-40 select-none cursor-pointer group active:scale-[0.99] transition-all duration-500 overflow-hidden"
     >
       {/* Bottom hairline progress bar indicator */}
-      <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white/15">
-        <div 
-          className="h-full bg-[#00a3ff] transition-all duration-200" 
-          style={{ width: `${progressPercent}%` }} 
+      <div className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-white/15 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-white transition-all duration-200"
+          style={{ width: `${progressPercent}%` }}
         />
       </div>
 
@@ -68,7 +84,7 @@ export default function MobileMiniPlayer({
           <p className="text-xs font-bold text-white truncate tracking-tight">
             {currentTrack.title}
           </p>
-          <p className="text-[11px] text-[#b3b3b3] truncate mt-0.5">
+          <p className="text-[11px] text-white/75 truncate mt-0.5">
             {currentTrack.artist}
           </p>
         </div>
@@ -79,7 +95,7 @@ export default function MobileMiniPlayer({
         <button
           onClick={() => onToggleLike(currentTrack)}
           className={`p-2 rounded-full transition-transform active:scale-90 ${
-            isLiked ? 'text-[#00a3ff]' : 'text-[#b3b3b3] hover:text-white'
+            isLiked ? 'text-[#3B82F6]' : 'text-white/75 hover:text-white'
           }`}
           title={isLiked ? 'Disukai' : 'Sukai'}
         >

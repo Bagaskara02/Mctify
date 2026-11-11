@@ -456,7 +456,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
           ),
           const SizedBox(height: 6),
           const Text(
-            'Salin link playlist Spotify publik Anda, lalu tempel di bawah. McMusic akan mencocokkan setiap lagu ke mesin pemutar berdurasi penuh.',
+            'Salin link playlist Spotify publik Anda, lalu tempel di bawah. McTify akan mencocokkan setiap lagu ke mesin pemutar berdurasi penuh.',
             style: TextStyle(color: AppTheme.textMuted, fontSize: 13, height: 1.4),
           ),
           const SizedBox(height: 16),
@@ -713,7 +713,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
           ),
           const SizedBox(height: 6),
           const Text(
-            'Pulihkan playlist dari file backup JSON yang sebelumnya diekspor dari McMusic.',
+            'Pulihkan playlist dari file backup JSON yang sebelumnya diekspor dari McTify.',
             style: TextStyle(color: AppTheme.textMuted, fontSize: 13, height: 1.4),
           ),
           const SizedBox(height: 16),
