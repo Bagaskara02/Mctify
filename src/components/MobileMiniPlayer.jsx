@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, Heart } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { audioQualityService } from '../services/audioQualityService';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 export default function MobileMiniPlayer({
@@ -17,6 +18,11 @@ export default function MobileMiniPlayer({
 }) {
   const touchStartX = useRef(null);
   const [tint, setTint] = useState('#1d2b3a');
+  const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+
+  useEffect(() => {
+    return audioQualityService.subscribe((qId) => setCurrentQuality(qId));
+  }, []);
 
   useEffect(() => {
     if (!currentTrack?.artwork) return;
@@ -59,7 +65,7 @@ export default function MobileMiniPlayer({
       style={{
         background: `linear-gradient(135deg, ${tint}f2 0%, #14161be8 100%)`,
       }}
-      className="md:hidden fixed bottom-[60px] left-2 right-2 h-14 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex items-center justify-between px-2.5 z-40 select-none cursor-pointer group active:scale-[0.99] transition-all duration-500 overflow-hidden"
+      className="md:hidden fixed bottom-[56px] left-2 right-2 h-14 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex items-center justify-between px-2.5 z-40 select-none cursor-pointer group active:scale-[0.99] transition-all duration-500 overflow-hidden"
     >
       {/* Bottom hairline progress bar indicator */}
       <div className="absolute bottom-0 left-2 right-2 h-[2.5px] bg-white/15 rounded-full overflow-hidden">
@@ -81,9 +87,16 @@ export default function MobileMiniPlayer({
           className="w-10 h-10 rounded-md object-cover shadow bg-black flex-shrink-0"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-white truncate tracking-tight">
-            {currentTrack.title}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-xs font-bold text-white truncate tracking-tight">
+              {currentTrack.title}
+            </p>
+            {currentQuality === 'lossless' && (
+              <span className="shrink-0 px-1 py-0.2 rounded text-[8px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-yellow-400 text-black">
+                LOSSLESS
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-white/75 truncate mt-0.5">
             {currentTrack.artist}
           </p>

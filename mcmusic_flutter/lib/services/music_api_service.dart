@@ -11,7 +11,62 @@ class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
   static final Map<String, String> _streamCache = {};
   static final Map<String, List<Track>> _searchCache = {};
+  static final YoutubeExplode _sharedYt = YoutubeExplode();
   final StorageService _storageService = StorageService();
+
+  /// Selects the best audio stream matching requested quality tier.
+  static AudioStreamInfo _pickStreamByQuality(
+    List<AudioStreamInfo> allStreams,
+    AudioQuality quality,
+  ) {
+    final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+    if (quality == AudioQuality.lossless) {
+      // Lossless / Hi-Fi mode: choose highest bitrate across all audio codecs (Opus 251 / Hi-Fi AAC)
+      final sortedAll = List<AudioStreamInfo>.from(allStreams)
+        ..sort((a, b) => a.bitrate.compareTo(b.bitrate));
+      return sortedAll.last;
+    }
+
+    final candidateStreams = mp4Streams.isNotEmpty ? mp4Streams : allStreams;
+    candidateStreams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+
+    switch (quality) {
+      case AudioQuality.dataSaver:
+        return candidateStreams.first;
+      case AudioQuality.standard:
+        return candidateStreams.firstWhere(
+          (s) => s.bitrate.kiloBitsPerSecond <= 140,
+          orElse: () => candidateStreams.last,
+        );
+      case AudioQuality.high:
+      case AudioQuality.lossless:
+        return candidateStreams.last;
+    }
+  }
+
+  /// Fast stream manifest resolver using persistent HTTP session + mobile API clients first
+  Future<List<AudioStreamInfo>> _getFastAudioStreams(String videoId) async {
+    try {
+      final manifest = await _sharedYt.videos.streamsClient
+          .getManifest(
+            videoId,
+            ytClients: [YoutubeApiClient.androidVr, YoutubeApiClient.ios],
+            requireWatchPage: false,
+          )
+          .timeout(const Duration(seconds: 4));
+      final fast = manifest.audioOnly.toList();
+      if (fast.isNotEmpty) return fast;
+    } catch (_) {}
+
+    final fallbackManifest = await _sharedYt.videos.streamsClient
+        .getManifest(
+          videoId,
+          ytClients: [YoutubeApiClient.androidSdkless, YoutubeApiClient.tv],
+          requireWatchPage: false,
+        )
+        .timeout(const Duration(seconds: 6));
+    return fallbackManifest.audioOnly.toList();
+  }
 
   /// Invalidate stream URL cache (called when user switches audio quality)
   static void clearStreamCache() {
@@ -37,27 +92,25 @@ class MusicApiService {
     return null;
   }
 
-  /// Resolves direct, full-length YouTube MP4 audio stream from videoId
-  Future<String?> resolveStreamUrlFromVideoId(String videoId) async {
-    final cleanKey = 'stream_$videoId';
+  /// Resolves direct, full-length YouTube audio stream from videoId
+  Future<String?> resolveStreamUrlFromVideoId(
+    String videoId, [
+    AudioQuality quality = AudioQuality.high,
+  ]) async {
+    final cleanKey = 'stream_${videoId}_${quality.name}';
     if (_streamCache.containsKey(cleanKey)) {
       return _streamCache[cleanKey];
     }
-    final yt = YoutubeExplode();
     try {
-      final manifest = await yt.videos.streamsClient.getManifest(videoId).timeout(const Duration(seconds: 8));
-      final allAudio = manifest.audioOnly.toList();
+      final allAudio = await _getFastAudioStreams(videoId);
       if (allAudio.isNotEmpty) {
-        final mp4Streams = allAudio.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
-        final chosen = mp4Streams.isNotEmpty ? mp4Streams.last : allAudio.withHighestBitrate();
+        final chosen = _pickStreamByQuality(allAudio, quality);
         final streamUrl = chosen.url.toString();
         _streamCache[cleanKey] = streamUrl;
         return streamUrl;
       }
     } catch (e) {
       debugPrint('resolveStreamUrlFromVideoId error for $videoId: $e');
-    } finally {
-      yt.close();
     }
     return null;
   }
@@ -68,7 +121,7 @@ class MusicApiService {
       return track.audioUrl;
     }
     if (track.videoId != null && track.videoId!.isNotEmpty) {
-      final key = 'stream_${track.videoId}';
+      final key = 'stream_${track.videoId}_${quality.name}';
       if (_streamCache.containsKey(key)) return _streamCache[key];
     }
     final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
@@ -76,9 +129,23 @@ class MusicApiService {
     return null;
   }
 
+  /// Pre-warms top Quick Card / top tracks silently on startup so first Play is instant
+  Future<void> prewarmTracks(
+    List<Track> tracks, {
+    AudioQuality quality = AudioQuality.high,
+    int limit = 3,
+  }) async {
+    final subset = tracks.take(limit).toList();
+    await Future.wait(
+      subset.map((t) => prefetchTrackStream(t, quality)),
+      eagerError: false,
+    );
+  }
+
   /// Silently pre-fetches and caches next audio stream in background for zero-latency playback
   Future<void> prefetchTrackStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
     try {
+      if (getCachedStream(track, quality) != null) return;
       String? vid = track.videoId;
       if (vid == null || vid.isEmpty) {
         vid = await resolveVideoId(track.title, track.artist, track.duration);
@@ -105,7 +172,7 @@ class MusicApiService {
     }
 
     if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-      final url = await resolveStreamUrlFromVideoId(vid);
+      final url = await resolveStreamUrlFromVideoId(vid, quality);
       if (url != null && url.isNotEmpty) {
         final key = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
         _streamCache[key] = url;
@@ -113,7 +180,7 @@ class MusicApiService {
       }
     }
 
-    // 2. Resolve direct MP4 audio stream from YouTube Explode (full 3-5+ minute song!)
+    // 2. Resolve direct audio stream from YouTube Explode (full 3-5+ minute song!)
     final stream = await resolveFullAudioStream(
       track.title,
       track.artist,
@@ -208,14 +275,13 @@ class MusicApiService {
       debugPrint('resolveVideoId search-multi error: $e');
     }
 
-    // 2. Fallback: Search via YoutubeExplode with Smart Candidate Scoring
-    final yt = YoutubeExplode();
+    // 2. Fallback: Search via persistent YoutubeExplode with Smart Candidate Scoring
     try {
       // Query with 'audio' first to find clean studio tracks over 40s-skit music videos
-      final searchResults = await yt.search.search('$sanitizedTitle $firstArtist audio').timeout(const Duration(seconds: 4));
+      final searchResults = await _sharedYt.search.search('$sanitizedTitle $firstArtist audio').timeout(const Duration(seconds: 4));
       var pool = searchResults.take(10).toList();
       if (pool.isEmpty) {
-        final broadResults = await yt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
+        final broadResults = await _sharedYt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
         pool = broadResults.take(10).toList();
       }
 
@@ -238,8 +304,6 @@ class MusicApiService {
       }
     } catch (e) {
       debugPrint('resolveVideoId YoutubeExplode error: $e');
-    } finally {
-      yt.close();
     }
 
     // 3. Fallback: YouTube Music WEB_REMIX API
@@ -315,42 +379,18 @@ class MusicApiService {
     }
 
     final excluded = Set<String>.from(excludeVideoIds ?? const {});
-    final yt = YoutubeExplode();
     try {
       for (int attempt = 0; attempt < 3; attempt++) {
         final bestVideoId = await resolveVideoId(title, artist, expectedDurationSeconds, excluded);
         if (bestVideoId == null || bestVideoId.isEmpty) break;
 
         try {
-          final manifest = await yt.videos.streamsClient.getManifest(bestVideoId).timeout(const Duration(seconds: 8));
-          final allStreams = manifest.audioOnly.toList();
+          final allStreams = await _getFastAudioStreams(bestVideoId);
           if (allStreams.isNotEmpty) {
-            // CRITICAL: Prefer MP4 (AAC) streams. Android native MediaPlayer plays MP4/AAC reliably
-            // across all devices, whereas WebM/Opus frequently fails with MEDIA_ERROR_UNKNOWN.
-            final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
-            final candidateStreams = mp4Streams.isNotEmpty ? mp4Streams : allStreams;
-
-            candidateStreams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
-
-            AudioStreamInfo chosenStream;
-            switch (quality) {
-              case AudioQuality.dataSaver:
-                chosenStream = candidateStreams.first;
-                break;
-              case AudioQuality.standard:
-                chosenStream = candidateStreams.firstWhere(
-                  (s) => s.bitrate.kiloBitsPerSecond <= 140,
-                  orElse: () => candidateStreams.last,
-                );
-                break;
-              case AudioQuality.high:
-                chosenStream = candidateStreams.last;
-                break;
-            }
-
+            final chosenStream = _pickStreamByQuality(allStreams, quality);
             final streamUrl = chosenStream.url.toString();
             _streamCache[cleanKey] = streamUrl;
-            _streamCache['stream_$bestVideoId'] = streamUrl;
+            _streamCache['stream_${bestVideoId}_${quality.name}'] = streamUrl;
             return streamUrl;
           }
         } catch (e) {
@@ -360,8 +400,6 @@ class MusicApiService {
       }
     } catch (e) {
       debugPrint('resolveFullAudioStream error: $e');
-    } finally {
-      yt.close();
     }
     return null;
   }

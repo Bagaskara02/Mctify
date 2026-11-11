@@ -10,9 +10,14 @@ enum AudioQuality {
     description: 'Keseimbangan ideal kualitas audio standar YouTube AAC',
   ),
   high(
-    label: 'Kualitas Tinggi (Maksimal)',
+    label: 'Kualitas Tinggi',
     bitrate: '160 kbps',
-    description: 'Bitrate audio tertinggi yang disediakan YouTube (Opus/AAC)',
+    description: 'Bitrate audio jernih standar streaming tinggi (Opus/AAC)',
+  ),
+  lossless(
+    label: 'Hi-Res Lossless',
+    bitrate: 'FLAC / Hi-Fi',
+    description: 'Kualitas studio tertinggi 24-bit / Hi-Fi bebas kompresi agresif',
   );
 
   final String label;
@@ -31,6 +36,8 @@ enum AudioQuality {
         return AudioQuality.dataSaver;
       case 'standard':
         return AudioQuality.standard;
+      case 'lossless':
+        return AudioQuality.lossless;
       case 'high':
       default:
         return AudioQuality.high;

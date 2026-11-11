@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/audio_quality.dart';
 import '../models/playlist.dart';
 import '../models/track.dart';
 import '../services/audio_player_manager.dart';
@@ -7,6 +8,7 @@ import '../services/music_api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/artwork_palette.dart';
+import '../widgets/audio_quality_modal.dart';
 import '../widgets/optimized_image.dart';
 import '../widgets/shimmer_skeleton.dart';
 import '../widgets/track_action_sheet.dart';
@@ -306,6 +308,8 @@ class _HomeViewState extends State<HomeView> {
           _likedIds.addAll(liked.map((t) => t.id));
           _isLoading = false;
         });
+        // Silently pre-warm top Quick Cards so first-tap Play starts instantly
+        widget.player.prewarmTracks(quickCards.take(3).toList());
       }
     } catch (e) {
       debugPrint('Error loading dynamic home data: $e');
@@ -521,25 +525,81 @@ class _HomeViewState extends State<HomeView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  _greeting,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 23,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -0.5,
+                                Expanded(
+                                  child: Text(
+                                    _greeting,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 23,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.5,
+                                    ),
                                   ),
                                 ),
-                                InkWell(
-                                  onTap: () {
-                                    HapticFeedback.lightImpact();
-                                    _loadHomeData();
+                                ListenableBuilder(
+                                  listenable: widget.player,
+                                  builder: (context, _) {
+                                    final isLossless = widget.player.audioQuality == AudioQuality.lossless;
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        GestureDetector(
+                                          onTap: () {
+                                            HapticFeedback.lightImpact();
+                                            AudioQualityModal.show(context, widget.player);
+                                          },
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 220),
+                                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              gradient: isLossless
+                                                  ? const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)])
+                                                  : null,
+                                              color: isLossless ? null : Colors.white.withValues(alpha: 0.09),
+                                              borderRadius: BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: isLossless
+                                                    ? Colors.transparent
+                                                    : Colors.white.withValues(alpha: 0.14),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.high_quality_rounded,
+                                                  size: 13,
+                                                  color: isLossless ? Colors.black : AppTheme.primaryAzure,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  isLossless ? 'LOSSLESS' : widget.player.audioQuality.bitrate,
+                                                  style: TextStyle(
+                                                    color: isLossless ? Colors.black : Colors.white,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w900,
+                                                    letterSpacing: 0.3,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        InkWell(
+                                          onTap: () {
+                                            HapticFeedback.lightImpact();
+                                            _loadHomeData();
+                                          },
+                                          borderRadius: BorderRadius.circular(16),
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(6),
+                                            child: Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+                                          ),
+                                        ),
+                                      ],
+                                    );
                                   },
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(6),
-                                    child: Icon(Icons.refresh_rounded, color: Colors.white70, size: 21),
-                                  ),
                                 ),
                               ],
                             ),
@@ -549,7 +609,7 @@ class _HomeViewState extends State<HomeView> {
                               physics: const NeverScrollableScrollPhysics(),
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
-                                childAspectRatio: 3.05,
+                                childAspectRatio: 2.85,
                                 crossAxisSpacing: 8,
                                 mainAxisSpacing: 8,
                               ),
@@ -805,23 +865,24 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  // Slot #1 Signature Spotify Purple-Blue Liked Songs Shortcut
+  // Slot #1 Signature Spotify Glass Purple-Blue Liked Songs Shortcut
   Widget _buildLikedShortcutTile() {
     return InkWell(
       onTap: _openLikedPlaylist,
-      borderRadius: BorderRadius.circular(5),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        height: 54,
+        height: 58,
         decoration: BoxDecoration(
-          color: const Color(0xFF23252C).withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(5),
+          color: const Color(0xFF1F222A).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.8),
         ),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
             Container(
-              width: 54,
-              height: 54,
+              width: 58,
+              height: 58,
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
@@ -832,17 +893,30 @@ class _HomeViewState extends State<HomeView> {
               child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 22),
             ),
             const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Lagu Disukai',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                ),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Lagu Disukai',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_likedTracks.length} lagu',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 10.5),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 6),
@@ -865,41 +939,69 @@ class _HomeViewState extends State<HomeView> {
           widget.player.playTrack(t, _quickCards);
         }
       },
-      borderRadius: BorderRadius.circular(5),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        height: 54,
+        height: 58,
         decoration: BoxDecoration(
-          color: isCurrent
-              ? AppTheme.primaryAzure.withValues(alpha: 0.22)
-              : const Color(0xFF23252C).withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(5),
-          border: isCurrent
-              ? Border.all(color: AppTheme.primaryAzure.withValues(alpha: 0.45), width: 1)
+          gradient: isCurrent
+              ? LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    AppTheme.primaryAzure.withValues(alpha: 0.25),
+                    const Color(0xFF1F222A).withValues(alpha: 0.94),
+                  ],
+                )
               : null,
+          color: isCurrent ? null : const Color(0xFF1F222A).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isCurrent
+                ? AppTheme.primaryAzure.withValues(alpha: 0.55)
+                : Colors.white.withValues(alpha: 0.08),
+            width: isCurrent ? 1.1 : 0.8,
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
             OptimizedImage(
               imageUrl: t.artwork,
-              width: 54,
-              height: 54,
-              memCacheWidth: 110,
-              memCacheHeight: 110,
+              width: 58,
+              height: 58,
+              memCacheWidth: 120,
+              memCacheHeight: 120,
               borderRadius: BorderRadius.zero,
             ),
             const SizedBox(width: 9),
             Expanded(
-              child: Text(
-                t.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isCurrent ? AppTheme.primaryAzure : Colors.white,
-                  fontSize: 12.2,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isCurrent ? AppTheme.primaryAzure : Colors.white,
+                      fontSize: 12.2,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    t.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.textMuted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
             if (isCurrent)

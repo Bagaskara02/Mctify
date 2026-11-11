@@ -3,11 +3,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import '../models/audio_quality.dart';
 import '../models/lyric_line.dart';
 import '../models/track.dart';
 import '../services/audio_player_manager.dart';
 import '../services/lyrics_service.dart';
-import '../theme/app_theme.dart';
+import '../utils/artwork_palette.dart';
+import '../widgets/audio_quality_modal.dart';
+import '../widgets/optimized_image.dart';
 
 class LyricsView extends StatefulWidget {
   final Track track;
@@ -33,6 +36,9 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   int _activeLineIndex = 0;
   bool _userScrolled = false;
   Timer? _userScrollTimer;
+  double _syncOffsetSec = 0.0;
+  ArtworkColors _palette = ArtworkColors.fallbackDefault;
+  String? _lastPaletteUrl;
 
   // Line keys for smooth ensureVisible scrolling
   final Map<int, GlobalKey> _lineKeys = {};
@@ -48,6 +54,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     super.initState();
     _currentTrack = widget.player.currentTrack ?? widget.track;
     widget.player.addListener(_onPlayerStateChanged);
+    _syncPalette(_currentTrack.artwork, _currentTrack.title);
     _loadLyrics();
 
     _lastKnownPlayerSec = widget.player.position.inMilliseconds / 1000.0;
@@ -58,10 +65,22 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     _ticker.start();
   }
 
+  void _syncPalette(String url, String title) {
+    if (url == _lastPaletteUrl) return;
+    _lastPaletteUrl = url;
+    _palette = ArtworkPalette.getCachedOrFallback(url, seed: title);
+    ArtworkPalette.extract(url, seed: title).then((pal) {
+      if (mounted && _lastPaletteUrl == url) {
+        setState(() => _palette = pal);
+      }
+    });
+  }
+
   void _onPlayerStateChanged() {
     final active = widget.player.currentTrack;
     if (active != null && (active.id != _currentTrack.id || active.title != _currentTrack.title)) {
       if (!mounted) return;
+      _syncPalette(active.artwork, active.title);
       setState(() {
         _currentTrack = active;
         _isLoading = true;
@@ -158,12 +177,19 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     }
   }
 
+  String _formatDuration(int totalSeconds) {
+    final safe = totalSeconds.clamp(0, 35999);
+    final mins = safe ~/ 60;
+    final secs = safe % 60;
+    return '$mins:${secs < 10 ? '0' : ''}$secs';
+  }
+
   @override
   Widget build(BuildContext context) {
     // Acoustic output calibration: Physical speaker/earphone audio lags behind internal player timestamp by ~450ms.
     // Calibrating by -0.45s keeps the visual sweep and active line in 100% lockstep with the vocals heard by the user.
     const double audioLatencyOffsetSec = 0.45;
-    final effectiveSec = math.max(0.0, _currentEffectiveSec - audioLatencyOffsetSec);
+    final effectiveSec = math.max(0.0, _currentEffectiveSec - (audioLatencyOffsetSec + _syncOffsetSec));
 
     // Determine current active lyric line
     int currentActive = -1;
@@ -185,62 +211,169 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
       }
     }
 
+    final durSec = widget.player.duration.inSeconds > 0
+        ? widget.player.duration.inSeconds
+        : (_currentTrack.duration > 0 ? _currentTrack.duration : 1);
+    final posSec = widget.player.position.inSeconds.clamp(0, durSec);
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 550),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF04070D),
-              Color(0xFF07101E),
-              Color(0xFF0C192E),
+              _palette.primary,
+              _palette.secondary.withValues(alpha: 0.72),
+              const Color(0xFF0A0C12),
             ],
+            stops: const [0.0, 0.55, 1.0],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              // Clean Minimal Top Navigation: Back Button and Centered Title ONLY
+              // Modern Spotify / Apple Music Top Header with Cover Art + Lossless Pill + Sync Calibrator
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.fromLTRB(10, 8, 12, 4),
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down, size: 30, color: Colors.white),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: OptimizedImage(
+                        imageUrl: _currentTrack.artwork,
+                        width: 36,
+                        height: 36,
+                        memCacheWidth: 80,
+                        memCacheHeight: 80,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            _currentTrack.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _currentTrack.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (widget.player.audioQuality == AudioQuality.lossless) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)]),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'LOSSLESS',
+                                    style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.w900),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          const SizedBox(height: 1),
                           Text(
                             _currentTrack.artist,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppTheme.textMuted,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.72),
                               fontSize: 12,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 48), // Balances the back button
+                    IconButton(
+                      icon: Icon(
+                        Icons.high_quality_rounded,
+                        color: widget.player.audioQuality == AudioQuality.lossless
+                            ? const Color(0xFFFBBF24)
+                            : Colors.white70,
+                        size: 22,
+                      ),
+                      tooltip: 'Kualitas Audio',
+                      onPressed: () => AudioQualityModal.show(context, widget.player),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 20),
+                      tooltip: 'Salin Lirik',
+                      onPressed: () {
+                        if (_lyrics.isEmpty) return;
+                        final clip = _lyrics.take(8).map((l) => l.text).join('\n');
+                        Clipboard.setData(ClipboardData(text: '${_currentTrack.title} - ${_currentTrack.artist}\n\n$clip\n\n— McTify'));
+                        HapticFeedback.lightImpact();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Cuplikan lirik disalin ke clipboard!'),
+                            duration: Duration(milliseconds: 1200),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
+
+              // Compact Timing Calibrator Strip
+              if (_lyrics.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: () => setState(() => _syncOffsetSec = ((_syncOffsetSec - 0.2) * 10).round() / 10),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          child: Text('-0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _syncOffsetSec = 0.0),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Text(
+                            'Sync ${_syncOffsetSec >= 0 ? '+' : ''}${_syncOffsetSec.toStringAsFixed(1)}s',
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _syncOffsetSec = ((_syncOffsetSec + 0.2) * 10).round() / 10),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          child: Text('+0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
               // Lyrics Karaoke Body
               Expanded(
@@ -354,50 +487,87 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                           ),
               ),
 
-              // Bottom Mini Controls
+              // Frosted Glass Spotify Bottom Player Bar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF07101E),
-                  border: Border(top: BorderSide(color: Colors.white10)),
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.10))),
                 ),
-                child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      icon: Icon(
-                        widget.player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                        color: Colors.white,
-                        size: 40,
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3.5,
+                        activeTrackColor: Colors.white,
+                        inactiveTrackColor: Colors.white24,
+                        thumbColor: Colors.white,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5.5),
+                        overlayShape: SliderComponentShape.noOverlay,
                       ),
-                      onPressed: () {
-                        widget.player.togglePlayPause();
-                        HapticFeedback.lightImpact();
-                      },
+                      child: Slider(
+                        value: posSec.toDouble(),
+                        max: durSec.toDouble(),
+                        onChanged: (val) {
+                          widget.player.seek(Duration(seconds: val.round()));
+                        },
+                      ),
                     ),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 3.5,
-                          activeTrackColor: const Color(0xFF3B82F6),
-                          inactiveTrackColor: Colors.white12,
-                          thumbColor: Colors.white,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _formatDuration(posSec),
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontWeight: FontWeight.w600),
                         ),
-                        child: Slider(
-                          value: widget.player.position.inSeconds.toDouble().clamp(
-                                0.0,
-                                widget.player.duration.inSeconds.toDouble() > 0
-                                    ? widget.player.duration.inSeconds.toDouble()
-                                    : 1.0,
-                              ),
-                          max: widget.player.duration.inSeconds.toDouble() > 0
-                              ? widget.player.duration.inSeconds.toDouble()
-                              : 1.0,
-                          onChanged: (val) {
-                            widget.player.seek(Duration(seconds: val.round()));
+                        Text(
+                          '-${_formatDuration(durSec - posSec)}',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 34),
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            widget.player.previous();
                           },
                         ),
-                      ),
+                        const SizedBox(width: 18),
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            widget.player.togglePlayPause();
+                          },
+                          child: Container(
+                            width: 54,
+                            height: 54,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              widget.player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              color: Colors.black,
+                              size: 34,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 18),
+                        IconButton(
+                          icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 34),
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            widget.player.next();
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),

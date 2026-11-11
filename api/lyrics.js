@@ -8,17 +8,13 @@
  * 5. Returns unified syllable-synced or line-synced structure with millisecond precision
  */
 
+import { extractPrimaryArtist, scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
+
 const memoryCache = new Map();
 
 function cleanTrackMetadata(rawTitle, rawArtist) {
   let title = (rawTitle || '').trim();
-  let artist = (rawArtist || '').trim();
-
-  // Strip Topic, VEVO, Official from artist
-  artist = artist.replace(/\s*-\s*Topic$/i, '')
-                 .replace(/\s*VEVO$/i, '')
-                 .replace(/\s*Official$/i, '')
-                 .trim();
+  let artist = extractPrimaryArtist(rawArtist || '');
 
   // If title has 'Artist - Title' format
   if (title.includes(' - ')) {
@@ -31,7 +27,7 @@ function cleanTrackMetadata(rawTitle, rawArtist) {
       } else if (artist && (p1.toLowerCase().includes(artist.toLowerCase()) || artist.toLowerCase().includes(p1.toLowerCase()))) {
         title = p0;
       } else if (!artist) {
-        artist = p0;
+        artist = extractPrimaryArtist(p0);
         title = p1;
       }
     }
@@ -344,12 +340,12 @@ function finalizeLinesWithInterludes(parsedLines) {
 }
 
 /**
- * Fetch from NetEase Cloud Music (supports YRC true syllable sync and LRC)
+ * Fetch from NetEase Cloud Music (scores top candidates strictly by artist, title, and duration)
  */
-async function fetchNetEase(title, artist) {
+async function fetchNetEase(title, artist, targetDuration) {
   try {
     const q = `${title} ${artist}`.trim();
-    const params = new URLSearchParams({ s: q, type: '1', offset: '0', limit: '3' });
+    const params = new URLSearchParams({ s: q, type: '1', offset: '0', limit: '6' });
     const searchRes = await fetch('https://music.163.com/api/cloudsearch/pc', {
       method: 'POST',
       headers: {
@@ -362,42 +358,62 @@ async function fetchNetEase(title, artist) {
 
     if (!searchRes.ok) return null;
     const searchData = await searchRes.json();
-    const song = searchData.result?.songs?.[0];
-    if (!song?.id) return null;
+    const candidates = searchData.result?.songs || [];
+    if (candidates.length === 0) return null;
 
-    const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1`, {
-      headers: {
-        'Referer': 'https://music.163.com',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      },
-    });
+    // Score NetEase songs before fetching lyrics so wrong-artist/remix songs are NEVER chosen
+    const ranked = candidates
+      .map((s) => {
+        const candArtist = (s.ar || s.artists || []).map((a) => a.name).join(', ');
+        const candDurSec = Math.round((s.dt || s.duration || 0) / 1000);
+        const matchScore = scoreLyricCandidate({
+          candTitle: s.name || '',
+          candArtist,
+          candDurationSec: candDurSec,
+          targetTitle: title,
+          targetArtist: artist,
+          targetDurationSec: targetDuration || 0,
+        });
+        return { song: s, matchScore };
+      })
+      .filter((x) => x.matchScore >= 700)
+      .sort((a, b) => b.matchScore - a.matchScore);
 
-    if (!lyricRes.ok) return null;
-    const lyricData = await lyricRes.json();
+    for (const entry of ranked.slice(0, 2)) {
+      const song = entry.song;
+      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1`, {
+        headers: {
+          'Referer': 'https://music.163.com',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+      });
+      if (!lyricRes.ok) continue;
+      const lyricData = await lyricRes.json();
 
-    // Check YRC first (Studio Syllable-Synced)
-    if (lyricData.yrc?.lyric) {
-      const lines = parseYrc(lyricData.yrc.lyric);
-      if (lines.length > 0) {
-        return {
-          source: 'NetEase YRC (Syllable-Synced)',
-          isSyllableSynced: true,
-          synced: true,
-          lines,
-        };
+      if (lyricData.yrc?.lyric) {
+        const lines = parseYrc(lyricData.yrc.lyric);
+        if (lines.length > 0) {
+          return {
+            source: 'NetEase YRC (Syllable-Synced)',
+            isSyllableSynced: true,
+            synced: true,
+            matchScore: entry.matchScore + 180,
+            lines,
+          };
+        }
       }
-    }
 
-    // Fallback to LRC
-    if (lyricData.lrc?.lyric) {
-      const lines = parseLrc(lyricData.lrc.lyric);
-      if (lines.length > 0) {
-        return {
-          source: 'NetEase LRC',
-          isSyllableSynced: false,
-          synced: true,
-          lines,
-        };
+      if (lyricData.lrc?.lyric) {
+        const lines = parseLrc(lyricData.lrc.lyric);
+        if (lines.length > 0) {
+          return {
+            source: 'NetEase LRC',
+            isSyllableSynced: false,
+            synced: true,
+            matchScore: entry.matchScore,
+            lines,
+          };
+        }
       }
     }
 
@@ -408,11 +424,11 @@ async function fetchNetEase(title, artist) {
 }
 
 /**
- * Fetch from LRCLIB (supports Enhanced & Standard LRC)
+ * Fetch from LRCLIB (exact match + scored search across synced candidates)
  */
 async function fetchLrclib(title, artist, targetDuration) {
   try {
-    // Exact search
+    // 1. Exact studio match via /api/get
     const params = new URLSearchParams({ track_name: title, artist_name: artist });
     if (targetDuration) params.append('duration', String(targetDuration));
 
@@ -422,30 +438,66 @@ async function fetchLrclib(title, artist, targetDuration) {
       if (data?.syncedLyrics || data?.plainLyrics) {
         const isEnhanced = /<\d{1,3}:\d{2}/.test(data.syncedLyrics || '');
         const lines = data.syncedLyrics ? parseLrc(data.syncedLyrics) : parseLrc(data.plainLyrics);
-        return {
-          source: isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Synced)',
-          isSyllableSynced: isEnhanced,
-          synced: !!data.syncedLyrics,
-          lines,
-        };
+        const matchScore = scoreLyricCandidate({
+          candTitle: data.trackName || title,
+          candArtist: data.artistName || artist,
+          candDurationSec: Math.round(data.duration || targetDuration || 0),
+          targetTitle: title,
+          targetArtist: artist,
+          targetDurationSec: targetDuration || 0,
+          isSynced: !!data.syncedLyrics,
+          isSyllable: isEnhanced,
+        });
+        if (lines.length > 0 && matchScore >= 600) {
+          return {
+            source: isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Synced Exact)',
+            isSyllableSynced: isEnhanced,
+            synced: !!data.syncedLyrics,
+            matchScore: matchScore + 250,
+            lines,
+          };
+        }
       }
     }
 
-    // General search query
+    // 2. General search query: score ALL candidates rather than taking blind [0]
     const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(`${title} ${artist}`)}`);
     if (searchRes.ok) {
       const list = await searchRes.json();
       if (Array.isArray(list) && list.length > 0) {
-        const item = list.find(i => i.syncedLyrics) || list[0];
-        if (item?.syncedLyrics || item?.plainLyrics) {
-          const isEnhanced = /<\d{1,3}:\d{2}/.test(item.syncedLyrics || '');
-          const lines = item.syncedLyrics ? parseLrc(item.syncedLyrics) : parseLrc(item.plainLyrics);
-          return {
-            source: isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Search)',
-            isSyllableSynced: isEnhanced,
-            synced: !!item.syncedLyrics,
-            lines,
-          };
+        const scored = list
+          .filter((i) => i?.syncedLyrics || i?.plainLyrics)
+          .map((item) => {
+            const isEnhanced = /<\d{1,3}:\d{2}/.test(item.syncedLyrics || '');
+            const s = scoreLyricCandidate({
+              candTitle: item.trackName || '',
+              candArtist: item.artistName || '',
+              candDurationSec: Math.round(item.duration || 0),
+              targetTitle: title,
+              targetArtist: artist,
+              targetDurationSec: targetDuration || 0,
+              isSynced: !!item.syncedLyrics,
+              isSyllable: isEnhanced,
+            });
+            return { item, isEnhanced, matchScore: s };
+          })
+          .filter((x) => x.matchScore >= 550)
+          .sort((a, b) => b.matchScore - a.matchScore);
+
+        if (scored.length > 0) {
+          const best = scored[0];
+          const lines = best.item.syncedLyrics
+            ? parseLrc(best.item.syncedLyrics)
+            : parseLrc(best.item.plainLyrics);
+          if (lines.length > 0) {
+            return {
+              source: best.isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Matched Search)',
+              isSyllableSynced: best.isEnhanced,
+              synced: !!best.item.syncedLyrics,
+              matchScore: best.matchScore,
+              lines,
+            };
+          }
         }
       }
     }
@@ -456,36 +508,50 @@ async function fetchLrclib(title, artist, targetDuration) {
 }
 
 /**
- * Main Cascading Resolver
+ * Main Cascading Resolver: compares scored candidates from NetEase & LRCLIB in parallel
  */
 export async function getLyrics(rawTitle, rawArtist, duration) {
   const { title, artist, subTitles } = cleanTrackMetadata(rawTitle, rawArtist);
-  const cacheKey = `${artist.toLowerCase()}:::${title.toLowerCase()}`;
+  const durBucket = duration > 10 ? Math.round(duration / 5) : 'any';
+  const cacheKey = `${artist.toLowerCase()}:::${title.toLowerCase()}:::${durBucket}`;
 
   if (memoryCache.has(cacheKey)) {
     return memoryCache.get(cacheKey);
   }
 
-  // 1. Try with primary cleaned title across providers
-  let result = await fetchNetEase(title, artist);
-  if (!result) {
-    result = await fetchLrclib(title, artist, duration);
+  // Query NetEase and LRCLIB in parallel and pick highest verified matchScore!
+  const [neRes, lrcRes] = await Promise.all([
+    fetchNetEase(title, artist, duration),
+    fetchLrclib(title, artist, duration),
+  ]);
+
+  let best = null;
+  if (neRes && lrcRes) {
+    best = (lrcRes.matchScore >= neRes.matchScore) ? lrcRes : neRes;
+  } else {
+    best = neRes || lrcRes;
   }
 
-  // 2. If composite title and not found, try sub-titles (e.g. 'Television' from 'Television / So Far So Good')
-  if (!result && subTitles.length > 1) {
+  // Fallback to composite sub-titles (e.g. 'Television' from 'Television / So Far So Good')
+  if (!best && subTitles.length > 1) {
     for (let i = 1; i < subTitles.length; i++) {
       const sub = subTitles[i];
-      result = await fetchNetEase(sub, artist);
-      if (result) break;
-      result = await fetchLrclib(sub, artist, duration);
-      if (result) break;
+      const [subNe, subLrc] = await Promise.all([
+        fetchNetEase(sub, artist, duration),
+        fetchLrclib(sub, artist, duration),
+      ]);
+      if (subNe && subLrc) {
+        best = (subLrc.matchScore >= subNe.matchScore) ? subLrc : subNe;
+      } else {
+        best = subNe || subLrc;
+      }
+      if (best) break;
     }
   }
 
-  if (result) {
-    memoryCache.set(cacheKey, result);
-    return result;
+  if (best) {
+    memoryCache.set(cacheKey, best);
+    return best;
   }
 
   return { synced: false, isSyllableSynced: false, lines: [] };

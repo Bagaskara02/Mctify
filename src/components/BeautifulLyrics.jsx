@@ -211,7 +211,7 @@ export default function BeautifulLyrics({
   // User lyric timing sync calibration (persisted in localStorage)
   const [syncOffsetSec, setSyncOffsetSec] = useState(() => {
     try {
-      const saved = localStorage.getItem('mcmusic_lyrics_sync_offset');
+      const saved = localStorage.getItem('mctify_lyrics_sync_offset');
       return saved !== null ? parseFloat(saved) : 0;
     } catch {
       return 0;
@@ -222,7 +222,7 @@ export default function BeautifulLyrics({
     setSyncOffsetSec((prev) => {
       const next = Math.round((prev + delta) * 10) / 10;
       try {
-        localStorage.setItem('mcmusic_lyrics_sync_offset', next.toString());
+        localStorage.setItem('mctify_lyrics_sync_offset', next.toString());
       } catch (_) {}
       return next;
     });
@@ -231,7 +231,7 @@ export default function BeautifulLyrics({
   const resetSyncOffset = () => {
     setSyncOffsetSec(0);
     try {
-      localStorage.setItem('mcmusic_lyrics_sync_offset', '0');
+      localStorage.setItem('mctify_lyrics_sync_offset', '0');
     } catch (_) {}
   };
 
@@ -282,9 +282,8 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  // Acoustic output latency calibration: Calibrated so lyrics don't rush ahead of vocals
-  // Base offset: 0.65s (delayed by an extra 300ms so lyric doesn't highlight too early) + user offset
-  const effectiveTime = Math.max(0, smoothTime - (0.65 + syncOffsetSec));
+  // Acoustic output latency calibration for Web HTML5/YouTube audio (~120ms mixer pipeline)
+  const effectiveTime = Math.max(0, smoothTime - (0.12 + syncOffsetSec));
   const lines = lyricsData?.lines || [];
 
   // Determine active line index

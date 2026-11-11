@@ -18,14 +18,16 @@ void main() {
   });
 
   group('Audio Quality Tests', () {
-    test('AudioQuality enum has realistic YouTube bitrates', () {
+    test('AudioQuality enum has YouTube bitrates plus Hi-Res Lossless tier', () {
       expect(AudioQuality.dataSaver.bitrate, '64 kbps');
       expect(AudioQuality.standard.bitrate, '128 kbps');
       expect(AudioQuality.high.bitrate, '160 kbps');
+      expect(AudioQuality.lossless.bitrate, 'FLAC / Hi-Fi');
 
       expect(AudioQuality.fromString('dataSaver'), AudioQuality.dataSaver);
       expect(AudioQuality.fromString('standard'), AudioQuality.standard);
       expect(AudioQuality.fromString('high'), AudioQuality.high);
+      expect(AudioQuality.fromString('lossless'), AudioQuality.lossless);
       expect(AudioQuality.fromString('invalid'), AudioQuality.high);
     });
   });

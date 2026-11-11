@@ -32,6 +32,7 @@ export default function MobileFullscreenPlayer({
   isRepeat,
   repeatMode = 'off',
   isLiked,
+  lyricsData = null,
   playbackRate = 1.0,
   onPlaybackRateChange,
   isSleepTimerActive = false,
@@ -116,12 +117,27 @@ export default function MobileFullscreenPlayer({
   const activeDisplayTime = isScrubbing ? scrubTime : currentTime;
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (activeDisplayTime / duration) * 100)) : 0;
 
+  // Live calibrated lyric lines preview (~0.12s latency on Web)
+  const lyricLines = lyricsData?.lines || [];
+  const effectiveLyricTime = Math.max(0, currentTime - 0.12);
+  let activeLyricIdx = -1;
+  for (let i = 0; i < lyricLines.length; i++) {
+    if (lyricLines[i].time <= effectiveLyricTime) {
+      if (i === lyricLines.length - 1 || lyricLines[i + 1].time > effectiveLyricTime) {
+        activeLyricIdx = i;
+        break;
+      }
+    }
+  }
+  const activeLyric = activeLyricIdx !== -1 ? lyricLines[activeLyricIdx] : lyricLines[0];
+  const nextLyric = activeLyricIdx !== -1 && activeLyricIdx + 1 < lyricLines.length ? lyricLines[activeLyricIdx + 1] : lyricLines[1];
+
   return (
     <div
       style={{
         background: `linear-gradient(180deg, ${palette.primary} 0%, ${palette.secondary} 54%, #09090b 100%)`,
       }}
-      className="fixed inset-0 z-50 text-white flex flex-col justify-between p-6 select-none animate-in fade-in slide-in-from-bottom duration-300 transition-colors duration-700"
+      className="fixed inset-0 z-50 text-white flex flex-col overflow-y-auto no-scrollbar p-6 select-none animate-in fade-in slide-in-from-bottom duration-300 transition-colors duration-700"
     >
       {/* Top Header */}
       <div className="flex items-center justify-between">
@@ -381,6 +397,45 @@ export default function MobileFullscreenPlayer({
             Speed
           </span>
         </button>
+      </div>
+
+      {/* Artwork-Tinted Inline Live Lyrics Preview Card (Matches Flutter FullscreenPlayer) */}
+      <div
+        onClick={() => {
+          onClose();
+          onOpenLyrics();
+        }}
+        style={{
+          background: `linear-gradient(145deg, ${palette.primary}cc 0%, #14161be6 100%)`,
+        }}
+        className="mt-4 mb-2 p-4 rounded-2xl border border-white/15 shadow-xl cursor-pointer active:scale-[0.99] transition-all"
+      >
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-1.5">
+            <Mic2 className="w-4 h-4 text-white" />
+            <span className="text-xs font-black tracking-wide text-white">Lirik</span>
+          </div>
+          <span className="px-2.5 py-0.5 rounded-full bg-black/30 text-[10px] font-bold text-white">
+            Layar Penuh ↗
+          </span>
+        </div>
+
+        {lyricLines.length === 0 ? (
+          <p className="text-sm font-bold text-white/75">
+            Ketuk untuk membuka lirik sinkron &amp; mode karaoke penuh...
+          </p>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-base font-black text-white leading-snug line-clamp-2">
+              {activeLyric?.text}
+            </p>
+            {nextLyric?.text && (
+              <p className="text-sm font-bold text-white/55 leading-snug line-clamp-2">
+                {nextLyric.text}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

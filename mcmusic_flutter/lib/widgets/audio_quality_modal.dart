@@ -68,40 +68,50 @@ class AudioQualityModal extends StatelessWidget {
 
                 ...AudioQuality.values.map((q) {
                   final isSelected = current == q;
+                  final isLossless = q == AudioQuality.lossless;
+                  final accent = isLossless ? const Color(0xFFF59E0B) : AppTheme.primaryAzure;
 
                   return Container(
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppTheme.primaryAzure.withValues(alpha: 0.12) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSelected ? Border.all(color: AppTheme.primaryAzure.withValues(alpha: 0.4)) : null,
+                      color: isSelected ? accent.withValues(alpha: 0.14) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(14),
+                      border: isSelected
+                          ? Border.all(color: accent.withValues(alpha: 0.5))
+                          : (isLossless ? Border.all(color: accent.withValues(alpha: 0.22)) : null),
                     ),
                     child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
                       leading: Icon(
                         isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                        color: isSelected ? AppTheme.primaryAzure : Colors.white38,
+                        color: isSelected ? accent : Colors.white38,
                       ),
                       title: Row(
                         children: [
-                          Text(
-                            q.label,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.white70,
-                              fontWeight: FontWeight.bold,
+                          Flexible(
+                            child: Text(
+                              q.label,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.white70,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isSelected ? AppTheme.primaryAzure : Colors.white12,
+                              gradient: isLossless
+                                  ? const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)])
+                                  : null,
+                              color: isLossless ? null : (isSelected ? AppTheme.primaryAzure : Colors.white12),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               q.bitrate,
                               style: TextStyle(
-                                color: isSelected ? Colors.black : Colors.white70,
+                                color: (isSelected || isLossless) ? Colors.black : Colors.white70,
                                 fontSize: 10,
                                 fontWeight: FontWeight.w900,
                               ),

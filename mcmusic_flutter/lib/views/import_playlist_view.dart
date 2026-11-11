@@ -286,7 +286,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0E14),
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -297,11 +297,12 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
               )
             : null,
         title: const Text(
-          'Import Playlist',
+          'Impor Playlist',
           style: TextStyle(
             color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
           ),
         ),
         bottom: PreferredSize(
@@ -309,7 +310,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF141923),
+              color: const Color(0xFF1D1E24),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.white10),
             ),

@@ -7,8 +7,10 @@ import {
   Sparkles,
   MoreHorizontal,
   RotateCw,
+  Disc3,
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { audioQualityService } from '../services/audioQualityService';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 export default function DiscoverView({
@@ -26,6 +28,7 @@ export default function DiscoverView({
   onToggleLike,
   onOpenLyrics,
   onOpenImportModal,
+  onOpenAudioQuality,
   onSelectPlaylist,
   onOpenVirtualPlaylist,
   onSelectLiked,
@@ -36,6 +39,11 @@ export default function DiscoverView({
   const [activeTab, setActiveTab] = useState('Semua'); // 'Semua' | 'Musik' | 'Mix & Radio' | 'Trending'
   const [ambientHex, setAmbientHex] = useState('#1d4ed8');
   const [hoveredArtwork, setHoveredArtwork] = useState(null);
+  const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+
+  useEffect(() => {
+    return audioQualityService.subscribe((qId) => setCurrentQuality(qId));
+  }, []);
 
   const candidatePool =
     personalizedFeed?.quickCards?.length > 0 ? personalizedFeed.quickCards : trendingTracks;
@@ -194,6 +202,20 @@ export default function DiscoverView({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {onOpenAudioQuality && (
+            <button
+              onClick={onOpenAudioQuality}
+              className={`px-3 py-1.5 rounded-full font-black text-[11px] flex items-center gap-1.5 transition-all active:scale-95 border ${
+                currentQuality === 'lossless'
+                  ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-black border-amber-300 shadow-md shadow-amber-500/20'
+                  : 'bg-white/10 hover:bg-white/20 text-white border-white/10'
+              }`}
+              title="Pengaturan Kualitas Audio & Lossless"
+            >
+              <Disc3 className="w-3.5 h-3.5" />
+              <span>{currentQuality === 'lossless' ? 'LOSSLESS' : audioQualityService.getQualityDetails(currentQuality).bitrate}</span>
+            </button>
+          )}
           {onRefreshFeed && (
             <button
               onClick={onRefreshFeed}
@@ -256,7 +278,7 @@ export default function DiscoverView({
                 onClick={() => onSelectLiked?.()}
                 onMouseEnter={() => setAmbientHex('#450af5')}
                 onMouseLeave={() => setHoveredArtwork(null)}
-                className="group relative flex items-center h-14 sm:h-16 bg-white/[0.08] hover:bg-white/[0.16] rounded-md overflow-hidden cursor-pointer transition-colors duration-200 select-none shadow-sm"
+                className="group relative flex items-center h-14 sm:h-16 bg-[#1f222a]/90 hover:bg-[#2a2e38] border border-white/[0.08] rounded-lg overflow-hidden cursor-pointer transition-all duration-200 select-none shadow-sm"
               >
                 <div className="w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-gradient-to-br from-[#450af5] to-[#8e8ee5] flex items-center justify-center shadow-md">
                   <Heart className="w-6 h-6 text-white fill-white" />
@@ -295,10 +317,10 @@ export default function DiscoverView({
                       e.preventDefault();
                       onTrackContextMenu?.(e, t);
                     }}
-                    className={`group relative flex items-center h-14 sm:h-16 rounded-md overflow-hidden cursor-pointer transition-colors duration-200 select-none shadow-sm ${
+                    className={`group relative flex items-center h-14 sm:h-16 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 select-none shadow-sm border ${
                       isCurrent
-                        ? 'bg-[#3B82F6]/20 ring-1 ring-[#3B82F6]/40'
-                        : 'bg-white/[0.08] hover:bg-white/[0.16]'
+                        ? 'bg-[#3B82F6]/20 border-[#3B82F6]/50'
+                        : 'bg-[#1f222a]/90 hover:bg-[#2a2e38] border-white/[0.08]'
                     }`}
                   >
                     <div className="w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 overflow-hidden bg-[#242424] shadow-md">

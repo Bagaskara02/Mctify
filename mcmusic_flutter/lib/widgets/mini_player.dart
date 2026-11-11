@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/audio_quality.dart';
 import '../services/audio_player_manager.dart';
 import '../theme/app_theme.dart';
 import '../utils/artwork_palette.dart';
@@ -109,7 +110,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 450),
         curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
         height: 58,
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -196,16 +197,36 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.2,
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                track.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ),
+                            if (widget.player.audioQuality == AudioQuality.lossless) ...[
+                              const SizedBox(width: 5),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)]),
+                                  borderRadius: BorderRadius.circular(3.5),
+                                ),
+                                child: const Text(
+                                  'LOSSLESS',
+                                  style: TextStyle(color: Colors.black, fontSize: 7.5, fontWeight: FontWeight.w900, letterSpacing: 0.3),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 1),
                         Row(

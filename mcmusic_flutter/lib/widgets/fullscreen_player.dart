@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../models/audio_quality.dart';
 import '../models/track.dart';
 import '../models/lyric_line.dart';
 import '../services/audio_player_manager.dart';
@@ -554,26 +555,43 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                                   ),
                                 ),
                                 const SizedBox(height: 6),
-                                // Spotube / MySpoti Codec & Bitrate Badge
+                                // Spotube / MySpoti / Monochrome Codec & Lossless Badge
                                 GestureDetector(
                                   onTap: () => AudioQualityModal.show(context, widget.player),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.12),
+                                      gradient: widget.player.audioQuality == AudioQuality.lossless
+                                          ? const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFFBBF24)])
+                                          : null,
+                                      color: widget.player.audioQuality == AudioQuality.lossless
+                                          ? null
+                                          : Colors.white.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.high_quality_rounded, size: 13, color: AppTheme.primaryAzure),
+                                        Icon(
+                                          Icons.high_quality_rounded,
+                                          size: 13,
+                                          color: widget.player.audioQuality == AudioQuality.lossless
+                                              ? Colors.black
+                                              : AppTheme.primaryAzure,
+                                        ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          '${widget.player.audioQuality.label} • ${widget.player.audioQuality.bitrate}',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
+                                          widget.player.audioQuality == AudioQuality.lossless
+                                              ? 'LOSSLESS • FLAC / Hi-Fi'
+                                              : '${widget.player.audioQuality.label} • ${widget.player.audioQuality.bitrate}',
+                                          style: TextStyle(
+                                            color: widget.player.audioQuality == AudioQuality.lossless
+                                                ? Colors.black
+                                                : Colors.white70,
                                             fontSize: 10.5,
-                                            fontWeight: FontWeight.w600,
+                                            fontWeight: widget.player.audioQuality == AudioQuality.lossless
+                                                ? FontWeight.w900
+                                                : FontWeight.w600,
                                           ),
                                         ),
                                       ],

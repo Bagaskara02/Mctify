@@ -280,16 +280,35 @@ class _LibraryViewState extends State<LibraryView> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Your Library',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.primaryAzure,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'M',
+                            style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'Koleksi Kamu',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
                   ),
-                    Row(
+                  Row(
                     children: [
                       IconButton(
                         icon: const Icon(Icons.file_download_outlined, color: AppTheme.primaryAzure, size: 24),
@@ -380,68 +399,186 @@ class _LibraryViewState extends State<LibraryView> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAzure))
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 160),
-                      children: [
-                        // Pinned: "Liked Songs" Card (Spotify exact match with Blue pin!)
-                        InkWell(
-                          onTap: () {
-                            if (_likedTracks.isNotEmpty) {
-                              widget.player.playTrack(_likedTracks.first, _likedTracks);
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 60,
-                                  height: 60,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
+                  : _isGridView
+                      ? GridView(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 150),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: 0.78,
+                          ),
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                final likedPl = Playlist(
+                                  id: 'liked-songs',
+                                  name: 'Lagu yang Disukai',
+                                  description: '${_likedTracks.length} lagu favoritmu',
+                                  cover: _likedTracks.isNotEmpty
+                                      ? _likedTracks.first.artwork
+                                      : 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=400',
+                                  tracks: _likedTracks,
+                                );
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PlaylistDetailView(
+                                      playlist: likedPl,
+                                      player: widget.player,
+                                      onPlaylistChanged: _loadLibrary,
                                     ),
-                                    borderRadius: BorderRadius.circular(4),
                                   ),
-                                  child: const Icon(Icons.favorite, color: Colors.white, size: 28),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Liked Songs',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
+                                );
+                              },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AspectRatio(
+                                    aspectRatio: 1,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
                                         ),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                      const SizedBox(height: 3),
-                                      Row(
+                                      child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 46),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Lagu yang Disukai',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    'Playlist • ${_likedTracks.length} lagu',
+                                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 11.5),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ..._playlists.map((pl) {
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PlaylistDetailView(
+                                        playlist: pl,
+                                        player: widget.player,
+                                        onPlaylistChanged: _loadLibrary,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                onLongPress: () => _showPlaylistMenu(pl),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    AspectRatio(
+                                      aspectRatio: 1,
+                                      child: _buildPlaylistArtwork(pl, 200),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      pl.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                    ),
+                                    Text(
+                                      'Playlist • ${pl.tracks.length} lagu',
+                                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 11.5),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 150),
+                          children: [
+                            // Pinned: "Lagu yang Disukai" Card
+                            InkWell(
+                              onTap: () {
+                                final likedPl = Playlist(
+                                  id: 'liked-songs',
+                                  name: 'Lagu yang Disukai',
+                                  description: '${_likedTracks.length} lagu favoritmu',
+                                  cover: _likedTracks.isNotEmpty
+                                      ? _likedTracks.first.artwork
+                                      : 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=400',
+                                  tracks: _likedTracks,
+                                );
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PlaylistDetailView(
+                                      playlist: likedPl,
+                                      player: widget.player,
+                                      onPlaylistChanged: _loadLibrary,
+                                    ),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 60,
+                                      height: 60,
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Icon(Icons.favorite, color: Colors.white, size: 28),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Icon(Icons.push_pin, color: AppTheme.primaryAzure, size: 13),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'Playlist • ${_likedTracks.length} songs',
-                                            style: const TextStyle(
-                                              color: AppTheme.textMuted,
-                                              fontSize: 13,
+                                          const Text(
+                                            'Lagu yang Disukai',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
                                             ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.push_pin, color: AppTheme.primaryAzure, size: 13),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Playlist • ${_likedTracks.length} lagu',
+                                                style: const TextStyle(
+                                                  color: AppTheme.textMuted,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
 
                         // Playlists List
                         ..._playlists.map((pl) {

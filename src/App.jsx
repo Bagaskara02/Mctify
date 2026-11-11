@@ -158,19 +158,23 @@ export default function App() {
     }
   }, []);
 
-  // Fetch Synchronized Lyrics whenever currentTrack changes
+  // Fetch Synchronized Lyrics whenever currentTrack changes (clear stale lyrics immediately & match exact duration)
+  const effectiveTrackDur = Math.round(currentTrack?.duration || duration || 0);
+  const lyricsDurBucket = effectiveTrackDur > 10 ? Math.round(effectiveTrackDur / 5) : 0;
+
   useEffect(() => {
     if (!currentTrack) {
       setLyricsData(null);
       return;
     }
 
-    const effectiveDuration = currentTrack.duration || (duration > 5 ? duration : undefined);
     let isSubscribed = true;
+    setLyricsData(null);
     setIsLoadingLyrics(true);
 
-    lyricsService.fetchLyrics(currentTrack.artist, currentTrack.title, effectiveDuration)
-      .then(data => {
+    lyricsService
+      .fetchLyrics(currentTrack.artist, currentTrack.title, effectiveTrackDur > 5 ? effectiveTrackDur : undefined)
+      .then((data) => {
         if (isSubscribed) {
           setLyricsData(data);
           setIsLoadingLyrics(false);
@@ -186,7 +190,7 @@ export default function App() {
     return () => {
       isSubscribed = false;
     };
-  }, [currentTrack?.title, currentTrack?.artist, Math.round(currentTrack?.duration || duration || 0)]);
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, lyricsDurBucket]);
 
   // Auto-hide bottom player bar in lyrics mode when not hovered or touched
   useEffect(() => {
@@ -1023,6 +1027,7 @@ export default function App() {
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onOpenImportModal={() => setIsImportModalOpen(true)}
+              onOpenAudioQuality={() => setIsAudioQualityOpen(true)}
               onSelectPlaylist={(plId) => navigateTo('playlist', plId)}
               onOpenVirtualPlaylist={handleOpenVirtualPlaylist}
               onSelectLiked={() => navigateTo('liked', null)}
@@ -1281,6 +1286,7 @@ export default function App() {
         isRepeat={isRepeat}
         repeatMode={repeatMode}
         isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
+        lyricsData={lyricsData}
         playbackRate={playbackRate}
         onPlaybackRateChange={setPlaybackRate}
         isSleepTimerActive={sleepTimerSeconds !== null}

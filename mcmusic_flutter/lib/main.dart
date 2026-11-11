@@ -154,7 +154,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               return Positioned(
                 left: 0,
                 right: 0,
-                bottom: MediaQuery.of(context).padding.bottom + 62,
+                // Scaffold extendBody: true already puts nav bar height + gesture inset inside padding.bottom
+                bottom: MediaQuery.of(context).padding.bottom + 2,
                 child: MiniPlayer(
                   player: _player,
                   isLiked: _isLiked,
@@ -192,11 +193,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.black.withValues(alpha: 0.78),
-              Colors.black.withValues(alpha: 0.96),
+              Colors.black.withValues(alpha: 0.92),
+              Colors.black.withValues(alpha: 0.98),
               Colors.black,
             ],
-            stops: const [0.0, 0.35, 1.0],
+            stops: const [0.0, 0.3, 1.0],
           ),
         ),
         child: BottomNavigationBar(

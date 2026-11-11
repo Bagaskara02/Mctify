@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/audio_player_manager.dart';
 import '../services/equalizer_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/artwork_palette.dart';
 import '../widgets/optimized_image.dart';
 
 class CarModeView extends StatefulWidget {
@@ -38,10 +39,25 @@ class _CarModeViewState extends State<CarModeView> {
         final dur = widget.player.duration.inSeconds > 0
             ? widget.player.duration
             : Duration(seconds: track?.duration ?? 180);
+        final pal = track != null
+            ? ArtworkPalette.getCachedOrFallback(track.artwork, seed: track.title)
+            : ArtworkColors.fallbackDefault;
 
         return Scaffold(
-          backgroundColor: Colors.black,
-          body: SafeArea(
+          backgroundColor: const Color(0xFF0A0A0D),
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  pal.primary.withValues(alpha: 0.72),
+                  const Color(0xFF0B0C10),
+                ],
+                stops: const [0.0, 0.75],
+              ),
+            ),
+            child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Column(
@@ -280,6 +296,7 @@ class _CarModeViewState extends State<CarModeView> {
                   const Spacer(flex: 1),
                 ],
               ),
+            ),
             ),
           ),
         );

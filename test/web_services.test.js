@@ -4,6 +4,7 @@ import { AUDIO_QUALITIES, audioQualityService } from '../src/services/audioQuali
 import { webAudioEqualizer, DEFAULT_EQ_SETTINGS } from '../src/services/webAudioEqualizer.js';
 import { storageService } from '../src/services/storageService.js';
 import { buildSpotifyShuffleDeck } from '../src/utils/shuffle.js';
+import { scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
 import { 
   getHighResArtworkUrl, 
   isCleanPopularTrack, 
@@ -189,5 +190,46 @@ describe('Spotify Balanced Fisher-Yates Shuffle Deck Tests', () => {
         `Expected adjacent tracks ${i - 1} and ${i} not to share the same artist when avoidable`
       );
     }
+  });
+});
+
+describe('Spotify Web Lyrics Candidate Matcher Tests', () => {
+  it('rewards exact artist + duration match and rejects unrelated artist or wrong duration remix', () => {
+    const exactScore = scoreLyricCandidate({
+      candTitle: 'Yellow',
+      candArtist: 'Coldplay',
+      candDurationSec: 267,
+      targetTitle: 'Yellow',
+      targetArtist: 'Coldplay',
+      targetDurationSec: 269,
+      isSynced: true,
+      isSyllable: false,
+    });
+
+    const wrongArtistScore = scoreLyricCandidate({
+      candTitle: 'Yellow',
+      candArtist: 'Unrelated Cover Band',
+      candDurationSec: 267,
+      targetTitle: 'Yellow',
+      targetArtist: 'Coldplay',
+      targetDurationSec: 269,
+      isSynced: true,
+      isSyllable: true,
+    });
+
+    const wrongDurationRemixScore = scoreLyricCandidate({
+      candTitle: 'Yellow (Slowed + Remix)',
+      candArtist: 'Coldplay',
+      candDurationSec: 340,
+      targetTitle: 'Yellow',
+      targetArtist: 'Coldplay',
+      targetDurationSec: 269,
+      isSynced: true,
+      isSyllable: false,
+    });
+
+    assert.ok(exactScore >= 1400, `Expected high score for exact match, got ${exactScore}`);
+    assert.ok(wrongArtistScore < 0, `Wrong artist must be rejected (< 0), got ${wrongArtistScore}`);
+    assert.ok(wrongDurationRemixScore < exactScore, 'Wrong remix duration must score far below studio exact match');
   });
 });

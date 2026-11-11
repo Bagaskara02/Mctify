@@ -665,8 +665,15 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setAudioQuality(AudioQuality quality) async {
     if (_audioQuality == quality) return;
     _audioQuality = quality;
+    MusicApiService.clearStreamCache();
     notifyListeners();
     await _storageService.setAudioQuality(quality.name);
+  }
+
+  /// Pre-warms initial catalog tracks silently in background for instant first-tap playback
+  void prewarmTracks(List<Track> tracks) {
+    if (tracks.isEmpty) return;
+    _apiService.prewarmTracks(tracks, quality: _audioQuality, limit: 3);
   }
 
   void _initMediaHandlerCallbacks() {

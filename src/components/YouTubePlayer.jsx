@@ -256,7 +256,7 @@ export default function YouTubePlayer({
         `let t = null;
          self.onmessage = (e) => {
            if (e.data === 'start') {
-             if (!t) t = setInterval(() => self.postMessage('tick'), 100);
+             if (!t) t = setInterval(() => self.postMessage('tick'), 50);
            } else if (e.data === 'stop') {
              if (t) { clearInterval(t); t = null; }
            }
@@ -267,7 +267,7 @@ export default function YouTubePlayer({
       worker.onmessage = () => pollTime();
       worker.postMessage('start');
     } catch {
-      fallbackTimer = setInterval(pollTime, 100);
+      fallbackTimer = setInterval(pollTime, 50);
     }
 
     return () => {

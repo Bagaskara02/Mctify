@@ -239,6 +239,9 @@ class _SearchViewState extends State<SearchView> {
             _artistResults = artists;
             _isLoading = false;
           });
+          if (tracks.isNotEmpty) {
+            widget.player.prewarmTracks(tracks.take(2).toList());
+          }
         }
       } catch (_) {
         if (mounted && currentToken == _searchToken) {

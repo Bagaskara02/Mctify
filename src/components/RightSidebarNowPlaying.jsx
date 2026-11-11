@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Heart, 
@@ -11,6 +11,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { audioQualityService } from '../services/audioQualityService';
+import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 export default function RightSidebarNowPlaying({
   isOpen,
@@ -24,11 +26,31 @@ export default function RightSidebarNowPlaying({
   onOpenArtist,
   onStartRadio,
 }) {
+  const [palette, setPalette] = useState({ primary: '#1e3264', secondary: '#242424' });
+  const [currentQuality, setCurrentQuality] = useState(() => audioQualityService.getQuality());
+
+  useEffect(() => {
+    return audioQualityService.subscribe((qId) => setCurrentQuality(qId));
+  }, []);
+
+  useEffect(() => {
+    if (!currentTrack?.artwork) return;
+    let cancelled = false;
+    extractPaletteFromImage(currentTrack.artwork).then((pal) => {
+      if (!cancelled && pal?.primary) {
+        setPalette(pal);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.artwork]);
+
   if (!isOpen || !currentTrack) return null;
 
-  // Extract current active line for the "Pratinjau lirik" widget
+  // Extract current active line calibrated to Web audio clock (~0.12s)
   const lines = lyricsData?.lines || [];
-  const effectiveTime = Math.max(0, currentTime - 0.65);
+  const effectiveTime = Math.max(0, currentTime - 0.12);
   let activeIndex = -1;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].time <= effectiveTime) {
@@ -78,12 +100,19 @@ export default function RightSidebarNowPlaying({
           />
         </div>
 
-        {/* Title, Artist, & Like */}
+        {/* Title, Artist, Lossless & Like */}
         <div className="flex items-center justify-between">
           <div className="min-w-0 pr-3">
-            <h2 className="text-xl font-black text-white truncate tracking-tight hover:underline cursor-pointer">
-              {currentTrack.title}
-            </h2>
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-xl font-black text-white truncate tracking-tight hover:underline cursor-pointer">
+                {currentTrack.title}
+              </h2>
+              {currentQuality === 'lossless' && (
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider bg-gradient-to-r from-amber-400 to-yellow-400 text-black shadow-sm">
+                  LOSSLESS
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <p className="text-sm text-[#b3b3b3] font-semibold truncate hover:underline hover:text-white cursor-pointer">
                 {currentTrack.artist}
@@ -103,10 +132,13 @@ export default function RightSidebarNowPlaying({
           </button>
         </div>
 
-        {/* PRATINJAU LIRIK (Spotify-Exact Lyrics Preview Widget) */}
+        {/* PRATINJAU LIRIK (Spotify-Exact Artwork-Tinted Lyrics Preview Widget) */}
         <div 
           onClick={onOpenLyrics}
-          className="p-4 rounded-xl bg-[#242424] hover:bg-[#282828] cursor-pointer group transition-all shadow-md relative overflow-hidden"
+          style={{
+            background: `linear-gradient(155deg, ${palette.primary}dd 0%, #1c1d22 100%)`,
+          }}
+          className="p-4 rounded-xl cursor-pointer group transition-all shadow-md relative overflow-hidden border border-white/10 hover:brightness-110"
         >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">

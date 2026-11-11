@@ -61,9 +61,9 @@ class _QueueViewState extends State<QueueView> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF0F1E36),
-                Color(0xFF0A1424),
-                Color(0xFF060B14),
+                Color(0xFF1D1F27),
+                Color(0xFF14151A),
+                Color(0xFF121212),
               ],
             ),
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
