@@ -96,6 +96,9 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     } else {
       _currentPlaylist = widget.playlist;
     }
+    if (_currentPlaylist.tracks.isNotEmpty) {
+      widget.player.prewarmTracks(_currentPlaylist.tracks.take(2).toList());
+    }
   }
 
   Future<void> _cleanDuplicatesInStorage(Playlist cleanedPl) async {

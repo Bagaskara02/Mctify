@@ -6,6 +6,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/track.dart';
 import '../models/artist.dart';
 import '../models/audio_quality.dart';
+import 'audio_proxy_server.dart';
 import 'storage_service.dart';
 
 class MusicApiService {
@@ -54,7 +55,7 @@ class MusicApiService {
             ytClients: [YoutubeApiClient.androidSdkless],
             requireWatchPage: false,
           )
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 3));
       final fast = manifest.audioOnly.toList();
       if (fast.isNotEmpty) return fast;
     } catch (_) {}
@@ -66,7 +67,7 @@ class MusicApiService {
             ytClients: [YoutubeApiClient.tv],
             requireWatchPage: false,
           )
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 3));
       final tvStreams = tvManifest.audioOnly.toList();
       if (tvStreams.isNotEmpty) return tvStreams;
     } catch (_) {}
@@ -77,13 +78,36 @@ class MusicApiService {
           ytClients: [YoutubeApiClient.androidVr],
           requireWatchPage: false,
         )
-        .timeout(const Duration(seconds: 5));
+        .timeout(const Duration(seconds: 4));
     return vrManifest.audioOnly.toList();
+  }
+
+  /// Registers resolved YouTube audio stream with AudioProxyServer so ExoPlayer receives
+  /// HTTP 206 Partial Content without 403 errors, 0ms rewind from RAM, and Chunk 0 pre-warming.
+  Future<String> _registerProxyStream(
+    String videoId,
+    AudioStreamInfo chosen,
+    AudioQuality quality,
+  ) {
+    final container = chosen.container.name.toLowerCase();
+    final contentType = container == 'webm' ? 'audio/webm' : 'audio/mp4';
+    return AudioProxyServer.instance.registerStream(
+      key: '${videoId}_${quality.name}',
+      upstreamUrl: chosen.url.toString(),
+      totalBytes: chosen.size.totalBytes,
+      contentType: contentType,
+      refreshUrl: () async {
+        final fresh = await _getFastAudioStreams(videoId);
+        if (fresh.isEmpty) return null;
+        return _pickStreamByQuality(fresh, quality).url.toString();
+      },
+    );
   }
 
   /// Invalidate stream URL cache (called when user switches audio quality)
   static void clearStreamCache() {
     _streamCache.clear();
+    AudioProxyServer.instance.clearCache();
   }
 
   static void clearSearchCache() {
@@ -118,9 +142,9 @@ class MusicApiService {
       final allAudio = await _getFastAudioStreams(videoId);
       if (allAudio.isNotEmpty) {
         final chosen = _pickStreamByQuality(allAudio, quality);
-        final streamUrl = chosen.url.toString();
-        _streamCache[cleanKey] = streamUrl;
-        return streamUrl;
+        final proxyUrl = await _registerProxyStream(videoId, chosen, quality);
+        _streamCache[cleanKey] = proxyUrl;
+        return proxyUrl;
       }
     } catch (e) {
       debugPrint('resolveStreamUrlFromVideoId error for $videoId: $e');
@@ -155,16 +179,24 @@ class MusicApiService {
     );
   }
 
-  /// Silently pre-fetches and caches next audio stream in background for zero-latency playback
+  /// Silently pre-fetches stream URL + Chunk 0 (~256 KB) into RAM so next song / skip starts at ~0ms
   Future<void> prefetchTrackStream(Track track, [AudioQuality quality = AudioQuality.high]) async {
     try {
-      if (getCachedStream(track, quality) != null) return;
-      String? vid = track.videoId;
-      if (vid == null || vid.isEmpty) {
-        vid = await resolveVideoId(track.title, track.artist, track.duration);
+      String? streamUrl = getCachedStream(track, quality);
+      if (streamUrl == null || streamUrl.isEmpty) {
+        String? vid = track.videoId;
+        if (vid == null || vid.isEmpty) {
+          vid = await resolveVideoId(track.title, track.artist, track.duration);
+        }
+        if (vid != null && vid.isNotEmpty) {
+          streamUrl = await resolveDirectAudioStream(track.copyWith(videoId: vid), quality);
+        }
       }
-      if (vid != null && vid.isNotEmpty) {
-        await resolveDirectAudioStream(track.copyWith(videoId: vid), quality);
+      if (streamUrl != null && streamUrl.isNotEmpty) {
+        final proxyId = Uri.tryParse(streamUrl)?.queryParameters['id'];
+        if (proxyId != null && proxyId.isNotEmpty && !AudioProxyServer.instance.hasHeadCached(proxyId)) {
+          await AudioProxyServer.instance.prewarmHead(proxyId);
+        }
       }
     } catch (_) {}
   }
@@ -426,10 +458,10 @@ class MusicApiService {
           final allStreams = await _getFastAudioStreams(bestVideoId);
           if (allStreams.isNotEmpty) {
             final chosenStream = _pickStreamByQuality(allStreams, quality);
-            final streamUrl = chosenStream.url.toString();
-            _streamCache[cleanKey] = streamUrl;
-            _streamCache['stream_${bestVideoId}_${quality.name}'] = streamUrl;
-            return streamUrl;
+            final proxyUrl = await _registerProxyStream(bestVideoId, chosenStream, quality);
+            _streamCache[cleanKey] = proxyUrl;
+            _streamCache['stream_${bestVideoId}_${quality.name}'] = proxyUrl;
+            return proxyUrl;
           }
         } catch (e) {
           debugPrint('Stream manifest for $bestVideoId failed: $e, trying next candidate');

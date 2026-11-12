@@ -16,6 +16,15 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _nativeChannel = MethodChannel('com.mcmusic.app/wakelock');
   final ja.AudioPlayer _player = ja.AudioPlayer(
     handleInterruptions: true,
+    audioLoadConfiguration: const ja.AudioLoadConfiguration(
+      androidLoadControl: ja.AndroidLoadControl(
+        minBufferDuration: Duration(seconds: 15),
+        maxBufferDuration: Duration(seconds: 30),
+        bufferForPlaybackDuration: Duration(milliseconds: 250),
+        bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 350),
+        backBufferDuration: Duration(seconds: 60),
+      ),
+    ),
   );
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
@@ -26,6 +35,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _isPlaying = false;
   bool _isPreparingTrack = false;
   int _playGeneration = 0;
+  DateTime? _lastTrackSwitchTime;
   bool _userRequestedPause = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -1102,13 +1112,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // Record play asynchronously
     unawaited(_storageService.recordPlay(track));
 
-    // Coalesce rapid multi-taps (e.g. Lockscreen 2x-3x Skip) only when uncached
+    // Coalesce ONLY rapid back-to-back uncached skip taps (< 250ms apart); zero artificial delay on normal/initial Play!
     final hasCachedDirect = (track.audioUrl.isNotEmpty &&
             !MusicApiService.isPreviewUrl(track.audioUrl) &&
             !track.audioUrl.contains('googlevideo.com')) ||
         _apiService.getCachedStream(track, _audioQuality) != null;
-    if (!hasCachedDirect) {
-      await Future.delayed(const Duration(milliseconds: 160));
+    final now = DateTime.now();
+    final isRapidBackToBackSkip = _lastTrackSwitchTime != null &&
+        now.difference(_lastTrackSwitchTime!).inMilliseconds < 250;
+    _lastTrackSwitchTime = now;
+
+    if (!hasCachedDirect && isRapidBackToBackSkip) {
+      await Future.delayed(const Duration(milliseconds: 120));
       if (gen != _playGeneration) return;
     }
 
@@ -1120,8 +1135,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           !track.audioUrl.contains('googlevideo.com')) {
         debugPrint('[AudioPlayerManager] Playing direct audio stream via Native ExoPlayer');
         _isUsingYoutubeIframe = false;
-        await _player.stop();
-        if (gen != _playGeneration) return;
         final audioSource = ja.AudioSource.uri(
           Uri.parse(track.audioUrl),
           headers: const {'Accept': '*/*'},
@@ -1146,7 +1159,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Native ExoPlayer Murni (Full-length audio stream, zero screen-off lag)
+      // Step B: Native ExoPlayer Murni (Local Range Proxy -> zero 403 & 0ms rewind/next hit!)
       try {
         final directStreamUrl = await _apiService.resolveDirectAudioStream(
           track,
@@ -1160,9 +1173,6 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             !MusicApiService.isPreviewUrl(directStreamUrl)) {
           debugPrint('[AudioPlayerManager] Playing full song via Native ExoPlayer: "${track.title}" (gen=$gen)');
           _isUsingYoutubeIframe = false;
-          await _player.stop();
-          if (gen != _playGeneration) return;
-          // CRITICAL: Never inject static 'Range: bytes=0-' header! ExoPlayer natively handles chunked byte-range seeks.
           final audioSource = ja.AudioSource.uri(
             Uri.parse(directStreamUrl),
             headers: const {'Accept': '*/*'},

@@ -48,6 +48,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   double _lastKnownPlayerSec = 0.0;
   int _lastKnownTimestampMs = 0;
   double _currentEffectiveSec = 0.0;
+  double? _dragSeconds;
 
   @override
   void initState() {
@@ -507,10 +508,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                         overlayShape: SliderComponentShape.noOverlay,
                       ),
                       child: Slider(
-                        value: posSec.toDouble(),
+                        value: (_dragSeconds ?? posSec.toDouble()).clamp(0.0, durSec.toDouble()),
                         max: durSec.toDouble(),
-                        onChanged: (val) {
+                        onChanged: (val) => setState(() => _dragSeconds = val),
+                        onChangeEnd: (val) {
                           widget.player.seek(Duration(seconds: val.round()));
+                          setState(() => _dragSeconds = null);
                         },
                       ),
                     ),

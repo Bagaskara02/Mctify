@@ -23,6 +23,8 @@ class CarModeView extends StatefulWidget {
 }
 
 class _CarModeViewState extends State<CarModeView> {
+  double? _dragSeconds;
+
   String _formatDuration(Duration d) {
     final mins = d.inMinutes;
     final secs = d.inSeconds % 60;
@@ -203,10 +205,13 @@ class _CarModeViewState extends State<CarModeView> {
                             trackHeight: 8,
                           ),
                           child: Slider(
-                            value: pos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
+                            value: (_dragSeconds ?? pos.inSeconds.toDouble())
+                                .clamp(0.0, dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0),
                             max: dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0,
-                            onChanged: (val) {
+                            onChanged: (val) => setState(() => _dragSeconds = val),
+                            onChangeEnd: (val) {
                               widget.player.seek(Duration(seconds: val.round()));
+                              setState(() => _dragSeconds = null);
                             },
                           ),
                         ),
