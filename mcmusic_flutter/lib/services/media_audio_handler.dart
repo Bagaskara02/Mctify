@@ -47,6 +47,7 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
     required Duration position,
     required Duration duration,
     Duration? bufferedPosition,
+    AudioProcessingState processingState = AudioProcessingState.ready,
   }) {
     playbackState.add(PlaybackState(
       controls: [
@@ -60,7 +61,7 @@ class MediaAudioHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.seekBackward,
       },
       androidCompactActionIndices: const [0, 1, 2],
-      processingState: AudioProcessingState.ready,
+      processingState: processingState,
       playing: isPlaying,
       updatePosition: position,
       bufferedPosition: bufferedPosition ?? position,

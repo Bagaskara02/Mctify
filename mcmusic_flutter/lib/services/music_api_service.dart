@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -44,13 +45,13 @@ class MusicApiService {
     }
   }
 
-  /// Fast stream manifest resolver using persistent HTTP session + mobile API clients first
+  /// Fast stream manifest resolver prioritizing androidSdkless (~200ms direct streams, zero watch-page overhead)
   Future<List<AudioStreamInfo>> _getFastAudioStreams(String videoId) async {
     try {
       final manifest = await _sharedYt.videos.streamsClient
           .getManifest(
             videoId,
-            ytClients: [YoutubeApiClient.androidVr, YoutubeApiClient.ios],
+            ytClients: [YoutubeApiClient.androidSdkless],
             requireWatchPage: false,
           )
           .timeout(const Duration(seconds: 4));
@@ -58,14 +59,26 @@ class MusicApiService {
       if (fast.isNotEmpty) return fast;
     } catch (_) {}
 
-    final fallbackManifest = await _sharedYt.videos.streamsClient
+    try {
+      final tvManifest = await _sharedYt.videos.streamsClient
+          .getManifest(
+            videoId,
+            ytClients: [YoutubeApiClient.tv],
+            requireWatchPage: false,
+          )
+          .timeout(const Duration(seconds: 4));
+      final tvStreams = tvManifest.audioOnly.toList();
+      if (tvStreams.isNotEmpty) return tvStreams;
+    } catch (_) {}
+
+    final vrManifest = await _sharedYt.videos.streamsClient
         .getManifest(
           videoId,
-          ytClients: [YoutubeApiClient.androidSdkless, YoutubeApiClient.tv],
+          ytClients: [YoutubeApiClient.androidVr],
           requireWatchPage: false,
         )
-        .timeout(const Duration(seconds: 6));
-    return fallbackManifest.audioOnly.toList();
+        .timeout(const Duration(seconds: 5));
+    return vrManifest.audioOnly.toList();
   }
 
   /// Invalidate stream URL cache (called when user switches audio quality)
@@ -221,33 +234,89 @@ class MusicApiService {
       }
     }
 
-    // 1. Primary: McMusic Vercel Backend API (powered by youtubei.js YouTube Music)
-    try {
-      final url = Uri.parse('https://mctify.vercel.app/api/yt/search?title=${Uri.encodeComponent(title)}&artist=${Uri.encodeComponent(artist)}&duration=${expectedDuration ?? 0}&q=${Uri.encodeComponent('$title $artist')}');
-      final res = await http.get(url).timeout(const Duration(milliseconds: 4500));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final vid = data['videoId'] as String?;
-        final retTitle = (data['title'] ?? '').toString();
-        final retArtist = (data['artist'] ?? '').toString();
-        final retDur = (data['duration'] as num?)?.toInt();
-        if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-          // Strictly verify candidate score so homonyms by different artists are NEVER accepted!
-          final score = _scoreCandidate(retTitle, retArtist, sanitizedTitle, firstArtist, retDur, expectedDuration);
-          if (score >= 400) {
-            _streamCache[cleanKey] = vid;
-            return vid;
+    // 1 & 2 RACED IN PARALLEL: Race Vercel Backend (~114ms warm / slow cold start)
+    // directly against in-process YoutubeExplode search (~500ms consistent) so
+    // cold serverless starts NEVER stall song playback!
+    Future<String?> searchViaVercel() async {
+      try {
+        final url = Uri.parse(
+            'https://mctify.vercel.app/api/yt/search?title=${Uri.encodeComponent(title)}&artist=${Uri.encodeComponent(artist)}&duration=${expectedDuration ?? 0}&q=${Uri.encodeComponent('$title $artist')}');
+        final res = await http.get(url).timeout(const Duration(milliseconds: 2400));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final vid = data['videoId'] as String?;
+          final retTitle = (data['title'] ?? '').toString();
+          final retArtist = (data['artist'] ?? '').toString();
+          final retDur = (data['duration'] as num?)?.toInt();
+          if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
+            final score = _scoreCandidate(retTitle, retArtist, sanitizedTitle, firstArtist, retDur, expectedDuration);
+            if (score >= 400) return vid;
           }
         }
+      } catch (e) {
+        debugPrint('resolveVideoId Vercel backend error: $e');
       }
-    } catch (e) {
-      debugPrint('resolveVideoId Vercel backend error: $e');
+      return null;
     }
 
-    // 2. Secondary Fast Search: YouTube Music Multi-catalog API
+    Future<String?> searchViaExplode() async {
+      try {
+        final searchResults = await _sharedYt.search
+            .search('$sanitizedTitle $firstArtist audio')
+            .timeout(const Duration(milliseconds: 3200));
+        var pool = searchResults.take(8).toList();
+        if (pool.isEmpty) {
+          final broadResults = await _sharedYt.search
+              .search('$sanitizedTitle $firstArtist')
+              .timeout(const Duration(milliseconds: 3000));
+          pool = broadResults.take(8).toList();
+        }
+        if (pool.isNotEmpty) {
+          final filtered = pool.where((v) => excludeVideoIds == null || !excludeVideoIds.contains(v.id.value)).toList();
+          if (filtered.isNotEmpty) {
+            final scored = filtered.map((v) {
+              final dur = v.duration?.inSeconds;
+              final score = _scoreCandidate(v.title, v.author, sanitizedTitle, firstArtist, dur, expectedDuration);
+              return MapEntry(v.id.value, score);
+            }).toList();
+            scored.sort((a, b) => b.value.compareTo(a.value));
+            if (scored.first.value >= 400) return scored.first.key;
+          }
+        }
+      } catch (e) {
+        debugPrint('resolveVideoId YoutubeExplode error: $e');
+      }
+      return null;
+    }
+
+    final raceCompleter = Completer<String?>();
+    int remaining = 2;
+    void handleBranch(Future<String?> fut) {
+      fut.then((vid) {
+        if (!raceCompleter.isCompleted && vid != null && vid.isNotEmpty) {
+          raceCompleter.complete(vid);
+        }
+      }).catchError((_) {}).whenComplete(() {
+        remaining--;
+        if (remaining <= 0 && !raceCompleter.isCompleted) {
+          raceCompleter.complete(null);
+        }
+      });
+    }
+
+    handleBranch(searchViaVercel());
+    handleBranch(searchViaExplode());
+
+    final racedVid = await raceCompleter.future;
+    if (racedVid != null && racedVid.isNotEmpty) {
+      _streamCache[cleanKey] = racedVid;
+      return racedVid;
+    }
+
+    // 2. Fallback: YouTube Music Multi-catalog API
     try {
       final multiUrl = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent('$sanitizedTitle $firstArtist')}');
-      final multiRes = await http.get(multiUrl).timeout(const Duration(milliseconds: 3500));
+      final multiRes = await http.get(multiUrl).timeout(const Duration(milliseconds: 2800));
       if (multiRes.statusCode == 200) {
         final multiData = jsonDecode(multiRes.body);
         final songs = multiData['songs'] as List? ?? [];
@@ -273,37 +342,6 @@ class MusicApiService {
       }
     } catch (e) {
       debugPrint('resolveVideoId search-multi error: $e');
-    }
-
-    // 2. Fallback: Search via persistent YoutubeExplode with Smart Candidate Scoring
-    try {
-      // Query with 'audio' first to find clean studio tracks over 40s-skit music videos
-      final searchResults = await _sharedYt.search.search('$sanitizedTitle $firstArtist audio').timeout(const Duration(seconds: 4));
-      var pool = searchResults.take(10).toList();
-      if (pool.isEmpty) {
-        final broadResults = await _sharedYt.search.search('$sanitizedTitle $firstArtist').timeout(const Duration(seconds: 4));
-        pool = broadResults.take(10).toList();
-      }
-
-      if (pool.isNotEmpty) {
-        final filtered = pool.where((v) => excludeVideoIds == null || !excludeVideoIds.contains(v.id.value)).toList();
-        if (filtered.isNotEmpty) {
-          final scored = filtered.map((v) {
-            final dur = v.duration?.inSeconds;
-            final score = _scoreCandidate(v.title, v.author, sanitizedTitle, firstArtist, dur, expectedDuration);
-            return MapEntry(v.id.value, score);
-          }).toList();
-
-          scored.sort((a, b) => b.value.compareTo(a.value));
-          if (scored.first.value >= 400) {
-            final bestId = scored.first.key;
-            _streamCache[cleanKey] = bestId;
-            return bestId;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('resolveVideoId YoutubeExplode error: $e');
     }
 
     // 3. Fallback: YouTube Music WEB_REMIX API

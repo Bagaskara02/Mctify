@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as ja;
@@ -14,7 +15,6 @@ import 'storage_service.dart';
 class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _nativeChannel = MethodChannel('com.mcmusic.app/wakelock');
   final ja.AudioPlayer _player = ja.AudioPlayer(
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     handleInterruptions: true,
   );
   final StorageService _storageService = StorageService();
@@ -24,11 +24,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   Track? _currentTrack;
   bool _isPlaying = false;
+  bool _isPreparingTrack = false;
+  int _playGeneration = 0;
   bool _userRequestedPause = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   List<Track> _originalQueue = [];
   List<Track> _queue = [];
+  int _currentQueueIndex = -1;
   bool _isShuffle = false;
   bool _isRepeat = false;
   bool _isUsingYoutubeIframe = false;
@@ -72,10 +75,30 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   Track? get currentTrack => _currentTrack;
   bool get isPlaying => _isPlaying;
+  bool get isPreparingTrack => _isPreparingTrack;
   Duration get position => _position;
   Duration get duration => _duration;
   List<Track> get queue => _queue;
+  int get currentQueueIndex => _resolveActiveQueueIndex();
   bool get isShuffle => _isShuffle;
+
+  int _resolveActiveQueueIndex() {
+    if (_queue.isEmpty) return -1;
+    if (_currentQueueIndex >= 0 &&
+        _currentQueueIndex < _queue.length &&
+        _currentTrack != null &&
+        _queue[_currentQueueIndex].id == _currentTrack!.id) {
+      return _currentQueueIndex;
+    }
+    if (_currentTrack != null) {
+      final idx = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+      if (idx != -1) {
+        _currentQueueIndex = idx;
+        return idx;
+      }
+    }
+    return -1;
+  }
   bool get isRepeat => _isRepeat;
   bool get isNetworkOnline => _isNetworkOnline;
   bool get isAppBackgrounded => _isAppBackgrounded;
@@ -188,6 +211,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _trackStartTime = DateTime.now().subtract(_position);
 
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_isPreparingTrack || _isRecovering) return;
       if (!_userRequestedPause && _currentTrack != null && _isNetworkOnline) {
         if (_isUsingYoutubeIframe && _ytController != null) {
           final playerState = _ytController?.value.playerState;
@@ -229,9 +253,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             }
           }
         } else {
-          // Native ExoPlayer check
-          if (!_player.playing && !_userRequestedPause && _player.processingState != ja.ProcessingState.completed) {
-            debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly, auto-resuming...');
+          // Native ExoPlayer check: ONLY auto-resume when engine is truly READY (never while loading/buffering!)
+          if (!_player.playing &&
+              !_userRequestedPause &&
+              _player.processingState == ja.ProcessingState.ready) {
+            debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly while ready, auto-resuming...');
             _acquireNativeLocks();
             _player.play();
           } else if (_duration > Duration.zero && _duration.inSeconds > 10) {
@@ -441,7 +467,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         // Failsafe recovery if video is unplayable or embed restricted
         if (value.hasError) {
           debugPrint('[AudioPlayerManager] YouTube Iframe Error: ${value.error} for "${_currentTrack?.title}"');
-          _handlePlaybackNetworkError(_currentTrack, 'Iframe error: ${value.error}');
+          _handlePlaybackNetworkError(_currentTrack, 'Iframe error: ${value.error}', _playGeneration);
           return;
         }
 
@@ -508,54 +534,61 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _handlePlaybackNetworkError(Track? track, String reason) async {
-    if (track == null || _isRecovering) return;
+  Future<void> _handlePlaybackNetworkError(Track? track, String reason, [int? expectedGen]) async {
+    final gen = expectedGen ?? _playGeneration;
+    if (track == null || _isRecovering || gen != _playGeneration) return;
     if (!_isNetworkOnline) {
       debugPrint('[AudioPlayerManager] Playback error during network switch (offline). Retaining current song and waiting for reconnection...');
       return;
     }
 
-    // 1. If error happens during network handover (WiFi <-> Cellular), RETRY the same video at current position first!
-    if (_networkRetryCount < 3) {
-      _networkRetryCount++;
-      debugPrint('[AudioPlayerManager] Temporary network/playback blip (attempt $_networkRetryCount of 3). Retrying "${track.title}" at ${_position.inSeconds}s...');
-      await Future.delayed(const Duration(milliseconds: 1200));
+    // If stutter/error happens right at track start (<= 2s), avoid seeking back into byte-0 loop; escalate straight to clean re-resolve!
+    if (!_isUsingYoutubeIframe && _position.inSeconds <= 2) {
+      _networkRetryCount = 0;
+      await _handlePlaybackFailure(track, reason, gen);
+      return;
+    }
 
-      if (!_userRequestedPause && _currentTrack?.id == track.id) {
-        if (!_isUsingYoutubeIframe) {
+    // 1. If error happens mid-song (e.g. WiFi <-> Cellular), retry same video cleanly at current position
+    if (_networkRetryCount < 2) {
+      _networkRetryCount++;
+      debugPrint('[AudioPlayerManager] Temporary network/playback blip (attempt $_networkRetryCount of 2). Retrying "${track.title}" at ${_position.inSeconds}s...');
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      if (gen != _playGeneration || _currentTrack?.id != track.id || _userRequestedPause) return;
+      if (!_isUsingYoutubeIframe) {
+        try {
+          await _player.seek(_position);
+          await _player.play();
+          return;
+        } catch (_) {}
+      } else {
+        final currentVid = track.videoId;
+        if (currentVid != null && currentVid.isNotEmpty && _ytController != null) {
           try {
-            debugPrint('[AudioPlayerManager] Retrying native ExoPlayer at ${_position.inSeconds}s...');
-            await _player.seek(_position);
-            await _player.play();
+            _ytController?.seekTo(seconds: _position.inSeconds.toDouble(), allowSeekAhead: true);
+            _ytController?.playVideo();
+            _injectBackgroundPlaybackScripts();
             return;
           } catch (_) {}
-        } else {
-          final currentVid = track.videoId;
-          if (currentVid != null && currentVid.isNotEmpty && _ytController != null) {
-            try {
-              _ytController?.seekTo(seconds: _position.inSeconds.toDouble(), allowSeekAhead: true);
-              _ytController?.playVideo();
-              _injectBackgroundPlaybackScripts();
-              return;
-            } catch (_) {}
-          }
         }
       }
     }
 
-    // 2. Only if 3 retries completely fail while online, escalate to alternative video resolution
+    // 2. Escalate to alternative clean stream resolution
     _networkRetryCount = 0;
-    _handlePlaybackFailure(track, reason);
+    await _handlePlaybackFailure(track, reason, gen);
   }
 
-  Future<void> _handlePlaybackFailure(Track? track, String reason) async {
-    if (track == null || _isRecovering) return;
+  Future<void> _handlePlaybackFailure(Track? track, String reason, [int? expectedGen]) async {
+    final gen = expectedGen ?? _playGeneration;
+    if (track == null || _isRecovering || gen != _playGeneration) return;
     if (!_isNetworkOnline) {
       debugPrint('[AudioPlayerManager] Playback failure while offline. Retaining current track.');
       return;
     }
     _isRecovering = true;
-    debugPrint('[AudioPlayerManager] Failsafe recovery triggered ($reason) for: "${track.title}"');
+    debugPrint('[AudioPlayerManager] Failsafe recovery triggered ($reason) for: "${track.title}" (gen=$gen)');
 
     try {
       final currentVid = track.videoId;
@@ -570,6 +603,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         _audioQuality,
         _failedVideoIds,
       );
+      if (gen != _playGeneration) {
+        _isRecovering = false;
+        return;
+      }
 
       if (altStream != null && altStream.isNotEmpty && !MusicApiService.isPreviewUrl(altStream)) {
         debugPrint('[AudioPlayerManager] Recovery: alternative native ExoPlayer stream resolved for "${track.title}"');
@@ -580,21 +617,30 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           _ytController?.pauseVideo();
         } catch (_) {}
         await _player.stop();
+        if (gen != _playGeneration) {
+          _isRecovering = false;
+          return;
+        }
         final audioSource = ja.AudioSource.uri(
           Uri.parse(altStream),
-          headers: const {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Range': 'bytes=0-',
-          },
+          headers: const {'Accept': '*/*'},
         );
         await _player.setAudioSource(audioSource);
+        if (gen != _playGeneration) {
+          _isRecovering = false;
+          return;
+        }
         await _player.play();
-        if (_position > Duration.zero) {
+        if (gen != _playGeneration) {
+          _isRecovering = false;
+          return;
+        }
+        if (_position > const Duration(seconds: 3)) {
           try {
             await _player.seek(_position);
           } catch (_) {}
         }
+        _isPreparingTrack = false;
         _acquireNativeLocks();
         _startWatchdog();
         _syncMediaHandler();
@@ -610,6 +656,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         track.duration,
         _failedVideoIds,
       );
+      if (gen != _playGeneration) {
+        _isRecovering = false;
+        return;
+      }
 
       if (altVideoId != null && altVideoId.isNotEmpty && !_failedVideoIds.contains(altVideoId)) {
         debugPrint('[AudioPlayerManager] Recovery: alternative videoId resolved ($altVideoId) for "${track.title}"');
@@ -620,6 +670,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         try {
           await _player.stop();
         } catch (_) {}
+        if (gen != _playGeneration) {
+          _isRecovering = false;
+          return;
+        }
+        _isPreparingTrack = false;
         _ytController?.loadVideoById(videoId: altVideoId);
         _ytController?.playVideo();
         _injectBackgroundPlaybackScripts();
@@ -631,10 +686,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // 2. If all sources failed for this track, auto-advance to next song gracefully
+      // 3. If all sources failed for this track, advance gracefully ONLY if still active generation
       debugPrint('[AudioPlayerManager] Recovery: all sources exhausted for "${track.title}". Auto-advancing...');
       _isRecovering = false;
-      if (_queue.length > 1) {
+      _isPreparingTrack = false;
+      if (gen == _playGeneration && _queue.length > 1) {
         await next();
       } else {
         _isPlaying = false;
@@ -643,6 +699,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('[AudioPlayerManager] Error during recovery: $e');
       _isRecovering = false;
+      _isPreparingTrack = false;
     }
   }
 
@@ -693,17 +750,27 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       isPlaying: _isPlaying,
       position: _position,
       duration: _duration,
+      processingState: _isPreparingTrack
+          ? AudioProcessingState.buffering
+          : AudioProcessingState.ready,
     );
   }
 
   void _initAudioListeners() {
     _player.playerStateStream.listen((state) {
       if (!_isUsingYoutubeIframe) {
+        // Ignore transient idle/stopped states while a new track is preparing (prevents lockscreen flicker & stutter)
+        if (_isPreparingTrack && state.processingState != ja.ProcessingState.ready && !state.playing) {
+          return;
+        }
+        if (state.processingState == ja.ProcessingState.ready && _isPreparingTrack) {
+          _isPreparingTrack = false;
+        }
         _isPlaying = state.playing;
         _syncMediaHandler();
         notifyListeners();
 
-        if (state.processingState == ja.ProcessingState.completed) {
+        if (!_isPreparingTrack && state.processingState == ja.ProcessingState.completed) {
           debugPrint('[AudioPlayerManager] onPlayerComplete: Track finished naturally!');
           if (_sleepTimerAtTrackEnd) {
             _triggerSleepTimerStop();
@@ -758,8 +825,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       // Event stream monitoring
     }, onError: (err) {
       debugPrint('[AudioPlayerManager] Native ExoPlayer stream error: $err');
-      if (!_isUsingYoutubeIframe && _currentTrack != null) {
-        _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err');
+      // Drop stale socket/interrupt errors while switching or preparing a different song
+      if (!_isUsingYoutubeIframe && !_isPreparingTrack && !_userRequestedPause && _currentTrack != null) {
+        _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err', _playGeneration);
       }
     });
   }
@@ -958,32 +1026,65 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   // TWS & Remote Previous Click Tracker (3x Tap detection)
   DateTime? _lastPreviousActionTime;
 
-  void _prefetchNextTrackStream() async {
+  void _prefetchNextTrackStream() {
     if (_queue.isEmpty || _currentTrack == null) return;
-    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
-    if (currentIndex != -1 && currentIndex + 1 < _queue.length) {
-      final nextTrack = _queue[currentIndex + 1];
-      try {
-        await _apiService.prefetchTrackStream(nextTrack, _audioQuality);
-        debugPrint('[AudioPlayerManager] Next track "${nextTrack.title}" stream pre-cached for instant playback');
-      } catch (e) {
-        debugPrint('[AudioPlayerManager] Prefetch next track stream error: $e');
-      }
-    }
+    final currentIndex = _resolveActiveQueueIndex();
+    if (currentIndex == -1) return;
+
+    // Pre-fetch next 2 upcoming songs immediately so manual skips (UI/Lockscreen) are instant (<100ms)!
+    final targets = <Track>[];
+    if (currentIndex + 1 < _queue.length) targets.add(_queue[currentIndex + 1]);
+    if (currentIndex + 2 < _queue.length) targets.add(_queue[currentIndex + 2]);
+    if (targets.isEmpty) return;
+
+    _apiService.prewarmTracks(targets, quality: _audioQuality, limit: 2);
   }
 
-  Future<void> playTrack(Track track, [List<Track>? newQueue]) async {
-    // 1. INSTANT UI UPDATE (0ms Perceived Latency):
-    // Instantly reflect track title, album, cover, and playing state on UI & Lockscreen
+  Future<void> playQueueIndex(int index) async {
+    if (index < 0 || index >= _queue.length) return;
+    await playTrack(_queue[index], null, index);
+  }
+
+  Future<void> playTrack(Track track, [List<Track>? newQueue, int? queueIndex]) async {
+    // Monotonic generation token: cancels any slower in-flight track switch / lockscreen skip immediately!
+    final int gen = ++_playGeneration;
+    _isPreparingTrack = true;
+    _isRecovering = false;
+    _networkRetryCount = 0;
+
+    // 1. Immediately silence previous song BEFORE network fetch so old audio cannot leak or stutter
+    try {
+      _ytController?.pauseVideo();
+    } catch (_) {}
+    try {
+      if (_player.playing) {
+        _player.pause();
+      }
+    } catch (_) {}
+
+    // 2. INSTANT UI & LOCKSCREEN UPDATE (0ms Perceived Latency)
     _currentTrack = track;
     if (newQueue != null && newQueue.isNotEmpty) {
       _originalQueue = List.from(newQueue);
       _queue = _isShuffle
           ? buildSpotifyShuffleDeck(_originalQueue, track)
           : List.from(_originalQueue);
-    } else if (!_queue.any((t) => t.id == track.id)) {
-      _originalQueue.insert(0, track);
-      _queue.insert(0, track);
+      _currentQueueIndex = _queue.indexWhere((t) => t.id == track.id);
+      if (_currentQueueIndex == -1) _currentQueueIndex = 0;
+    } else if (queueIndex != null && queueIndex >= 0 && queueIndex < _queue.length) {
+      _currentQueueIndex = queueIndex;
+    } else {
+      final existingIdx = _queue.indexWhere((t) => t.id == track.id);
+      if (existingIdx != -1) {
+        _currentQueueIndex = existingIdx;
+      } else {
+        final insertAt = (_currentQueueIndex >= 0 && _currentQueueIndex < _queue.length)
+            ? _currentQueueIndex + 1
+            : 0;
+        _originalQueue.insert(insertAt.clamp(0, _originalQueue.length), track);
+        _queue.insert(insertAt.clamp(0, _queue.length), track);
+        _currentQueueIndex = insertAt.clamp(0, _queue.length - 1);
+      }
     }
 
     _position = Duration.zero;
@@ -996,37 +1097,45 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _syncMediaHandler();
     _acquireNativeLocks();
     _startWatchdog();
-    notifyListeners(); // Synchronous notification for 0ms lag!
+    notifyListeners(); // Synchronous update for UI & Lockscreen!
 
-    // Record play in storage
-    _storageService.recordPlay(track);
+    // Record play asynchronously
+    unawaited(_storageService.recordPlay(track));
 
-    // 2. Full Song Playback Resolution
+    // Coalesce rapid multi-taps (e.g. Lockscreen 2x-3x Skip) only when uncached
+    final hasCachedDirect = (track.audioUrl.isNotEmpty &&
+            !MusicApiService.isPreviewUrl(track.audioUrl) &&
+            !track.audioUrl.contains('googlevideo.com')) ||
+        _apiService.getCachedStream(track, _audioQuality) != null;
+    if (!hasCachedDirect) {
+      await Future.delayed(const Duration(milliseconds: 160));
+      if (gen != _playGeneration) return;
+    }
+
+    // 3. Full Song Playback Resolution
     try {
-      // Step A: Direct Audio URL if explicitly provided (e.g. self-hosted / direct link, not preview and not raw googlevideo)
+      // Step A: Direct Audio URL if explicitly provided (not preview / not googlevideo)
       if (track.audioUrl.isNotEmpty &&
           !MusicApiService.isPreviewUrl(track.audioUrl) &&
           !track.audioUrl.contains('googlevideo.com')) {
         debugPrint('[AudioPlayerManager] Playing direct audio stream via Native ExoPlayer');
-        try {
-          _ytController?.pauseVideo();
-        } catch (_) {}
         _isUsingYoutubeIframe = false;
         await _player.stop();
+        if (gen != _playGeneration) return;
         final audioSource = ja.AudioSource.uri(
           Uri.parse(track.audioUrl),
-          headers: const {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-          },
+          headers: const {'Accept': '*/*'},
         );
         await _player.setAudioSource(audioSource);
+        if (gen != _playGeneration) return;
         await _player.play();
+        if (gen != _playGeneration) return;
         if (_playbackSpeed != 1.0) {
           try {
             await _player.setSpeed(_playbackSpeed);
           } catch (_) {}
         }
+        _isPreparingTrack = false;
         _isPlaying = true;
         _userRequestedPause = false;
         _acquireNativeLocks();
@@ -1037,38 +1146,37 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step B: Native ExoPlayer Murni (Full-length 3-5+ min AAC audio stream, 100% free, zero screen-off lag)
+      // Step B: Native ExoPlayer Murni (Full-length audio stream, zero screen-off lag)
       try {
         final directStreamUrl = await _apiService.resolveDirectAudioStream(
           track,
           _audioQuality,
           _failedVideoIds,
         );
+        if (gen != _playGeneration) return;
 
         if (directStreamUrl != null &&
             directStreamUrl.isNotEmpty &&
             !MusicApiService.isPreviewUrl(directStreamUrl)) {
-          debugPrint('[AudioPlayerManager] Playing full song via Native ExoPlayer murni: "${track.title}"');
-          try {
-            _ytController?.pauseVideo();
-          } catch (_) {}
+          debugPrint('[AudioPlayerManager] Playing full song via Native ExoPlayer: "${track.title}" (gen=$gen)');
           _isUsingYoutubeIframe = false;
           await _player.stop();
+          if (gen != _playGeneration) return;
+          // CRITICAL: Never inject static 'Range: bytes=0-' header! ExoPlayer natively handles chunked byte-range seeks.
           final audioSource = ja.AudioSource.uri(
             Uri.parse(directStreamUrl),
-            headers: const {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': '*/*',
-              'Range': 'bytes=0-',
-            },
+            headers: const {'Accept': '*/*'},
           );
           await _player.setAudioSource(audioSource);
+          if (gen != _playGeneration) return;
           await _player.play();
+          if (gen != _playGeneration) return;
           if (_playbackSpeed != 1.0) {
             try {
               await _player.setSpeed(_playbackSpeed);
             } catch (_) {}
           }
+          _isPreparingTrack = false;
           _isPlaying = true;
           _userRequestedPause = false;
           _acquireNativeLocks();
@@ -1079,6 +1187,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           return;
         }
       } catch (streamErr) {
+        if (gen != _playGeneration) return;
         debugPrint('[AudioPlayerManager] Native ExoPlayer stream resolution error: $streamErr. Falling back to YouTube Engine...');
       }
 
@@ -1086,20 +1195,24 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       String? videoId = track.videoId;
       if (videoId == null || videoId.isEmpty || _failedVideoIds.contains(videoId)) {
         videoId = await _apiService.resolveVideoId(track.title, track.artist, track.duration, _failedVideoIds);
+        if (gen != _playGeneration) return;
         if (videoId != null && videoId.isNotEmpty) {
           track = track.copyWith(videoId: videoId);
           _currentTrack = track;
         }
       }
 
+      if (gen != _playGeneration) return;
       if (videoId != null && videoId.isNotEmpty && _ytController != null) {
-        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine fallback: videoId=$videoId');
+        debugPrint('[AudioPlayerManager] Playing full song via YouTube Engine fallback: videoId=$videoId (gen=$gen)');
         _isUsingYoutubeIframe = true;
         _isPlaying = true;
         _userRequestedPause = false;
         try {
           await _player.stop();
         } catch (_) {}
+        if (gen != _playGeneration) return;
+        _isPreparingTrack = false;
         _setJsLoadingTrack(true);
         _ytController!.loadVideoById(videoId: videoId);
         if (_playbackSpeed != 1.0) {
@@ -1117,19 +1230,25 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // Step D: If resolution could not find videoId, DO NOT skip user's track!
-      debugPrint('[AudioPlayerManager] Could not resolve stream or videoId for "${track.title}". Keeping current selection.');
+      if (gen != _playGeneration) return;
+      // Step D: Resolution could not find stream/videoId — stop loading spinner gracefully
+      debugPrint('[AudioPlayerManager] Could not resolve stream or videoId for "${track.title}". Keeping selection.');
+      _isPreparingTrack = false;
       _isPlaying = false;
       _syncMediaHandler();
       notifyListeners();
       return;
     } catch (e) {
+      if (gen != _playGeneration) return;
       debugPrint('Playback error: $e');
-      _handlePlaybackFailure(track, e.toString());
+      _isPreparingTrack = false;
+      await _handlePlaybackFailure(track, e.toString(), gen);
     }
 
-    _syncMediaHandler();
-    notifyListeners();
+    if (gen == _playGeneration) {
+      _syncMediaHandler();
+      notifyListeners();
+    }
   }
 
   Future<void> togglePlayPause() async {
@@ -1221,12 +1340,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> next() async {
     if (_queue.isEmpty || _currentTrack == null) return;
 
-    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    final currentIndex = _resolveActiveQueueIndex();
 
     // Spotify Deck Playback: Play next sequential item in _queue
-    // (When Shuffle is ON, _queue IS already deterministically shuffled with zero repeats!)
     if (currentIndex != -1 && currentIndex < _queue.length - 1) {
-      await playTrack(_queue[currentIndex + 1]);
+      final nextIdx = currentIndex + 1;
+      await playTrack(_queue[nextIdx], null, nextIdx);
       return;
     }
 
@@ -1235,7 +1354,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       if (_isShuffle && _originalQueue.length > 1) {
         _queue = buildSpotifyShuffleDeck(_originalQueue, null);
       }
-      await playTrack(_queue.first);
+      await playTrack(_queue.first, null, 0);
       return;
     }
 
@@ -1392,11 +1511,13 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _lastPreviousActionTime = null;
     if (_queue.isEmpty || _currentTrack == null) return;
 
-    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    final currentIndex = _resolveActiveQueueIndex();
     if (currentIndex > 0) {
-      await playTrack(_queue[currentIndex - 1]);
+      final prevIdx = currentIndex - 1;
+      await playTrack(_queue[prevIdx], null, prevIdx);
     } else {
-      await playTrack(_queue.last);
+      final lastIdx = _queue.length - 1;
+      await playTrack(_queue[lastIdx], null, lastIdx);
     }
   }
 
@@ -1486,7 +1607,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _isShuffle = true;
     _originalQueue = List.from(tracks);
     _queue = buildSpotifyShuffleDeck(_originalQueue, null);
-    await playTrack(_queue.first);
+    await playTrack(_queue.first, null, 0);
   }
 
   void toggleShuffle() {
@@ -1499,6 +1620,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } else if (!_isShuffle && _originalQueue.isNotEmpty) {
       _queue = List.from(_originalQueue);
     }
+    _currentQueueIndex = _currentTrack != null
+        ? _queue.indexWhere((t) => t.id == _currentTrack!.id)
+        : 0;
     _hasPrefetchedNextTrack = false;
     _prefetchNextTrackStream();
     notifyListeners();
@@ -1514,18 +1638,20 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       playTrack(track);
       return;
     }
-    final currentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    final currentIndex = _resolveActiveQueueIndex();
     for (int i = _queue.length - 1; i >= 0; i--) {
       if (i != currentIndex && _queue[i].id == track.id) {
         _queue.removeAt(i);
+        if (i < _currentQueueIndex) _currentQueueIndex--;
       }
     }
-    final newCurrentIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+    final newCurrentIndex = _resolveActiveQueueIndex();
     if (newCurrentIndex != -1) {
       _queue.insert(newCurrentIndex + 1, track);
     } else {
       _queue.insert(0, track);
     }
+    _prefetchNextTrackStream();
     notifyListeners();
   }
 
@@ -1543,6 +1669,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void removeFromQueue(int index) {
     if (index >= 0 && index < _queue.length) {
       _queue.removeAt(index);
+      if (index < _currentQueueIndex) {
+        _currentQueueIndex--;
+      } else if (_currentQueueIndex >= _queue.length) {
+        _currentQueueIndex = _queue.length - 1;
+      }
       notifyListeners();
     }
   }
@@ -1554,6 +1685,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     if (oldIndex >= 0 && oldIndex < _queue.length && newIndex >= 0 && newIndex < _queue.length) {
       final item = _queue.removeAt(oldIndex);
       _queue.insert(newIndex, item);
+      if (_currentTrack != null) {
+        _currentQueueIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+      }
+      _prefetchNextTrackStream();
       notifyListeners();
     }
   }
@@ -1561,8 +1696,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void clearQueue() {
     if (_currentTrack != null) {
       _queue = [_currentTrack!];
+      _currentQueueIndex = 0;
     } else {
       _queue.clear();
+      _currentQueueIndex = -1;
     }
     notifyListeners();
   }

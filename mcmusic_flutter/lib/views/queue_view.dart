@@ -41,11 +41,8 @@ class _QueueViewState extends State<QueueView> {
         final current = widget.player.currentTrack;
         final fullQueue = widget.player.queue;
 
-        // Separate upcoming tracks from current track
-        int currentIndex = -1;
-        if (current != null) {
-          currentIndex = fullQueue.indexWhere((t) => t.id == current.id);
-        }
+        // Separate upcoming tracks from active queue slot (handles duplicates & fast skips)
+        final currentIndex = widget.player.currentQueueIndex;
 
         final List<Track> upcoming = [];
         if (currentIndex != -1 && currentIndex < fullQueue.length - 1) {
@@ -148,17 +145,17 @@ class _QueueViewState extends State<QueueView> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
+                            gradient: const LinearGradient(
                               colors: [
-                                const Color(0xFF162A4D),
-                                const Color(0xFF141923),
+                                Color(0xFF20232C),
+                                Color(0xFF181A20),
                               ],
                             ),
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppTheme.primaryAzure.withAlpha(80)),
+                            border: Border.all(color: AppTheme.primaryAzure.withAlpha(90)),
                             boxShadow: [
                               BoxShadow(
-                                color: AppTheme.primaryAzure.withAlpha(30),
+                                color: AppTheme.primaryAzure.withAlpha(25),
                                 blurRadius: 16,
                                 offset: const Offset(0, 4),
                               ),
@@ -257,7 +254,7 @@ class _QueueViewState extends State<QueueView> {
                           padding: const EdgeInsets.all(28),
                           margin: const EdgeInsets.only(top: 8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF141923),
+                            color: const Color(0xFF191B22),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: Colors.white.withAlpha(15)),
                           ),
@@ -291,11 +288,12 @@ class _QueueViewState extends State<QueueView> {
                           },
                           itemBuilder: (context, idx) {
                             final track = upcoming[idx];
+                            final realIdx = (currentIndex != -1 ? currentIndex + 1 : 0) + idx;
                             return Container(
-                              key: ValueKey(track.id + idx.toString()),
+                              key: ValueKey('${track.id}_$realIdx'),
                               margin: const EdgeInsets.only(bottom: 8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF141923),
+                                color: const Color(0xFF191B22),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(color: Colors.white.withAlpha(12)),
                               ),
@@ -337,13 +335,12 @@ class _QueueViewState extends State<QueueView> {
                                   icon: const Icon(Icons.close, color: Colors.white38, size: 18),
                                   onPressed: () {
                                     HapticFeedback.lightImpact();
-                                    final realIdx = (currentIndex != -1 ? currentIndex + 1 : 0) + idx;
                                     widget.player.removeFromQueue(realIdx);
                                   },
                                 ),
                                 onTap: () {
                                   HapticFeedback.lightImpact();
-                                  widget.player.playTrack(track);
+                                  widget.player.playQueueIndex(realIdx);
                                 },
                               ),
                             );
