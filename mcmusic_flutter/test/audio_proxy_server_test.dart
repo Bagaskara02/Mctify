@@ -129,5 +129,27 @@ void main() {
 
       client.close(force: true);
     });
+
+    test('streams >1.8 MB continuously across 8 chunks without cutting off past 1 MB (~50s mark)', () async {
+      payload = Uint8List.fromList(List<int>.generate(1900000, (i) => (i * 31 + 7) & 0xFF));
+      final client = HttpClient();
+
+      final proxyUrl = await AudioProxyServer.instance.registerStream(
+        key: 'vidfull_high',
+        upstreamUrl: 'http://127.0.0.1:${mockUpstream.port}/audio',
+        totalBytes: payload.length,
+        contentType: 'audio/mp4',
+      );
+
+      final req = await client.getUrl(Uri.parse(proxyUrl));
+      final res = await req.close();
+      final received = await res.fold<List<int>>([], (acc, b) => acc..addAll(b));
+
+      expect(res.statusCode, HttpStatus.ok);
+      expect(received.length, 1900000);
+      expect(received, equals(payload));
+
+      client.close(force: true);
+    });
   });
 }

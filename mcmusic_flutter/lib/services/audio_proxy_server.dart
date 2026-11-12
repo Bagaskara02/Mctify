@@ -314,7 +314,13 @@ class AudioProxyServer {
       chunkEnd = min(chunkEnd, entry.totalBytes - 1);
     }
 
-    Uint8List data = await _fetchChunkUpstream(entry, chunkStart, chunkEnd, allowRefresh: true);
+    Uint8List data;
+    try {
+      data = await _fetchChunkUpstream(entry, chunkStart, chunkEnd, allowRefresh: true);
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      data = await _fetchChunkUpstream(entry, chunkStart, chunkEnd, allowRefresh: true);
+    }
     if (data.isNotEmpty) {
       _putChunkInCache(cacheKey, data);
     }

@@ -18,17 +18,17 @@ jobs:
 
       - name: Prepare McTify APK Asset
         run: |
-          cp public/downloads/McMusic-arm64.apk McTify-v1.4.2-arm64.apk
+          cp public/downloads/McMusic-arm64.apk McTify-v1.4.3-arm64.apk
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="${GITHUB_REF_NAME:-v1.4.2}"
+          TAG_NAME="${GITHUB_REF_NAME:-v1.4.3}"
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" McTify-v1.4.2-arm64.apk public/downloads/McMusic-arm64.apk --clobber
+            gh release upload "$TAG_NAME" McTify-v1.4.3-arm64.apk public/downloads/McMusic-arm64.apk --clobber
           else
-            gh release create "$TAG_NAME" McTify-v1.4.2-arm64.apk public/downloads/McMusic-arm64.apk \
-              --title "McTify Mobile ${TAG_NAME} (AudioProxy RAM Cache, 0ms Rewind & Instant Native ExoPlayer)" \
-              --notes "Rilis ${TAG_NAME}: Mengatasi HTTP 403 googlevideo pada ExoPlayer dengan Local Loopback Chunked Range Proxy (AudioProxyServer) + pre-warm Chunk 0 ke RAM + read-ahead otomatis, AndroidLoadControl buffer 250ms & backBuffer 60s untuk play/skip/rewind super cepat, serta perbaikan slider seek di Car Mode & Lirik."
+            gh release create "$TAG_NAME" McTify-v1.4.3-arm64.apk public/downloads/McMusic-arm64.apk \
+              --title "McTify Mobile ${TAG_NAME} (Full-Song Streaming Fixed + Zero 50s Cutoff)" \
+              --notes "Rilis ${TAG_NAME}: Memperbaiki regresi lagu berhenti di kisaran detik ~50 dengan menggunakan stream progresif MP4 uncapped (itag 18) melalui AudioProxyServer agar seluruh lagu terputar tuntas dari 00:00 hingga habis, sambil mempertahankan kecepatan play awal, skip, transisi antar-lagu, dan rewind instan."
           fi

@@ -69,11 +69,11 @@ export default function DownloadAppModal({ isOpen, onClose }) {
           <div className="pt-2 space-y-2">
             <a
               href="/downloads/McMusic-arm64.apk"
-              download="McTify-v1.4.2-arm64.apk"
+              download="McTify-v1.4.3-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McTify APK v1.4.2 (ARM64 Direct)</span>
+              <span>Download McTify APK v1.4.3 (ARM64 Direct)</span>
             </a>
             <div className="flex items-center justify-center gap-3 text-[11px] text-[#b3b3b3]">
               <span>Unduh instan file biner .apk (UI Spotify Baru + ExoPlayer)</span>

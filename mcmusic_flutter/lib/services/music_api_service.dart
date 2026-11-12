@@ -46,7 +46,8 @@ class MusicApiService {
     }
   }
 
-  /// Fast stream manifest resolver prioritizing androidSdkless (~200ms direct streams, zero watch-page overhead)
+  /// Fast stream manifest resolver prioritizing progressive `muxed` (itag 18 MP4+AAC)
+  /// which streams 100% from 0:00 to end without YouTube's 1 MB (~50s) adaptive `audioOnly` 403 cutoff.
   Future<List<AudioStreamInfo>> _getFastAudioStreams(String videoId) async {
     try {
       final manifest = await _sharedYt.videos.streamsClient
@@ -56,8 +57,9 @@ class MusicApiService {
             requireWatchPage: false,
           )
           .timeout(const Duration(seconds: 3));
-      final fast = manifest.audioOnly.toList();
-      if (fast.isNotEmpty) return fast;
+      if (manifest.muxed.isNotEmpty) {
+        return manifest.muxed.toList();
+      }
     } catch (_) {}
 
     try {
@@ -68,18 +70,23 @@ class MusicApiService {
             requireWatchPage: false,
           )
           .timeout(const Duration(seconds: 3));
-      final tvStreams = tvManifest.audioOnly.toList();
-      if (tvStreams.isNotEmpty) return tvStreams;
+      if (tvManifest.muxed.isNotEmpty) return tvManifest.muxed.toList();
+      if (tvManifest.audioOnly.isNotEmpty) return tvManifest.audioOnly.toList();
     } catch (_) {}
 
-    final vrManifest = await _sharedYt.videos.streamsClient
-        .getManifest(
-          videoId,
-          ytClients: [YoutubeApiClient.androidVr],
-          requireWatchPage: false,
-        )
-        .timeout(const Duration(seconds: 4));
-    return vrManifest.audioOnly.toList();
+    try {
+      final vrManifest = await _sharedYt.videos.streamsClient
+          .getManifest(
+            videoId,
+            ytClients: [YoutubeApiClient.androidVr],
+            requireWatchPage: false,
+          )
+          .timeout(const Duration(seconds: 4));
+      if (vrManifest.muxed.isNotEmpty) return vrManifest.muxed.toList();
+      if (vrManifest.audioOnly.isNotEmpty) return vrManifest.audioOnly.toList();
+    } catch (_) {}
+
+    return const [];
   }
 
   /// Registers resolved YouTube audio stream with AudioProxyServer so ExoPlayer receives
