@@ -10,7 +10,8 @@ import {
   isCleanPopularTrack, 
   cleanTrackTitle, 
   spreadArtists, 
-  DEFAULT_ARTWORK 
+  DEFAULT_ARTWORK,
+  musicApi
 } from '../src/services/musicApi.js';
 
 describe('Web Audio Quality Service Tests', () => {
@@ -231,5 +232,63 @@ describe('Spotify Web Lyrics Candidate Matcher Tests', () => {
     assert.ok(exactScore >= 1400, `Expected high score for exact match, got ${exactScore}`);
     assert.ok(wrongArtistScore < 0, `Wrong artist must be rejected (< 0), got ${wrongArtistScore}`);
     assert.ok(wrongDurationRemixScore < exactScore, 'Wrong remix duration must score far below studio exact match');
+  });
+});
+
+describe('Web YouTube Resolver & Embed Fallback Tests', () => {
+  it('passes title/artist/exclude params, skips cached blocked IDs, and falls back to search-multi', async () => {
+    const origFetch = globalThis.fetch;
+    const requestedUrls = [];
+
+    globalThis.fetch = async (url) => {
+      const urlStr = String(url);
+      requestedUrls.push(urlStr);
+
+      if (urlStr.startsWith('/api/yt/search?')) {
+        if (!urlStr.includes('exclude=badVid1')) {
+          return {
+            ok: true,
+            json: async () => ({
+              videoId: 'badVid1',
+              title: 'Location Unknown',
+              artist: 'HONNE',
+              duration: 329,
+              thumbnail: 'https://i.ytimg.com/vi/badVid1/default.jpg',
+            }),
+          };
+        }
+        return { ok: false, status: 404 };
+      }
+
+      if (urlStr.startsWith('/api/yt/search-multi?')) {
+        return {
+          ok: true,
+          json: async () => ({
+            songs: [
+              { videoId: 'badVid1', title: 'Location Unknown', artist: 'HONNE', duration: 329 },
+              { videoId: 'goodVid2', title: 'Location Unknown', artist: 'HONNE', duration: 329, artwork: '' },
+            ],
+          }),
+        };
+      }
+
+      return { ok: false, status: 404 };
+    };
+
+    try {
+      const first = await musicApi.resolveYouTubeMatch('Location Unknown ◐', 'HONNE', 329);
+      assert.equal(first?.videoId, 'badVid1');
+      assert.ok(requestedUrls[0].includes('title=Location%20Unknown'), 'Must pass sanitized title param');
+      assert.ok(requestedUrls[0].includes('artist=HONNE'), 'Must pass artist param');
+
+      const recovered = await musicApi.resolveYouTubeMatch('Location Unknown ◐', 'HONNE', 329, ['badVid1']);
+      assert.equal(recovered?.videoId, 'goodVid2', 'Must bypass badVid1 cache and recover via search-multi');
+      assert.ok(
+        requestedUrls.some((u) => u.includes('exclude=badVid1')),
+        'Must pass exclude query parameter on recovery lookup'
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 });

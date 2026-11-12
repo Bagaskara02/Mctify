@@ -676,49 +676,95 @@ function calculateSearchRelevance(track, rawQuery) {
   return score;
 }
 
+const _ytMatchCache = new Map();
+
 export const musicApi = {
   /**
-   * Resolve Full Song YouTube Video ID & Duration
+   * Resolve Full Song YouTube Video ID & Duration (with title/artist context, exclude list & multi-search fallback)
    */
-  async resolveYouTubeMatch(title, artist, duration) {
+  async resolveYouTubeMatch(title, artist, duration, excludeVideoIds = []) {
     if (!title) return null;
+    const cleanText = (s) => (s || '')
+      .replace(/[\u00a0\u2000-\u200b\u202f\u205f\u3000]/g, ' ')
+      .replace(/◐/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const cleanTitle = cleanText(title);
+    const cleanArtist = cleanText(artist);
+    const excludeSet = new Set(Array.isArray(excludeVideoIds) ? excludeVideoIds.filter(Boolean) : []);
+    const cacheKey = `${cleanTitle.toLowerCase()}___${cleanArtist.toLowerCase()}`;
+
+    if (_ytMatchCache.has(cacheKey)) {
+      const cached = _ytMatchCache.get(cacheKey);
+      if (cached && cached.videoId && !excludeSet.has(cached.videoId)) {
+        return cached;
+      }
+    }
+
+    const excludeParam = excludeSet.size > 0 ? `&exclude=${encodeURIComponent([...excludeSet].join(','))}` : '';
+    const durParam = duration ? `&duration=${encodeURIComponent(duration)}` : '';
+    const titleParam = `&title=${encodeURIComponent(cleanTitle)}`;
+    const artistParam = cleanArtist ? `&artist=${encodeURIComponent(cleanArtist)}` : '';
+
     try {
-      const q = `${title} ${artist || ''}`.trim();
-      const durParam = duration ? `&duration=${encodeURIComponent(duration)}` : '';
-      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}${durParam}`);
+      const q = `${cleanTitle} ${cleanArtist}`.trim();
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(q)}${titleParam}${artistParam}${durParam}${excludeParam}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.videoId) {
+        if (data && data.videoId && !excludeSet.has(data.videoId)) {
           if (data.thumbnail) {
             data.thumbnail = getHighResArtworkUrl(data.thumbnail);
           }
-          return data; // { videoId, title, artist, duration, thumbnail }
+          _ytMatchCache.set(cacheKey, data);
+          return data;
         }
       }
     } catch (e) {
       console.warn('YouTube backend resolver lookup failed:', e);
     }
 
-    // Retry with title only if artist was included and returned 404
-    if (artist) {
-      try {
-        const res = await fetch(`/api/yt/search?q=${encodeURIComponent(title)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.videoId) {
-            // Strictly verify that candidate artist does not conflict (e.g. French Montana when searching PnB Rock)
-            const retArtist = (data.artist || '').toLowerCase();
-            const aTokens = artist.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-            if (aTokens.length === 0 || aTokens.some(tok => retArtist.includes(tok))) {
-              if (data.thumbnail) {
-                data.thumbnail = getHighResArtworkUrl(data.thumbnail);
-              }
-              return data;
-            }
+    // Retry with core title + exclude if primary lookup failed
+    try {
+      const coreTitle = cleanTitle
+        .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+        .replace(/\s*-\s*(remastered.*|acoustic|live|version).*/gi, '')
+        .trim() || cleanTitle;
+      const qAlt = `${coreTitle} ${cleanArtist}`.trim();
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(qAlt)}&title=${encodeURIComponent(coreTitle)}${artistParam}${durParam}${excludeParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.videoId && !excludeSet.has(data.videoId)) {
+          if (data.thumbnail) {
+            data.thumbnail = getHighResArtworkUrl(data.thumbnail);
           }
+          _ytMatchCache.set(cacheKey, data);
+          return data;
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
+
+    // Fallback to /api/yt/search-multi (returns multiple embeddable song matches)
+    try {
+      const qMulti = `${cleanTitle} ${cleanArtist}`.trim();
+      const res = await fetch(`/api/yt/search-multi?q=${encodeURIComponent(qMulti)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const songs = Array.isArray(data?.songs) ? data.songs : [];
+        const match = songs.find((s) => s?.videoId && !excludeSet.has(s.videoId));
+        if (match) {
+          const result = {
+            videoId: match.videoId,
+            title: match.title || cleanTitle,
+            artist: match.artist || cleanArtist,
+            duration: match.duration || duration || 180,
+            thumbnail: getHighResArtworkUrl(match.artwork || ''),
+          };
+          _ytMatchCache.set(cacheKey, result);
+          return result;
+        }
+      }
+    } catch (_) {}
 
     return null;
   },

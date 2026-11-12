@@ -122,6 +122,56 @@ export default function App() {
   // Audio Element Ref (Fallback for preview if needed)
   const audioRef = useRef(null);
 
+  // Live Refs & Background Tab Keep-Alive (prevents Chrome/Edge pausing hidden tabs & stale closures)
+  const currentTrackRef = useRef(currentTrack);
+  const queueRef = useRef(queue);
+  const originalQueueRef = useRef(originalQueue);
+  const isPlayingRef = useRef(isPlaying);
+  const isShuffleRef = useRef(isShuffle);
+  const repeatModeRef = useRef(repeatMode);
+  const sleepTimerRef = useRef(sleepTimerSeconds);
+  const playGenRef = useRef(0);
+  const failedVideoIdsRef = useRef(new Map());
+  const lastEndedRef = useRef({ key: '', at: 0 });
+  const bgKeepAliveRef = useRef(null);
+
+  currentTrackRef.current = currentTrack;
+  queueRef.current = queue;
+  originalQueueRef.current = originalQueue;
+  isPlayingRef.current = isPlaying;
+  isShuffleRef.current = isShuffle;
+  repeatModeRef.current = repeatMode;
+  sleepTimerRef.current = sleepTimerSeconds;
+
+  const startBgKeepAlive = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!bgKeepAliveRef.current) {
+        const ctx = new Ctx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 20;
+        gain.gain.value = 0.00001; // Sub-audible waveform keeps Chromium background tab audio session alive
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        bgKeepAliveRef.current = { ctx, osc, gain };
+      }
+      if (bgKeepAliveRef.current.ctx.state === 'suspended') {
+        bgKeepAliveRef.current.ctx.resume().catch(() => {});
+      }
+    } catch {}
+  };
+
+  const stopBgKeepAlive = () => {
+    try {
+      if (bgKeepAliveRef.current?.ctx?.state === 'running') {
+        bgKeepAliveRef.current.ctx.suspend().catch(() => {});
+      }
+    } catch {}
+  };
+
   // Dynamic feed loader based on user playback and taste profile
   const refreshPersonalizedFeed = async () => {
     setIsLoadingFeed(true);
@@ -218,27 +268,80 @@ export default function App() {
     };
   }, [isLyricsOpen]);
 
-  // Handle Play Track with Full-Length YouTube Resolution
+  // Pre-resolve next 2 queued tracks in background so background-tab song transitions have 0ms gap!
+  useEffect(() => {
+    const active = currentTrackRef.current;
+    const liveQ = queueRef.current;
+    if (!active || liveQ.length === 0) return;
+
+    const idx = liveQ.findIndex((t) => t.id === active.id);
+    if (idx === -1) return;
+
+    const upcoming = [liveQ[idx + 1], liveQ[idx + 2]].filter(Boolean);
+    let cancelled = false;
+
+    for (const nextItem of upcoming) {
+      if (nextItem.videoId) continue;
+      musicApi
+        .resolveYouTubeMatch(nextItem.title, nextItem.artist, nextItem.duration)
+        .then((yt) => {
+          if (cancelled || !yt?.videoId) return;
+          const patched = {
+            ...nextItem,
+            videoId: yt.videoId,
+            duration: yt.duration || nextItem.duration,
+            artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : getHighResArtworkUrl(nextItem.artwork),
+          };
+          setQueue((prev) => prev.map((it) => (it.id === nextItem.id && !it.videoId ? patched : it)));
+          setOriginalQueue((prev) => prev.map((it) => (it.id === nextItem.id && !it.videoId ? patched : it)));
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrack?.id, queue.length]);
+
+  // Handle Play Track with Full-Length YouTube Resolution & Generation Cancellation
   const handlePlayTrack = async (track, newQueue = null) => {
     if (!track) return;
 
+    const gen = ++playGenRef.current;
+    startBgKeepAlive();
+
+    const liveQueue = queueRef.current;
+    const liveShuffle = isShuffleRef.current;
+
     if (newQueue && Array.isArray(newQueue) && newQueue.length > 0) {
       setOriginalQueue(newQueue);
-      setQueue(isShuffle ? buildSpotifyShuffleDeck(newQueue, track) : newQueue);
-    } else if (!queue.some(t => t.id === track.id)) {
+      const nextDeck = liveShuffle ? buildSpotifyShuffleDeck(newQueue, track) : newQueue;
+      queueRef.current = nextDeck;
+      setQueue(nextDeck);
+    } else if (!liveQueue.some(t => t.id === track.id)) {
       setOriginalQueue(prev => [track, ...prev]);
-      setQueue(prev => [track, ...prev]);
+      const updatedQ = [track, ...liveQueue];
+      queueRef.current = updatedQ;
+      setQueue(updatedQ);
     }
 
     setCurrentTime(0);
     setSeekTime(0);
     setIsPlaying(true);
 
-    if (track.videoId) {
+    const failedSet = failedVideoIdsRef.current.get(track.id);
+    const hasUsableVideoId = track.videoId && (!failedSet || !failedSet.has(track.videoId));
+
+    if (hasUsableVideoId) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
       const hdTrack = {
         ...track,
         artwork: getHighResArtworkUrl(track.artwork),
       };
+      currentTrackRef.current = hdTrack;
       setCurrentTrack(hdTrack);
       setDuration(track.duration || 210);
     } else {
@@ -247,10 +350,15 @@ export default function App() {
         audioRef.current.pause();
         audioRef.current.src = '';
       }
-      setCurrentTrack({ ...track, videoId: null, artwork: getHighResArtworkUrl(track.artwork) });
+      const pendingTrack = { ...track, videoId: null, artwork: getHighResArtworkUrl(track.artwork) };
+      currentTrackRef.current = pendingTrack;
+      setCurrentTrack(pendingTrack);
 
       try {
-        const yt = await musicApi.resolveYouTubeMatch(track.title, track.artist, track.duration);
+        const excludeList = failedSet ? [...failedSet] : [];
+        const yt = await musicApi.resolveYouTubeMatch(track.title, track.artist, track.duration, excludeList);
+        if (gen !== playGenRef.current) return;
+
         if (yt && yt.videoId) {
           const fullTrack = {
             ...track,
@@ -258,15 +366,29 @@ export default function App() {
             duration: yt.duration || track.duration,
             artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : getHighResArtworkUrl(track.artwork),
           };
+          currentTrackRef.current = fullTrack;
           setCurrentTrack(fullTrack);
           setDuration(yt.duration || track.duration);
           setQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
+          setOriginalQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
         } else if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
           audioRef.current.currentTime = 0;
           audioRef.current.play().catch(console.warn);
+        } else {
+          setSmartToast(`Melewati "${track.title}" (sumber audio tidak tersedia)`);
+          setTimeout(() => setSmartToast(null), 2800);
+          if (queueRef.current.length > 1) {
+            setTimeout(() => {
+              if (gen === playGenRef.current) handleNext(true);
+            }, 250);
+          } else {
+            setIsPlaying(false);
+          }
+          return;
         }
       } catch {
+        if (gen !== playGenRef.current) return;
         if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
           audioRef.current.currentTime = 0;
@@ -309,7 +431,9 @@ export default function App() {
           ),
         ];
         setOriginalQueue(baseQueue);
-        setQueue(isShuffle ? buildSpotifyShuffleDeck(baseQueue, track) : baseQueue);
+        const nextDeck = isShuffleRef.current ? buildSpotifyShuffleDeck(baseQueue, track) : baseQueue;
+        queueRef.current = nextDeck;
+        setQueue(nextDeck);
         setSmartToast(`Radio Hits: Lagu terpopuler dari ${track.artist} & lagu favorit siap diputar`);
         setTimeout(() => setSmartToast(null), 3500);
       }
@@ -320,7 +444,8 @@ export default function App() {
 
   // Toggle Play / Pause
   const handlePlayPause = () => {
-    if (!currentTrack) {
+    const activeTrack = currentTrackRef.current;
+    if (!activeTrack) {
       const first = personalizedFeed?.quickCards?.[0] || trendingTracks[0];
       if (first) {
         handlePlayTrack(first, personalizedFeed?.quickCards || trendingTracks);
@@ -328,10 +453,12 @@ export default function App() {
       return;
     }
 
-    if (isPlaying) {
+    if (isPlayingRef.current) {
       setIsPlaying(false);
+      stopBgKeepAlive();
       if (audioRef.current) audioRef.current.pause();
     } else {
+      startBgKeepAlive();
       setIsPlaying(true);
       if (audioRef.current && audioRef.current.src) {
         audioRef.current.play().catch(console.warn);
@@ -364,35 +491,43 @@ export default function App() {
     handlePlayTrack(deck[0], deck);
   };
 
-  // Next Track in Queue with Deterministic Shuffled Deck + SMART AUTOPLAY
+  // Next Track in Queue with Deterministic Shuffled Deck + SMART AUTOPLAY (Live refs safe for background tabs!)
   const handleNext = async (isAutoEnded = false) => {
-    if (!currentTrack && queue.length === 0) return;
+    const activeTrack = currentTrackRef.current;
+    const liveQueue = queueRef.current;
+    const liveOrigQueue = originalQueueRef.current;
+    const liveRepeat = repeatModeRef.current;
+    const liveShuffle = isShuffleRef.current;
 
-    const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
+    if (!activeTrack && liveQueue.length === 0) return;
+
+    const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
 
     // 1. Sequential step on queue (already Fisher-Yates balanced when Shuffle is ON!)
-    if (currentIndex !== -1 && currentIndex < queue.length - 1) {
-      handlePlayTrack(queue[currentIndex + 1]);
+    if (currentIndex !== -1 && currentIndex < liveQueue.length - 1) {
+      handlePlayTrack(liveQueue[currentIndex + 1]);
       return;
     }
 
     // 2. End of playlist / shuffled deck reached -> Repeat All re-shuffles cleanly if Shuffle ON
-    if (repeatMode === 'all' && queue.length > 0) {
-      const base = originalQueue.length > 0 ? originalQueue : queue;
-      const nextDeck = isShuffle ? buildSpotifyShuffleDeck(base, null) : base;
+    if (liveRepeat === 'all' && liveQueue.length > 0) {
+      const base = liveOrigQueue.length > 0 ? liveOrigQueue : liveQueue;
+      const nextDeck = liveShuffle ? buildSpotifyShuffleDeck(base, null) : base;
+      queueRef.current = nextDeck;
       setQueue(nextDeck);
       handlePlayTrack(nextDeck[0]);
       return;
     }
 
     // 3. Queue / Playlist Finished! -> Trigger Smart Autoplay (Spotify Radio)
-    if (currentTrack) {
-      setSmartToast(`Radio Pintar: Mencari musik serupa dengan ${currentTrack.artist}...`);
+    if (activeTrack) {
+      setSmartToast(`Radio Pintar: Mencari musik serupa dengan ${activeTrack.artist}...`);
       try {
-        const smartRecommendations = await musicApi.getSmartRecommendations(currentTrack, queue);
+        const smartRecommendations = await musicApi.getSmartRecommendations(activeTrack, liveQueue);
         if (smartRecommendations && smartRecommendations.length > 0) {
           const nextTrack = smartRecommendations[0];
-          const newQueue = [...queue, ...smartRecommendations];
+          const newQueue = [...liveQueue, ...smartRecommendations];
+          queueRef.current = newQueue;
           setQueue(newQueue);
           handlePlayTrack(nextTrack, newQueue);
           setSmartToast(`Memutar Radio Pintar: ${nextTrack.title} • ${nextTrack.artist}`);
@@ -405,8 +540,8 @@ export default function App() {
     }
 
     // Fallback: loop to beginning if no smart recommendations found
-    if (queue.length > 0) {
-      handlePlayTrack(queue[0]);
+    if (liveQueue.length > 0) {
+      handlePlayTrack(liveQueue[0]);
     }
   };
 
@@ -416,15 +551,17 @@ export default function App() {
       handleSeek(0);
       return;
     }
-    if (queue.length === 0) return;
-    const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
-    let prevIndex = queue.length - 1;
+    const liveQueue = queueRef.current;
+    const activeTrack = currentTrackRef.current;
+    if (liveQueue.length === 0) return;
+    const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
+    let prevIndex = liveQueue.length - 1;
 
     if (currentIndex > 0) {
       prevIndex = currentIndex - 1;
     }
 
-    handlePlayTrack(queue[prevIndex]);
+    handlePlayTrack(liveQueue[prevIndex]);
   };
 
   // 3-State Repeat Handler ('off' -> 'all' -> 'one' -> 'off')
@@ -439,6 +576,7 @@ export default function App() {
   // Dedicated Pause function (used by Sleep Timer & UI)
   const handlePause = () => {
     setIsPlaying(false);
+    stopBgKeepAlive();
     if (audioRef.current) audioRef.current.pause();
   };
 
@@ -487,9 +625,21 @@ export default function App() {
     setTimeout(() => setSmartToast(null), 2500);
   };
 
-  // Track ended event
+  // Track ended event (deduped & backed by live refs so background tabs always advance)
   const handleEnded = () => {
-    if (sleepTimerSeconds === 'endOfTrack') {
+    const activeTrack = currentTrackRef.current;
+    const liveQueue = queueRef.current;
+    const liveRepeat = repeatModeRef.current;
+    const liveSleep = sleepTimerRef.current;
+
+    const now = Date.now();
+    const endedKey = `${activeTrack?.id || ''}__${activeTrack?.videoId || ''}`;
+    if (lastEndedRef.current.key === endedKey && now - lastEndedRef.current.at < 1500) {
+      return;
+    }
+    lastEndedRef.current = { key: endedKey, at: now };
+
+    if (liveSleep === 'endOfTrack') {
       handlePause();
       handleCancelSleepTimer();
       setSmartToast('Musik berhenti di akhir lagu sesuai pengatur waktu tidur.');
@@ -497,16 +647,76 @@ export default function App() {
       return;
     }
 
-    if (repeatMode === 'one') {
+    if (liveRepeat === 'one') {
       handleSeek(0);
       setIsPlaying(true);
-    } else if (repeatMode === 'all') {
-      if (queue.length === 0) return;
-      const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
-      const nextIndex = (currentIndex + 1) % queue.length;
-      handlePlayTrack(queue[nextIndex]);
+      startBgKeepAlive();
+    } else if (liveRepeat === 'all') {
+      if (liveQueue.length === 0) return;
+      const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
+      const nextIndex = (currentIndex + 1) % liveQueue.length;
+      handlePlayTrack(liveQueue[nextIndex]);
     } else {
       handleNext(true);
+    }
+  };
+
+  // Automatic embed/playback recovery when YouTube Iframe returns 101/150 (embed disabled) or 100/5
+  const handleYouTubeError = async (err) => {
+    const track = currentTrackRef.current;
+    if (!track) return;
+
+    const errCode = err?.data;
+    const genSnapshot = playGenRef.current;
+    console.warn('[App] YouTube playback error code:', errCode, 'for track:', track.title, 'vid:', track.videoId);
+
+    const existingFailed = failedVideoIdsRef.current.get(track.id) || new Set();
+    if (track.videoId) existingFailed.add(track.videoId);
+    failedVideoIdsRef.current.set(track.id, existingFailed);
+
+    if (existingFailed.size <= 3) {
+      try {
+        const alt = await musicApi.resolveYouTubeMatch(
+          track.title,
+          track.artist,
+          track.duration,
+          [...existingFailed]
+        );
+        if (genSnapshot !== playGenRef.current) return;
+        if (alt && alt.videoId && !existingFailed.has(alt.videoId)) {
+          const recovered = {
+            ...track,
+            videoId: alt.videoId,
+            duration: alt.duration || track.duration,
+            artwork: alt.thumbnail ? getHighResArtworkUrl(alt.thumbnail) : track.artwork,
+          };
+          currentTrackRef.current = recovered;
+          setCurrentTrack(recovered);
+          setQueue(prev => prev.map(it => (it.id === track.id ? recovered : it)));
+          setOriginalQueue(prev => prev.map(it => (it.id === track.id ? recovered : it)));
+          return;
+        }
+      } catch (resolveErr) {
+        console.warn('[App] Alternative YouTube resolution error:', resolveErr);
+      }
+    }
+
+    if (genSnapshot !== playGenRef.current) return;
+
+    if (track.audioUrl && audioRef.current) {
+      audioRef.current.src = track.audioUrl;
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(console.warn);
+      return;
+    }
+
+    if (queueRef.current.length > 1) {
+      setSmartToast(`"${track.title}" dibatasi YouTube, beralih ke lagu berikutnya...`);
+      setTimeout(() => setSmartToast(null), 3000);
+      handleNext(true);
+    } else {
+      setSmartToast(`"${track.title}" tidak mengizinkan pemutaran embed di browser.`);
+      setTimeout(() => setSmartToast(null), 3500);
     }
   };
 
@@ -942,19 +1152,13 @@ export default function App() {
           if (dur && Number.isFinite(dur) && dur > 0) {
             setDuration(dur);
             // Safety auto-advance if playback is within 0.6s of end
-            if (dur > 5 && current >= dur - 0.6 && isPlaying) {
+            if (dur > 5 && current >= dur - 0.6 && isPlayingRef.current) {
               handleEnded();
             }
           }
         }}
         onEnded={handleEnded}
-        onError={(err) => {
-          console.warn('YouTube playback error, attempting preview fallback', err);
-          if (currentTrack?.audioUrl && audioRef.current) {
-            audioRef.current.src = currentTrack.audioUrl;
-            audioRef.current.play().catch(console.warn);
-          }
-        }}
+        onError={handleYouTubeError}
       />
 
       {/* Primary Native Audio Stream Element (Powers setSinkId & Real Windows Hardware Output Switching) */}
@@ -970,7 +1174,7 @@ export default function App() {
             if (dur && Number.isFinite(dur) && dur > 0) {
               setDuration(dur);
             }
-            if (dur && cur >= dur - 0.5 && isPlaying) {
+            if (dur && cur >= dur - 0.5 && isPlayingRef.current) {
               handleEnded();
             }
           }
@@ -985,8 +1189,10 @@ export default function App() {
         }}
         onEnded={handleEnded}
         onError={() => {
-          console.warn('[App] Direct stream error, falling back to YouTube iframe engine');
-          setUseIframeFallback(true);
+          console.warn('[App] Audio fallback stream error for:', currentTrackRef.current?.title);
+          if (!currentTrackRef.current?.videoId && isPlayingRef.current && queueRef.current.length > 1) {
+            handleNext(true);
+          }
         }}
       />
 

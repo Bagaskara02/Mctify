@@ -55,6 +55,8 @@ export default async function handler(req, res) {
     const q = url.searchParams.get('q') || req.query?.q || '';
     const rawTitle = url.searchParams.get('title') || req.query?.title || '';
     const rawArtist = url.searchParams.get('artist') || req.query?.artist || '';
+    const excludeParam = url.searchParams.get('exclude') || req.query?.exclude || '';
+    const excludeIds = new Set(excludeParam.split(',').map((s) => s.trim()).filter(Boolean));
     if (!q && !rawTitle) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
@@ -63,19 +65,24 @@ export default async function handler(req, res) {
 
     const yt = await getYT();
     const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
-    const searchQuery = q || `${rawTitle} ${rawArtist}`.trim();
+    const cleanText = (s) => s
+      .replace(/[\u00a0\u2000-\u200b\u202f\u205f\u3000]/g, ' ')
+      .replace(/◐/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const searchQuery = cleanText(q || `${rawTitle} ${rawArtist}`);
     const qLower = searchQuery.toLowerCase();
 
     const extractCoreTitle = (str) => {
-      return str
+      return cleanText(str)
         .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
-        .replace(/\s*-\s*(acoustic|live|remix|version|official).*/gi, '')
+        .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
         .trim();
     };
 
     const targetTitle = rawTitle ? extractCoreTitle(rawTitle.toLowerCase()) : extractCoreTitle(qLower);
     const targetArtist = rawArtist
-      ? rawArtist.toLowerCase().split(',')[0].split('ft.')[0].split('feat.')[0].trim()
+      ? cleanText(rawArtist).toLowerCase().split(',')[0].split('ft.')[0].split('feat.')[0].trim()
       : '';
 
     const isAcousticRequested = qLower.includes('acoustic') || (rawTitle && rawTitle.toLowerCase().includes('acoustic'));
@@ -233,16 +240,21 @@ export default async function handler(req, res) {
       }).sort((a, b) => b.score - a.score);
     };
 
+    const pickBestPlayable = (items, minScore = -200) => {
+      if (!items || items.length === 0) return null;
+      const ranked = rankCandidates(items).filter((entry) => {
+        const id = entry?.item?.id;
+        return id && !excludeIds.has(id);
+      });
+      if (ranked.length === 0) return null;
+      return ranked[0].score >= minScore ? ranked[0].item : ranked[0].item;
+    };
+
     // Search YouTube Music first
-    const search = await yt.music.search(searchQuery, { type: 'song' });
+    const search = await yt.music.search(searchQuery, { type: 'song' }).catch(() => ({}));
     const songs = search.songs?.contents || search.results || [];
 
-    let best = null;
-    if (songs.length > 0) {
-      const ranked = rankCandidates(songs);
-      best = ranked[0]?.item;
-    }
-
+    const best = pickBestPlayable(songs);
     if (best && best.id) {
       const durationSec = getDurationSec(best);
       const titleStr = typeof best.title === 'string' ? best.title : (best.title?.text || '');
@@ -259,40 +271,34 @@ export default async function handler(req, res) {
       }));
     }
 
-    // Fallback 1: general YouTube search with official audio
-    const general = await yt.search(q + ' official audio');
+    // Fallback 1: general YouTube search with official audio (frequently embeddable when MV/YTM is restricted)
+    const general = await yt.search(`${searchQuery} official audio`).catch(() => ({}));
     const videos = general.videos || [];
-    if (videos.length > 0) {
-      const ranked = rankCandidates(videos);
-      const video = ranked[0]?.item;
-      if (video && video.id) {
-        res.setHeader('Content-Type', 'application/json');
-        return res.end(JSON.stringify({
-          videoId: video.id,
-          title: video.title?.text || '',
-          artist: video.author?.name || '',
-          duration: video.duration?.seconds || 180,
-          thumbnail: toHighResUrl(video.thumbnails?.[video.thumbnails.length - 1]?.url || video.thumbnails?.[0]?.url || ''),
-        }));
-      }
+    const video = pickBestPlayable(videos);
+    if (video && video.id) {
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({
+        videoId: video.id,
+        title: video.title?.text || '',
+        artist: video.author?.name || '',
+        duration: video.duration?.seconds || 180,
+        thumbnail: toHighResUrl(video.thumbnails?.[video.thumbnails.length - 1]?.url || video.thumbnails?.[0]?.url || ''),
+      }));
     }
 
     // Fallback 2: general search
-    const generalAny = await yt.search(q);
+    const generalAny = await yt.search(searchQuery).catch(() => ({}));
     const anyVideos = generalAny.videos || [];
-    if (anyVideos.length > 0) {
-      const ranked = rankCandidates(anyVideos);
-      const anyVideo = ranked[0]?.item;
-      if (anyVideo && anyVideo.id) {
-        res.setHeader('Content-Type', 'application/json');
-        return res.end(JSON.stringify({
-          videoId: anyVideo.id,
-          title: anyVideo.title?.text || '',
-          artist: anyVideo.author?.name || '',
-          duration: anyVideo.duration?.seconds || 180,
-          thumbnail: toHighResUrl(anyVideo.thumbnails?.[anyVideo.thumbnails.length - 1]?.url || anyVideo.thumbnails?.[0]?.url || ''),
-        }));
-      }
+    const anyVideo = pickBestPlayable(anyVideos);
+    if (anyVideo && anyVideo.id) {
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({
+        videoId: anyVideo.id,
+        title: anyVideo.title?.text || '',
+        artist: anyVideo.author?.name || '',
+        duration: anyVideo.duration?.seconds || 180,
+        thumbnail: toHighResUrl(anyVideo.thumbnails?.[anyVideo.thumbnails.length - 1]?.url || anyVideo.thumbnails?.[0]?.url || ''),
+      }));
     }
 
     res.statusCode = 404;

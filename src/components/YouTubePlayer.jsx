@@ -20,9 +20,32 @@ export default function YouTubePlayer({
 }) {
   const playerRef = useRef(null);
   const endedTriggeredRef = useRef(false);
+  const loadedVideoIdRef = useRef('');
+  const backgroundKickTimerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [eqSettings, setEqSettings] = useState(() => webAudioEqualizer.settings);
+
+  // Live refs prevent stale closures inside YT.Player callbacks on background tabs
+  const videoIdRef = useRef(videoId);
+  const isPlayingRef = useRef(isPlaying);
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
+  const eqSettingsRef = useRef(eqSettings);
+  const playbackRateRef = useRef(playbackRate);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onEndedRef = useRef(onEnded);
+  const onErrorRef = useRef(onError);
+
+  videoIdRef.current = videoId;
+  isPlayingRef.current = isPlaying;
+  volumeRef.current = volume;
+  isMutedRef.current = isMuted;
+  eqSettingsRef.current = eqSettings;
+  playbackRateRef.current = playbackRate;
+  onTimeUpdateRef.current = onTimeUpdate;
+  onEndedRef.current = onEnded;
+  onErrorRef.current = onError;
 
   // Subscribe to realtime Equalizer changes
   useEffect(() => {
@@ -30,6 +53,34 @@ export default function YouTubePlayer({
       setEqSettings(updated);
     });
   }, []);
+
+  const clearBackgroundKick = () => {
+    if (backgroundKickTimerRef.current) {
+      clearTimeout(backgroundKickTimerRef.current);
+      backgroundKickTimerRef.current = null;
+    }
+  };
+
+  const scheduleBackgroundPlaybackKick = (targetVid) => {
+    clearBackgroundKick();
+    if (!isPlayingRef.current || !targetVid) return;
+
+    const kick = (attempt) => {
+      if (!playerRef.current || !isPlayingRef.current || videoIdRef.current !== targetVid) return;
+      try {
+        const st = playerRef.current.getPlayerState?.();
+        // YT States: -1=UNSTARTED, 0=ENDED, 1=PLAYING, 2=PAUSED, 3=BUFFERING, 5=CUED
+        if (st === window.YT?.PlayerState?.CUED || st === window.YT?.PlayerState?.PAUSED || st === -1) {
+          playerRef.current.playVideo?.();
+        }
+        if (st !== window.YT?.PlayerState?.PLAYING && attempt < 4) {
+          backgroundKickTimerRef.current = setTimeout(() => kick(attempt + 1), attempt === 1 ? 350 : 750);
+        }
+      } catch {}
+    };
+
+    backgroundKickTimerRef.current = setTimeout(() => kick(1), 280);
+  };
 
   // Load YouTube IFrame API script once
   useEffect(() => {
@@ -44,7 +95,9 @@ export default function YouTubePlayer({
       }
     }
 
+    let cancelled = false;
     const checkReady = () => {
+      if (cancelled) return;
       if (window.YT && window.YT.Player) {
         initPlayer();
       } else {
@@ -55,6 +108,8 @@ export default function YouTubePlayer({
     checkReady();
 
     return () => {
+      cancelled = true;
+      clearBackgroundKick();
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -66,8 +121,9 @@ export default function YouTubePlayer({
   const triggerEnded = () => {
     if (endedTriggeredRef.current) return;
     endedTriggeredRef.current = true;
+    clearBackgroundKick();
     console.log('[YouTubePlayer] Track ended, auto-advancing to next song in queue');
-    onEnded?.();
+    onEndedRef.current?.();
   };
 
   const initPlayer = () => {
@@ -76,7 +132,7 @@ export default function YouTubePlayer({
       playerRef.current = new window.YT.Player('yt-music-engine', {
         height: '100%',
         width: '100%',
-        videoId: videoId || '',
+        videoId: videoIdRef.current || '',
         playerVars: {
           autoplay: 0,
           controls: 0,
@@ -91,31 +147,64 @@ export default function YouTubePlayer({
         events: {
           onReady: (event) => {
             setIsReady(true);
-            if (isMuted) {
+            try {
+              event.target.getIframe?.()?.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+            } catch {}
+            if (isMutedRef.current) {
               event.target.mute();
             } else {
-              const multiplier = webAudioEqualizer.getLoudnessMultiplier(eqSettings);
-              const effectiveVol = Math.max(0, Math.min(100, Math.round(volume * 100 * multiplier)));
+              const multiplier = webAudioEqualizer.getLoudnessMultiplier(eqSettingsRef.current);
+              const effectiveVol = Math.max(0, Math.min(100, Math.round(volumeRef.current * 100 * multiplier)));
               event.target.setVolume(effectiveVol);
+            }
+            if (videoIdRef.current) {
+              loadedVideoIdRef.current = videoIdRef.current;
+              if (isPlayingRef.current) {
+                event.target.loadVideoById(videoIdRef.current);
+                scheduleBackgroundPlaybackKick(videoIdRef.current);
+              } else {
+                event.target.cueVideoById(videoIdRef.current);
+              }
             }
           },
           onStateChange: (event) => {
-            if (event.data === window.YT.PlayerState.ENDED) {
-              triggerEnded();
-            } else if (event.data === window.YT.PlayerState.PAUSED) {
-              // In background tabs, YouTube sometimes enters PAUSED at the very end of video instead of ENDED
+            const st = event.data;
+            if (st === window.YT.PlayerState.PLAYING) {
+              clearBackgroundKick();
               try {
                 const current = playerRef.current?.getCurrentTime?.() || 0;
                 const dur = playerRef.current?.getDuration?.() || 0;
-                if (dur > 5 && current >= dur - 1.2) {
-                  triggerEnded();
+                if (dur > 0 && current < dur - 2) {
+                  endedTriggeredRef.current = false;
                 }
               } catch {}
+            } else if (st === window.YT.PlayerState.ENDED) {
+              triggerEnded();
+            } else if (st === window.YT.PlayerState.PAUSED) {
+              // In background tabs, YouTube may enter PAUSED at track end OR pause CUED/next track
+              try {
+                const current = playerRef.current?.getCurrentTime?.() || 0;
+                const dur = playerRef.current?.getDuration?.() || 0;
+                if (dur > 5 && current >= dur - 1.5) {
+                  triggerEnded();
+                } else if (isPlayingRef.current && videoIdRef.current && document.hidden) {
+                  scheduleBackgroundPlaybackKick(videoIdRef.current);
+                }
+              } catch {}
+            } else if (st === window.YT.PlayerState.CUED || st === -1) {
+              // Critical for background tabs: kick CUED/UNSTARTED immediately into PLAYING
+              if (isPlayingRef.current && videoIdRef.current) {
+                try {
+                  playerRef.current?.playVideo?.();
+                  scheduleBackgroundPlaybackKick(videoIdRef.current);
+                } catch {}
+              }
             }
           },
           onError: (err) => {
             console.warn('YouTube player error:', err);
-            onError?.(err);
+            clearBackgroundKick();
+            onErrorRef.current?.(err);
           },
         },
       });
@@ -124,39 +213,49 @@ export default function YouTubePlayer({
     }
   };
 
-  // Sync videoId
+  // Sync videoId (single atomic load/cue without conflicting immediate playVideo call)
   useEffect(() => {
     endedTriggeredRef.current = false;
-    if (isReady && playerRef.current) {
-      if (!videoId) {
-        // Track has no videoId yet (e.g. resolving). Stop old video immediately to prevent audio leak!
-        try {
-          playerRef.current.pauseVideo();
-        } catch {}
-        return;
-      }
+    if (!isReady || !playerRef.current) return;
+
+    if (!videoId) {
+      loadedVideoIdRef.current = '';
+      clearBackgroundKick();
       try {
-        const currentUrl = playerRef.current.getVideoUrl?.() || '';
-        if (!currentUrl.includes(videoId)) {
-          if (isPlaying) {
-            playerRef.current.loadVideoById(videoId);
-          } else {
-            playerRef.current.cueVideoById(videoId);
-          }
+        playerRef.current.pauseVideo();
+      } catch {}
+      return;
+    }
+
+    if (loadedVideoIdRef.current !== videoId) {
+      loadedVideoIdRef.current = videoId;
+      try {
+        if (isPlayingRef.current) {
+          playerRef.current.loadVideoById(videoId);
+          scheduleBackgroundPlaybackKick(videoId);
+        } else {
+          playerRef.current.cueVideoById(videoId);
         }
       } catch (e) {
         console.warn(e);
       }
     }
-  }, [videoId, isReady, isPlaying]);
+  }, [videoId, isReady]);
 
-  // Sync isPlaying
+  // Sync isPlaying cleanly without clobbering an in-flight loadVideoById on track switch
   useEffect(() => {
     if (!isReady || !playerRef.current || !videoId) return;
     try {
       if (isPlaying) {
-        playerRef.current.playVideo();
+        if (loadedVideoIdRef.current === videoId) {
+          const st = playerRef.current.getPlayerState?.();
+          if (st !== window.YT?.PlayerState?.PLAYING && st !== window.YT?.PlayerState?.BUFFERING) {
+            playerRef.current.playVideo();
+          }
+          scheduleBackgroundPlaybackKick(videoId);
+        }
       } else {
+        clearBackgroundKick();
         playerRef.current.pauseVideo();
       }
     } catch (e) {
@@ -236,11 +335,16 @@ export default function YouTubePlayer({
 
     const pollTime = () => {
       try {
-        if (playerRef.current && isPlaying && videoId) {
+        const activeVid = videoIdRef.current;
+        if (playerRef.current && isPlayingRef.current && activeVid) {
+          // Guard against reading previous song's timestamp while player transitions to activeVid
+          const url = playerRef.current.getVideoUrl?.() || '';
+          if (url && !url.includes(activeVid)) return;
+
           const current = playerRef.current.getCurrentTime?.() || 0;
           const dur = playerRef.current.getDuration?.() || 0;
           if (Number.isFinite(current) && Number.isFinite(dur) && dur > 0) {
-            onTimeUpdate?.(current, dur);
+            onTimeUpdateRef.current?.(current, dur);
 
             // True end of track trigger (strictly at the end of track)
             if (dur > 5 && current >= dur - 0.6) {
@@ -256,7 +360,7 @@ export default function YouTubePlayer({
         `let t = null;
          self.onmessage = (e) => {
            if (e.data === 'start') {
-             if (!t) t = setInterval(() => self.postMessage('tick'), 50);
+             if (!t) t = setInterval(() => self.postMessage('tick'), 150);
            } else if (e.data === 'stop') {
              if (t) { clearInterval(t); t = null; }
            }
@@ -267,7 +371,7 @@ export default function YouTubePlayer({
       worker.onmessage = () => pollTime();
       worker.postMessage('start');
     } catch {
-      fallbackTimer = setInterval(pollTime, 50);
+      fallbackTimer = setInterval(pollTime, 150);
     }
 
     return () => {
@@ -281,7 +385,7 @@ export default function YouTubePlayer({
         clearInterval(fallbackTimer);
       }
     };
-  }, [isReady, isPlaying, onTimeUpdate, videoId]);
+  }, [isReady, isPlaying, videoId]);
 
   return (
     <>
