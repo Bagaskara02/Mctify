@@ -145,30 +145,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             children: pages,
           ),
 
-          // Floating Mini Player (Positioned smoothly above translucent Spotify dock)
-          ListenableBuilder(
-            listenable: _player,
-            builder: (context, _) {
-              if (_player.currentTrack == null) return const SizedBox.shrink();
-
-              return Positioned(
-                left: 0,
-                right: 0,
-                // Scaffold extendBody: true already puts nav bar height + gesture inset inside padding.bottom
-                bottom: MediaQuery.of(context).padding.bottom + 2,
-                child: MiniPlayer(
-                  player: _player,
-                  isLiked: _isLiked,
-                  onToggleLike: _toggleLike,
-                  onToggleBubble: () {
-                    setState(() => _isBubbleActive = !_isBubbleActive);
-                  },
-                  isBubbleActive: _isBubbleActive,
-                ),
-              );
-            },
-          ),
-
           // Spotify-style Draggable Floating Bubble Player Overlay
           ListenableBuilder(
             listenable: _player,
@@ -193,72 +169,98 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.black.withValues(alpha: 0.92),
+              Colors.black.withValues(alpha: 0.0),
+              Colors.black.withValues(alpha: 0.85),
               Colors.black.withValues(alpha: 0.98),
               Colors.black,
             ],
-            stops: const [0.0, 0.3, 1.0],
+            stops: const [0.0, 0.22, 0.6, 1.0],
           ),
         ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            HapticFeedback.selectionClick();
-            setState(() => _currentIndex = index);
-          },
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          selectedItemColor: Colors.white,
-          unselectedItemColor: AppTheme.textMuted,
-          selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-          unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.home_outlined, size: 24),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Floating Mini Player (Seamlessly docked right above Bottom Navigation Bar)
+              ListenableBuilder(
+                listenable: _player,
+                builder: (context, _) {
+                  if (_player.currentTrack == null) return const SizedBox.shrink();
+
+                  return MiniPlayer(
+                    player: _player,
+                    isLiked: _isLiked,
+                    onToggleLike: _toggleLike,
+                    onToggleBubble: () {
+                      setState(() => _isBubbleActive = !_isBubbleActive);
+                    },
+                    isBubbleActive: _isBubbleActive,
+                  );
+                },
               ),
-              activeIcon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.home_filled, color: AppTheme.primaryAzure, size: 25),
+              BottomNavigationBar(
+                currentIndex: _currentIndex,
+                onTap: (index) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _currentIndex = index);
+                },
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                selectedItemColor: Colors.white,
+                unselectedItemColor: AppTheme.textMuted,
+                selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.home_outlined, size: 24),
+                    ),
+                    activeIcon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.home_filled, color: AppTheme.primaryAzure, size: 25),
+                    ),
+                    label: 'Beranda',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.search, size: 24),
+                    ),
+                    activeIcon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.search_rounded, color: AppTheme.primaryAzure, size: 25),
+                    ),
+                    label: 'Cari',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.library_music_outlined, size: 24),
+                    ),
+                    activeIcon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.library_music_rounded, color: AppTheme.primaryAzure, size: 25),
+                    ),
+                    label: 'Koleksi',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.swap_horizontal_circle_outlined, size: 24),
+                    ),
+                    activeIcon: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Icon(Icons.swap_horizontal_circle_rounded, color: AppTheme.primaryAzure, size: 25),
+                    ),
+                    label: 'Impor',
+                  ),
+                ],
               ),
-              label: 'Beranda',
-            ),
-            BottomNavigationBarItem(
-              icon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.search, size: 24),
-              ),
-              activeIcon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.search_rounded, color: AppTheme.primaryAzure, size: 25),
-              ),
-              label: 'Cari',
-            ),
-            BottomNavigationBarItem(
-              icon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.library_music_outlined, size: 24),
-              ),
-              activeIcon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.library_music_rounded, color: AppTheme.primaryAzure, size: 25),
-              ),
-              label: 'Koleksi',
-            ),
-            BottomNavigationBarItem(
-              icon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.swap_horizontal_circle_outlined, size: 24),
-              ),
-              activeIcon: Padding(
-                padding: EdgeInsets.only(bottom: 2),
-                child: Icon(Icons.swap_horizontal_circle_rounded, color: AppTheme.primaryAzure, size: 25),
-              ),
-              label: 'Impor',
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

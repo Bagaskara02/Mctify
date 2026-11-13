@@ -2,6 +2,14 @@ name: Build iOS IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git release tag to upload IPA to (e.g. v1.4.4)'
+        required: false
+        default: 'v1.4.4'
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -57,18 +65,31 @@ jobs:
           mkdir -p build/Payload
           cp -r "$APP_PATH" build/Payload/
           cd build
-          zip -r McMusic.ipa Payload
-          ls -lh McMusic.ipa
+          zip -qr McTify.ipa Payload
+          TAG="${{ github.event.inputs.tag || github.ref_name || 'v1.4.4' }}"
+          cp McTify.ipa "McTify-${TAG}.ipa"
+          ls -lh McTify.ipa "McTify-${TAG}.ipa"
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: McMusic-iOS-IPA
-          path: mcmusic_flutter/build/McMusic.ipa
+          name: McTify-iOS-IPA
+          path: |
+            mcmusic_flutter/build/McTify.ipa
+            mcmusic_flutter/build/McTify-*.ipa
           retention-days: 14
 
       - name: Upload IPA to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v1.0.9 mcmusic_flutter/build/McMusic.ipa --clobber || true
+          TAG="${{ github.event.inputs.tag || github.ref_name || 'v1.4.4' }}"
+          echo "Uploading IPA to release tag: $TAG"
+          cd mcmusic_flutter/build
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" McTify.ipa "McTify-${TAG}.ipa" --clobber
+          else
+            gh release create "$TAG" McTify.ipa "McTify-${TAG}.ipa" \
+              --title "McTify Mobile ${TAG} (iOS IPA & Android APK)" \
+              --notes "Rilis ${TAG}: Tersedia paket iOS .ipa unsigned untuk iPhone (sideload via AltStore / Sideloadly / TrollStore / Scarlet / Feather) serta Android APK terbaru."
+          fi

@@ -447,6 +447,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   // TAB 1: SPOTIFY
   Widget _buildSpotifyTab() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -518,6 +519,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   // TAB 2: YOUTUBE
   Widget _buildYouTubeTab() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -589,6 +591,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   // TAB 3: TEXT
   Widget _buildTextTab() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -659,6 +662,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   Widget _buildPresetsTab() {
     final presets = _importer.getPresets();
     return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
       itemCount: presets.length,
       itemBuilder: (context, index) {
         final p = presets[index];
@@ -704,6 +708,7 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   // TAB 5: JSON
   Widget _buildJsonTab() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
