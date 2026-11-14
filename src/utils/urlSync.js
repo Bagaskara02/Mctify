@@ -45,18 +45,40 @@ export function parseUrlSyncParams(search) {
   const artist = params.get('artist') || '';
   const videoId = params.get('videoId') || params.get('id') || params.get('yt');
   const timeRaw = params.get('t') || params.get('time') || params.get('seek');
+  const tsRaw = params.get('ts') || params.get('epoch') || params.get('timestamp');
 
   if (!song && !videoId) return null;
+
+  const baseTargetSeconds = parseTargetSeconds(timeRaw);
+  let liveTargetSeconds = baseTargetSeconds;
+  let parsedTs = null;
+
+  if (tsRaw) {
+    const rawVal = parseFloat(tsRaw);
+    if (!isNaN(rawVal) && rawVal > 0) {
+      const tsSec = rawVal > 1e11 ? rawVal / 1000 : rawVal;
+      parsedTs = tsSec;
+      const nowSec = Date.now() / 1000;
+      const elapsed = Math.max(0, nowSec - tsSec);
+      // Real-time drift compensation: link creation to click latency
+      if (elapsed < 900) {
+        liveTargetSeconds = Math.round(baseTargetSeconds + elapsed);
+      }
+    }
+  }
 
   return {
     song: song ? decodeURIComponent(song).trim() : null,
     artist: artist ? decodeURIComponent(artist).trim() : '',
     videoId: videoId ? decodeURIComponent(videoId).trim() : null,
-    targetSeconds: parseTargetSeconds(timeRaw),
+    targetSeconds: liveTargetSeconds,
+    baseTargetSeconds: baseTargetSeconds,
+    ts: parsedTs,
+    parsedAt: Date.now(),
   };
 }
 
-export function generateUrlSyncLink({ song, artist, videoId, seconds = 0, baseUrl = '' }) {
+export function generateUrlSyncLink({ song, artist, videoId, seconds = 0, baseUrl = '', includeTimestamp = false }) {
   const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://mctify.vercel.app');
   const params = new URLSearchParams();
 
@@ -65,6 +87,9 @@ export function generateUrlSyncLink({ song, artist, videoId, seconds = 0, baseUr
   if (videoId) params.set('videoId', videoId);
   const roundedSecs = Math.floor(seconds || 0);
   if (roundedSecs > 0) params.set('t', String(roundedSecs));
+  if (includeTimestamp) {
+    params.set('ts', String(Math.floor(Date.now() / 1000)));
+  }
 
   return `${origin}/?${params.toString()}`;
 }

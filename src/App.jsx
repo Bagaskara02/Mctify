@@ -209,17 +209,33 @@ export default function App() {
     }
   }, []);
 
-  // Handle "Dengarkan Bareng" / Shared Link / Discord RPC sync via URL parameters (?song=...&artist=...&t=...)
+  // Handle "Dengarkan Bareng" / Shared Link / Discord RPC sync via URL parameters (?song=...&artist=...&t=...&ts=...)
   useEffect(() => {
     const handleUrlSync = async () => {
       try {
         const syncData = parseUrlSyncParams(window.location.search);
         if (!syncData) return;
 
-        const { song, artist, videoId, targetSeconds } = syncData;
+        const { song, artist, videoId, baseTargetSeconds, ts } = syncData;
         const songTitle = song || 'Lagu Bersama';
         const artistName = artist || '';
-        const timeBadge = targetSeconds > 0 ? ` di detik ${formatPlaybackSeconds(targetSeconds)}` : '';
+
+        // Dynamic Realtime Drift Compensation: Menghitung detik pemutaran persis saat lagu dimuat
+        const getLiveTargetSecond = (trackDuration) => {
+          if (ts && ts > 0) {
+            const nowSec = Date.now() / 1000;
+            const elapsed = Math.max(0, nowSec - ts);
+            const live = Math.round(baseTargetSeconds + elapsed);
+            if (trackDuration && live >= trackDuration - 2) {
+              return baseTargetSeconds;
+            }
+            return live;
+          }
+          return baseTargetSeconds;
+        };
+
+        const initialTarget = getLiveTargetSecond();
+        const timeBadge = initialTarget > 0 ? ` di detik ${formatPlaybackSeconds(initialTarget)}` : '';
 
         setSmartToast(`🎧 Dengarkan Bareng: Menghubungkan "${songTitle}"${timeBadge}...`);
 
@@ -267,8 +283,9 @@ export default function App() {
         }
 
         if (matchedTrack) {
-          await handlePlayTrack(matchedTrack, [matchedTrack], targetSeconds);
-          setSmartToast(`🎧 Dengarkan Bareng: Memutar "${matchedTrack.title}"${timeBadge}!`);
+          const finalLiveTarget = getLiveTargetSecond(matchedTrack.duration);
+          await handlePlayTrack(matchedTrack, [matchedTrack], finalLiveTarget);
+          setSmartToast(`🎧 Dengarkan Bareng: Memutar "${matchedTrack.title}" di detik ${formatPlaybackSeconds(finalLiveTarget)} (Sinkron Live)!`);
           setTimeout(() => setSmartToast(null), 4000);
 
           // Bersihkan parameter URL tanpa reload agar rapi

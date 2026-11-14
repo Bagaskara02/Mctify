@@ -333,6 +333,14 @@ describe('Web URL Sync & "Dengarkan Bareng" Parameter Tests', () => {
 
     const empty = parseUrlSyncParams('?something_else=123');
     assert.equal(empty, null);
+
+    // Test real-time drift compensation with ts parameter
+    const nowSec = Math.floor(Date.now() / 1000);
+    const parsedWithTs = parseUrlSyncParams(`?song=Risk%20It%20All&artist=Bruno%20Mars&t=30&ts=${nowSec - 15}`);
+    assert.ok(parsedWithTs);
+    assert.equal(parsedWithTs.song, 'Risk It All');
+    assert.equal(parsedWithTs.baseTargetSeconds, 30);
+    assert.ok(parsedWithTs.targetSeconds >= 44 && parsedWithTs.targetSeconds <= 46);
   });
 
   it('generates shareable Dengarkan Bareng links with exact live timestamps', () => {
