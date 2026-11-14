@@ -19,7 +19,7 @@ export default function YouTubePlayer({
   onError,
 }) {
   const playerRef = useRef(null);
-  const endedTriggeredRef = useRef(false);
+  const endedVideoIdRef = useRef('');
   const loadedVideoIdRef = useRef('');
   const backgroundKickTimerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
@@ -121,10 +121,11 @@ export default function YouTubePlayer({
   }, []);
 
   const triggerEnded = () => {
-    if (endedTriggeredRef.current) return;
-    endedTriggeredRef.current = true;
+    const curVid = videoIdRef.current;
+    if (!curVid || endedVideoIdRef.current === curVid) return;
+    endedVideoIdRef.current = curVid;
     clearBackgroundKick();
-    console.log('[YouTubePlayer] Track ended, auto-advancing to next song in queue');
+    console.log('[YouTubePlayer] Track ended, auto-advancing to next song in queue for:', curVid);
     onEndedRef.current?.();
   };
 
@@ -190,7 +191,7 @@ export default function YouTubePlayer({
                   playerRef.current?.seekTo?.(targetSec, true);
                 }
                 if (dur > 0 && current < dur - 2) {
-                  endedTriggeredRef.current = false;
+                  endedVideoIdRef.current = '';
                 }
               } catch {}
             } else if (st === window.YT.PlayerState.ENDED) {
@@ -230,7 +231,6 @@ export default function YouTubePlayer({
 
   // Sync videoId (single atomic load/cue without conflicting immediate playVideo call)
   useEffect(() => {
-    endedTriggeredRef.current = false;
     if (!isReady || !playerRef.current) return;
 
     if (!videoId) {
@@ -314,7 +314,6 @@ export default function YouTubePlayer({
   useEffect(() => {
     if (!isReady || !playerRef.current || seekTime === null || seekTime === undefined) return;
     try {
-      endedTriggeredRef.current = false;
       playerRef.current.seekTo(seekTime, true);
     } catch (e) {
       console.warn(e);

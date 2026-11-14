@@ -598,6 +598,27 @@ export default function App() {
     handlePlayTrack(deck[0], deck);
   };
 
+  // Robust helper to find accurate track index in queue regardless of ID format variations
+  const findTrackIndexInQueue = (targetTrack, list) => {
+    if (!targetTrack || !Array.isArray(list) || list.length === 0) return -1;
+    let idx = list.findIndex(t => t.id === targetTrack.id);
+    if (idx !== -1) return idx;
+    if (targetTrack.videoId) {
+      idx = list.findIndex(t => t.videoId && t.videoId === targetTrack.videoId);
+      if (idx !== -1) return idx;
+    }
+    const cleanT = (targetTrack.title || '').trim().toLowerCase();
+    const cleanA = (targetTrack.artist || '').trim().toLowerCase();
+    if (cleanT) {
+      idx = list.findIndex(t => {
+        const itemT = (t.title || '').trim().toLowerCase();
+        const itemA = (t.artist || '').trim().toLowerCase();
+        return itemT === cleanT && (!cleanA || !itemA || itemA === cleanA);
+      });
+    }
+    return idx;
+  };
+
   // Next Track in Queue with Deterministic Shuffled Deck + SMART AUTOPLAY (Live refs safe for background tabs!)
   const handleNext = async (isAutoEnded = false) => {
     const activeTrack = currentTrackRef.current;
@@ -608,7 +629,7 @@ export default function App() {
 
     if (!activeTrack && liveQueue.length === 0) return;
 
-    const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
+    const currentIndex = findTrackIndexInQueue(activeTrack, liveQueue);
 
     // 1. Sequential step on queue (already Fisher-Yates balanced when Shuffle is ON!)
     if (currentIndex !== -1 && currentIndex < liveQueue.length - 1) {
@@ -661,7 +682,7 @@ export default function App() {
     const liveQueue = queueRef.current;
     const activeTrack = currentTrackRef.current;
     if (liveQueue.length === 0) return;
-    const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
+    const currentIndex = findTrackIndexInQueue(activeTrack, liveQueue);
     let prevIndex = liveQueue.length - 1;
 
     if (currentIndex > 0) {
@@ -740,10 +761,11 @@ export default function App() {
     const liveSleep = sleepTimerRef.current;
 
     const now = Date.now();
-    const endedKey = `${activeTrack?.id || ''}__${activeTrack?.videoId || ''}`;
-    if (lastEndedRef.current.key === endedKey && now - lastEndedRef.current.at < 1500) {
+    // Guard against multiple rapid calls (e.g. state change + ended listener) within 2000ms
+    if (now - lastEndedRef.current.at < 2000) {
       return;
     }
+    const endedKey = `${activeTrack?.id || ''}__${activeTrack?.videoId || ''}`;
     lastEndedRef.current = { key: endedKey, at: now };
 
     if (liveSleep === 'endOfTrack') {
@@ -760,8 +782,8 @@ export default function App() {
       startBgKeepAlive();
     } else if (liveRepeat === 'all') {
       if (liveQueue.length === 0) return;
-      const currentIndex = liveQueue.findIndex(t => t.id === activeTrack?.id);
-      const nextIndex = (currentIndex + 1) % liveQueue.length;
+      const currentIndex = findTrackIndexInQueue(activeTrack, liveQueue);
+      const nextIndex = currentIndex !== -1 ? (currentIndex + 1) % liveQueue.length : 0;
       handlePlayTrack(liveQueue[nextIndex]);
     } else {
       handleNext(true);
@@ -1271,10 +1293,6 @@ export default function App() {
           setCurrentTime(current);
           if (dur && Number.isFinite(dur) && dur > 0) {
             setDuration(dur);
-            // Safety auto-advance if playback is within 0.6s of end
-            if (dur > 5 && current >= dur - 0.6 && isPlayingRef.current) {
-              handleEnded();
-            }
           }
         }}
         onEnded={handleEnded}
