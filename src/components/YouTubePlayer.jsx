@@ -175,6 +175,7 @@ export default function YouTubePlayer({
         events: {
           onReady: (event) => {
             setIsReady(true);
+            window.__mctify_yt_player = event.target;
             try {
               event.target.getIframe?.()?.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
             } catch {}
@@ -448,12 +449,12 @@ export default function YouTubePlayer({
 
   return (
     <>
-      {/* Container for YouTube Iframe */}
+      {/* Container for YouTube Iframe (Proper 320x240 dimensions prevent mobile browser background throttling) */}
       <div 
         className={`fixed z-30 transition-all duration-300 ${
           showVideo 
             ? 'bottom-28 right-6 w-80 h-48 rounded-2xl overflow-hidden shadow-2xl border border-white/20 bg-black' 
-            : 'w-1 h-1 opacity-[0.001] pointer-events-none bottom-0 right-0'
+            : 'fixed -left-[9999px] -top-[9999px] w-[320px] h-[240px] pointer-events-none'
         }`}
       >
         <div id="yt-music-engine" className="w-full h-full" />

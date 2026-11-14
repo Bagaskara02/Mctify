@@ -225,41 +225,44 @@ export default function App() {
 
         let matchedTrack = null;
 
-        // 1. Direct YouTube videoId parameter (?id=... or ?videoId=...)
-        if (videoId) {
+        // Cari metadata resmi dari katalog (Album HD Asli, Durasi Akurat, Artist Resmi)
+        const searchQuery = artistName ? `${songTitle} ${artistName}` : songTitle;
+        const searchResults = await musicApi.searchTracks(searchQuery);
+
+        if (searchResults && searchResults.length > 0) {
+          matchedTrack = searchResults.find(t => 
+            t.title.toLowerCase().includes(songTitle.toLowerCase())
+          ) || searchResults[0];
+
+          // Jika ada videoId dari URL, gunakan langsung agar resolusi instan
+          if (videoId) {
+            matchedTrack = {
+              ...matchedTrack,
+              videoId: videoId,
+            };
+          }
+        } else if (videoId) {
           matchedTrack = {
             id: `yt-${videoId}`,
             title: songTitle,
-            artist: artistName || 'YouTube Audio',
-            album: 'Dengarkan Bareng',
+            artist: artistName || 'McTify Music',
+            album: 'Single',
             artwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
             videoId: videoId,
             duration: 240,
           };
         } else {
-          // 2. Search song via musicApi search
-          const searchQuery = artistName ? `${songTitle} ${artistName}` : songTitle;
-          const searchResults = await musicApi.searchTracks(searchQuery);
-
-          if (searchResults && searchResults.length > 0) {
-            // Pick track with closest title match, or first result
-            matchedTrack = searchResults.find(t => 
-              t.title.toLowerCase().includes(songTitle.toLowerCase())
-            ) || searchResults[0];
-          } else {
-            // 3. Fallback: resolve directly to YouTube
-            const yt = await musicApi.resolveYouTubeMatch(songTitle, artistName);
-            if (yt && yt.videoId) {
-              matchedTrack = {
-                id: `yt-${yt.videoId}`,
-                title: songTitle,
-                artist: artistName || 'YouTube Audio',
-                album: 'Dengarkan Bareng',
-                artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : '/icon-192.png',
-                videoId: yt.videoId,
-                duration: yt.duration || 210,
-              };
-            }
+          const yt = await musicApi.resolveYouTubeMatch(songTitle, artistName);
+          if (yt && yt.videoId) {
+            matchedTrack = {
+              id: `yt-${yt.videoId}`,
+              title: songTitle,
+              artist: artistName || 'McTify Music',
+              album: 'Single',
+              artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : '/icon-192.png',
+              videoId: yt.videoId,
+              duration: yt.duration || 210,
+            };
           }
         }
 
@@ -560,13 +563,26 @@ export default function App() {
       return;
     }
 
+    const yt = window.__mctify_yt_player;
     if (isPlayingRef.current) {
+      // Jika YouTube tertahan oleh proteksi autoplay mobile (status CUED=5, UNSTARTED=-1, atau PAUSED=2), paksa putar!
+      const ytState = yt?.getPlayerState?.();
+      if (ytState === 5 || ytState === -1 || ytState === 2) {
+        yt?.unMute?.();
+        yt?.playVideo?.();
+        setIsPlaying(true);
+        startBgKeepAlive();
+        return;
+      }
+
       setIsPlaying(false);
       stopBgKeepAlive();
       if (audioRef.current) audioRef.current.pause();
     } else {
       startBgKeepAlive();
       setIsPlaying(true);
+      yt?.unMute?.();
+      yt?.playVideo?.();
       if (audioRef.current && audioRef.current.src) {
         audioRef.current.play().catch(console.warn);
       }
