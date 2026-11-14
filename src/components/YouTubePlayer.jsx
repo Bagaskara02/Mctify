@@ -36,6 +36,7 @@ export default function YouTubePlayer({
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
+  const seekTimeRef = useRef(seekTime);
 
   videoIdRef.current = videoId;
   isPlayingRef.current = isPlaying;
@@ -46,6 +47,7 @@ export default function YouTubePlayer({
   onTimeUpdateRef.current = onTimeUpdate;
   onEndedRef.current = onEnded;
   onErrorRef.current = onError;
+  seekTimeRef.current = seekTime;
 
   // Subscribe to realtime Equalizer changes
   useEffect(() => {
@@ -159,11 +161,20 @@ export default function YouTubePlayer({
             }
             if (videoIdRef.current) {
               loadedVideoIdRef.current = videoIdRef.current;
+              const startAt = typeof seekTimeRef.current === 'number' && seekTimeRef.current > 0 ? seekTimeRef.current : 0;
               if (isPlayingRef.current) {
-                event.target.loadVideoById(videoIdRef.current);
+                try {
+                  event.target.loadVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
+                } catch {
+                  event.target.loadVideoById(videoIdRef.current, startAt);
+                }
                 scheduleBackgroundPlaybackKick(videoIdRef.current);
               } else {
-                event.target.cueVideoById(videoIdRef.current);
+                try {
+                  event.target.cueVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
+                } catch {
+                  event.target.cueVideoById(videoIdRef.current, startAt);
+                }
               }
             }
           },
@@ -174,6 +185,10 @@ export default function YouTubePlayer({
               try {
                 const current = playerRef.current?.getCurrentTime?.() || 0;
                 const dur = playerRef.current?.getDuration?.() || 0;
+                const targetSec = seekTimeRef.current;
+                if (typeof targetSec === 'number' && targetSec > 0 && Math.abs(current - targetSec) > 3) {
+                  playerRef.current?.seekTo?.(targetSec, true);
+                }
                 if (dur > 0 && current < dur - 2) {
                   endedTriggeredRef.current = false;
                 }
@@ -230,11 +245,26 @@ export default function YouTubePlayer({
     if (loadedVideoIdRef.current !== videoId) {
       loadedVideoIdRef.current = videoId;
       try {
+        const startAt = typeof seekTimeRef.current === 'number' && seekTimeRef.current > 0 ? seekTimeRef.current : 0;
         if (isPlayingRef.current) {
-          playerRef.current.loadVideoById(videoId);
+          try {
+            playerRef.current.loadVideoById({
+              videoId: videoId,
+              startSeconds: startAt,
+            });
+          } catch {
+            playerRef.current.loadVideoById(videoId, startAt);
+          }
           scheduleBackgroundPlaybackKick(videoId);
         } else {
-          playerRef.current.cueVideoById(videoId);
+          try {
+            playerRef.current.cueVideoById({
+              videoId: videoId,
+              startSeconds: startAt,
+            });
+          } catch {
+            playerRef.current.cueVideoById(videoId, startAt);
+          }
         }
       } catch (e) {
         console.warn(e);
@@ -289,7 +319,7 @@ export default function YouTubePlayer({
     } catch (e) {
       console.warn(e);
     }
-  }, [seekTime]);
+  }, [seekTime, isReady]);
 
   // Sync audio/playback quality (Hi-Res Lossless, High, Standard, Data Saver)
   useEffect(() => {

@@ -67,13 +67,40 @@ export function buildSpotifyShuffleDeck(tracks = [], anchorTrack = null) {
     const curKey = primaryArtistKey(deck[i]);
     const prevKey = i === 0 ? anchorKey : primaryArtistKey(deck[i - 1]);
     if (prevKey && curKey === prevKey) {
+      let swapped = false;
+      // 1. Try forward non-adjacent swap first
       for (let j = i + 1; j < deck.length; j++) {
         const candKey = primaryArtistKey(deck[j]);
-        const jPrev = primaryArtistKey(deck[j - 1]);
-        const jNext = j + 1 < deck.length ? primaryArtistKey(deck[j + 1]) : null;
-        if (candKey !== prevKey && curKey !== jPrev && curKey !== jNext) {
-          [deck[i], deck[j]] = [deck[j], deck[i]];
-          break;
+        if (candKey === prevKey) continue;
+
+        if (j === i + 1) {
+          const nextAfterJ = j + 1 < deck.length ? primaryArtistKey(deck[j + 1]) : null;
+          if (curKey !== nextAfterJ) {
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+            swapped = true;
+            break;
+          }
+        } else {
+          const jPrev = primaryArtistKey(deck[j - 1]);
+          const jNext = j + 1 < deck.length ? primaryArtistKey(deck[j + 1]) : null;
+          if (curKey !== jPrev && curKey !== jNext) {
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+            swapped = true;
+            break;
+          }
+        }
+      }
+
+      // 2. If forward swap wasn't possible (e.g. at tail), try backward swap
+      if (!swapped) {
+        for (let b = 1; b < i - 1; b++) {
+          const bCand = primaryArtistKey(deck[b]);
+          const bPrev = primaryArtistKey(deck[b - 1]);
+          const bNext = primaryArtistKey(deck[b + 1]);
+          if (curKey !== bPrev && curKey !== bNext && bCand !== prevKey) {
+            [deck[i], deck[b]] = [deck[b], deck[i]];
+            break;
+          }
         }
       }
     }

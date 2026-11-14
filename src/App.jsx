@@ -26,6 +26,7 @@ import { storageService } from './services/storageService';
 import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
 import { buildSpotifyShuffleDeck } from './utils/shuffle';
+import { parseUrlSyncParams, generateUrlSyncLink, formatPlaybackSeconds } from './utils/urlSync';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -208,6 +209,111 @@ export default function App() {
     }
   }, []);
 
+  // Handle "Dengarkan Bareng" / Shared Link / Discord RPC sync via URL parameters (?song=...&artist=...&t=...)
+  useEffect(() => {
+    const handleUrlSync = async () => {
+      try {
+        const syncData = parseUrlSyncParams(window.location.search);
+        if (!syncData) return;
+
+        const { song, artist, videoId, targetSeconds } = syncData;
+        const songTitle = song || 'Lagu Bersama';
+        const artistName = artist || '';
+        const timeBadge = targetSeconds > 0 ? ` di detik ${formatPlaybackSeconds(targetSeconds)}` : '';
+
+        setSmartToast(`🎧 Dengarkan Bareng: Menghubungkan "${songTitle}"${timeBadge}...`);
+
+        let matchedTrack = null;
+
+        // 1. Direct YouTube videoId parameter (?id=... or ?videoId=...)
+        if (videoId) {
+          matchedTrack = {
+            id: `yt-${videoId}`,
+            title: songTitle,
+            artist: artistName || 'YouTube Audio',
+            album: 'Dengarkan Bareng',
+            artwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            videoId: videoId,
+            duration: 240,
+          };
+        } else {
+          // 2. Search song via musicApi search
+          const searchQuery = artistName ? `${songTitle} ${artistName}` : songTitle;
+          const searchResults = await musicApi.searchTracks(searchQuery);
+
+          if (searchResults && searchResults.length > 0) {
+            // Pick track with closest title match, or first result
+            matchedTrack = searchResults.find(t => 
+              t.title.toLowerCase().includes(songTitle.toLowerCase())
+            ) || searchResults[0];
+          } else {
+            // 3. Fallback: resolve directly to YouTube
+            const yt = await musicApi.resolveYouTubeMatch(songTitle, artistName);
+            if (yt && yt.videoId) {
+              matchedTrack = {
+                id: `yt-${yt.videoId}`,
+                title: songTitle,
+                artist: artistName || 'YouTube Audio',
+                album: 'Dengarkan Bareng',
+                artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : '/icon-192.png',
+                videoId: yt.videoId,
+                duration: yt.duration || 210,
+              };
+            }
+          }
+        }
+
+        if (matchedTrack) {
+          await handlePlayTrack(matchedTrack, [matchedTrack], targetSeconds);
+          setSmartToast(`🎧 Dengarkan Bareng: Memutar "${matchedTrack.title}"${timeBadge}!`);
+          setTimeout(() => setSmartToast(null), 4000);
+
+          // Bersihkan parameter URL tanpa reload agar rapi
+          try {
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+          } catch (_) {}
+
+          // Browser Autoplay Policy Fallback: Sentuh/klik layar sekali untuk membuka proteksi audio browser
+          const unlockAutoplay = () => {
+            setIsPlaying(true);
+            window.removeEventListener('pointerdown', unlockAutoplay);
+            window.removeEventListener('keydown', unlockAutoplay);
+          };
+          window.addEventListener('pointerdown', unlockAutoplay, { once: true });
+          window.addEventListener('keydown', unlockAutoplay, { once: true });
+        } else {
+          setSmartToast(`Lagu "${songTitle}" tidak dapat ditemukan.`);
+          setTimeout(() => setSmartToast(null), 3000);
+        }
+      } catch (err) {
+        console.warn('URL Sync Error:', err);
+      }
+    };
+
+    handleUrlSync();
+  }, []);
+
+  // Realtime Broadcast for McTify Discord RPC Bridge & Extensions
+  useEffect(() => {
+    if (!currentTrack) return;
+    try {
+      window.postMessage({
+        type: 'MCTIFY_TRACK_STATE',
+        data: {
+          title: currentTrack.title || '',
+          artist: currentTrack.artist || '',
+          album: currentTrack.album || '',
+          artwork: currentTrack.artwork || '',
+          currentTime: Math.floor(currentTime || 0),
+          duration: Math.floor(duration || 0),
+          paused: !isPlaying,
+          videoId: currentTrack.videoId || '',
+        }
+      }, '*');
+    } catch (_) {}
+  }, [currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, currentTrack?.videoId, isPlaying, Math.floor(currentTime), Math.floor(duration)]);
+
   // Fetch Synchronized Lyrics whenever currentTrack changes (clear stale lyrics immediately & match exact duration)
   const effectiveTrackDur = Math.round(currentTrack?.duration || duration || 0);
   const lyricsDurBucket = effectiveTrackDur > 10 ? Math.round(effectiveTrackDur / 5) : 0;
@@ -304,7 +410,7 @@ export default function App() {
   }, [currentTrack?.id, queue.length]);
 
   // Handle Play Track with Full-Length YouTube Resolution & Generation Cancellation
-  const handlePlayTrack = async (track, newQueue = null) => {
+  const handlePlayTrack = async (track, newQueue = null, initialSeekTime = 0) => {
     if (!track) return;
 
     const gen = ++playGenRef.current;
@@ -325,8 +431,9 @@ export default function App() {
       setQueue(updatedQ);
     }
 
-    setCurrentTime(0);
-    setSeekTime(0);
+    const startSecs = typeof initialSeekTime === 'number' && initialSeekTime > 0 ? initialSeekTime : 0;
+    setCurrentTime(startSecs);
+    setSeekTime(startSecs);
     setIsPlaying(true);
 
     const failedSet = failedVideoIdsRef.current.get(track.id);
@@ -373,7 +480,7 @@ export default function App() {
           setOriginalQueue(prev => prev.map(item => (item.id === track.id ? fullTrack : item)));
         } else if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
-          audioRef.current.currentTime = 0;
+          audioRef.current.currentTime = startSecs;
           audioRef.current.play().catch(console.warn);
         } else {
           setSmartToast(`Melewati "${track.title}" (sumber audio tidak tersedia)`);
@@ -391,7 +498,7 @@ export default function App() {
         if (gen !== playGenRef.current) return;
         if (track.audioUrl && audioRef.current) {
           audioRef.current.src = track.audioUrl;
-          audioRef.current.currentTime = 0;
+          audioRef.current.currentTime = startSecs;
           audioRef.current.play().catch(console.warn);
         }
       }
@@ -1095,15 +1202,28 @@ export default function App() {
   };
 
   const handleCopyShare = (item) => {
-    const shareText = item.title
-      ? `Dengarkan "${item.title}" oleh ${item.artist} di McTify: ${window.location.origin}`
-      : `Playlist "${item.name}" di McTify: ${window.location.origin}`;
-    
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(shareText);
+    if (!item) return;
+    let shareUrl = window.location.origin;
+    if (item.title) {
+      const isCurrentlyPlayingThis = currentTrack?.id === item.id;
+      const liveTime = isCurrentlyPlayingThis ? Math.floor(currentTime || 0) : 0;
+      shareUrl = generateUrlSyncLink({
+        song: item.title,
+        artist: item.artist,
+        videoId: item.videoId,
+        seconds: liveTime,
+        baseUrl: window.location.origin,
+      });
     }
-    setSmartToast(`Tautan berhasil disalin ke papan klip!`);
-    setTimeout(() => setSmartToast(null), 3000);
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareUrl).catch(() => {});
+    }
+    const timeNotice = item.title && currentTrack?.id === item.id && currentTime > 0
+      ? ` (di detik ${formatPlaybackSeconds(currentTime)})`
+      : '';
+    setSmartToast(`🔗 Tautan Dengarkan Bareng disalin${timeNotice}!`);
+    setTimeout(() => setSmartToast(null), 3200);
   };
 
   const handleShowCredits = (track) => {
@@ -1451,6 +1571,7 @@ export default function App() {
           onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
           onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
           onTrackContextMenu={handleTrackContextMenu}
+          onShareTrack={() => currentTrack && handleCopyShare(currentTrack)}
         />
       </div>
 

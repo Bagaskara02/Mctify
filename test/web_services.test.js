@@ -6,6 +6,12 @@ import { storageService } from '../src/services/storageService.js';
 import { buildSpotifyShuffleDeck } from '../src/utils/shuffle.js';
 import { scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
 import { 
+  parseUrlSyncParams, 
+  parseTargetSeconds, 
+  generateUrlSyncLink, 
+  formatPlaybackSeconds 
+} from '../src/utils/urlSync.js';
+import { 
   getHighResArtworkUrl, 
   isCleanPopularTrack, 
   cleanTrackTitle, 
@@ -290,5 +296,55 @@ describe('Web YouTube Resolver & Embed Fallback Tests', () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+});
+
+describe('Web URL Sync & "Dengarkan Bareng" Parameter Tests', () => {
+  it('parses target seconds across various format strings (raw seconds, mm:ss, 1m30s)', () => {
+    assert.equal(parseTargetSeconds(45), 45);
+    assert.equal(parseTargetSeconds('45'), 45);
+    assert.equal(parseTargetSeconds('1m30s'), 90);
+    assert.equal(parseTargetSeconds('2m'), 120);
+    assert.equal(parseTargetSeconds('45s'), 45);
+    assert.equal(parseTargetSeconds('01:45'), 105);
+    assert.equal(parseTargetSeconds('00:30'), 30);
+    assert.equal(parseTargetSeconds('invalid'), 0);
+    assert.equal(parseTargetSeconds(null), 0);
+  });
+
+  it('parses song, artist, and timestamp parameters from shared query strings', () => {
+    const parsed = parseUrlSyncParams('?song=Blinding%20Lights&artist=The%20Weeknd&t=45');
+    assert.ok(parsed);
+    assert.equal(parsed.song, 'Blinding Lights');
+    assert.equal(parsed.artist, 'The Weeknd');
+    assert.equal(parsed.targetSeconds, 45);
+    assert.equal(parsed.videoId, null);
+
+    const parsedWithTrack = parseUrlSyncParams('?track=Satu%20Bulan&artist=Bernadya&t=1m15s');
+    assert.ok(parsedWithTrack);
+    assert.equal(parsedWithTrack.song, 'Satu Bulan');
+    assert.equal(parsedWithTrack.artist, 'Bernadya');
+    assert.equal(parsedWithTrack.targetSeconds, 75);
+
+    const parsedWithVideoId = parseUrlSyncParams('?id=dQw4w9WgXcQ&t=30');
+    assert.ok(parsedWithVideoId);
+    assert.equal(parsedWithVideoId.videoId, 'dQw4w9WgXcQ');
+    assert.equal(parsedWithVideoId.targetSeconds, 30);
+
+    const empty = parseUrlSyncParams('?something_else=123');
+    assert.equal(empty, null);
+  });
+
+  it('generates shareable Dengarkan Bareng links with exact live timestamps', () => {
+    const link = generateUrlSyncLink({
+      song: 'Yellow',
+      artist: 'Coldplay',
+      seconds: 52.8,
+      baseUrl: 'https://mctify.vercel.app',
+    });
+    assert.equal(link, 'https://mctify.vercel.app/?song=Yellow&artist=Coldplay&t=52');
+
+    const formatted = formatPlaybackSeconds(125);
+    assert.equal(formatted, '2:05');
   });
 });

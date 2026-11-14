@@ -18,7 +18,8 @@ import {
   MoreHorizontal,
   Sliders,
   Gauge,
-  Moon
+  Moon,
+  Share2
 } from 'lucide-react';
 import { DEFAULT_ARTWORK, cleanTrackTitle } from '../services/musicApi';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
@@ -60,6 +61,7 @@ export default function PlayerBar({
   onToggleEqualizer,
   onToggleAudioQuality,
   onTrackContextMenu,
+  onShareTrack,
 }) {
   const progressBarRef = useRef(null);
   const volumeBarRef = useRef(null);
@@ -479,6 +481,16 @@ export default function PlayerBar({
           title="Equalizer & Efek Suara"
         >
           <Sliders className="w-4 h-4" />
+        </button>
+
+        {/* Dengarkan Bareng / Share Live URL Trigger */}
+        <button
+          onClick={onShareTrack}
+          disabled={!currentTrack}
+          className="p-2 rounded-full transition-all active:scale-95 text-[#b3b3b3] hover:text-[#3B82F6] disabled:opacity-30 disabled:pointer-events-none"
+          title="Dengarkan Bareng (Salin Tautan Musik Live)"
+        >
+          <Share2 className="w-4 h-4" />
         </button>
 
         {/* Queue Drawer Trigger */}
