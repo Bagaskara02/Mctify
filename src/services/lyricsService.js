@@ -10,6 +10,7 @@
  */
 
 import { extractPrimaryArtist, scoreLyricCandidate } from '../utils/lyricsMatcher.js';
+import { attachRomanizationToLines } from '../utils/romanizer.js';
 
 const lyricsMemoryCache = new Map();
 
@@ -139,10 +140,11 @@ export const lyricsService = {
         const data = await lyristRes.json();
         if (data?.lyrics) {
           const parsed = this.parsePlainLyrics(data.lyrics);
+          const lines = attachRomanizationToLines(parsed, null);
           const result = {
             synced: false,
             isSyllableSynced: false,
-            lines: parsed,
+            lines,
             source: 'Lyrist',
           };
           lyricsMemoryCache.set(cacheKey, result);
@@ -190,7 +192,7 @@ export const lyricsService = {
       .sort((a, b) => b.matchScore - a.matchScore);
 
     for (const entry of ranked.slice(0, 2)) {
-      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${entry.song.id}&lv=1&kv=1&tv=-1&yv=1`, {
+      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${entry.song.id}&lv=1&kv=1&tv=-1&yv=1&rv=1`, {
         headers: {
           'Referer': 'https://music.163.com',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -198,9 +200,11 @@ export const lyricsService = {
       });
       if (!lyricRes.ok) continue;
       const lyricData = await lyricRes.json();
+      const romalrcText = lyricData.romalrc?.lyric || null;
 
       if (lyricData.yrc?.lyric) {
-        const lines = this.parseYrc(lyricData.yrc.lyric);
+        let lines = this.parseYrc(lyricData.yrc.lyric);
+        lines = attachRomanizationToLines(lines, romalrcText);
         if (lines.length > 0) {
           return {
             source: 'NetEase YRC (Studio Syllable-Synced)',
@@ -213,7 +217,8 @@ export const lyricsService = {
       }
 
       if (lyricData.lrc?.lyric) {
-        const lines = this.parseLrc(lyricData.lrc.lyric);
+        let lines = this.parseLrc(lyricData.lrc.lyric);
+        lines = attachRomanizationToLines(lines, romalrcText);
         if (lines.length > 0) {
           return {
             source: 'NetEase LRC',
@@ -238,7 +243,8 @@ export const lyricsService = {
       const data = await exactRes.json();
       if (data?.syncedLyrics || data?.plainLyrics) {
         const isEnhanced = /<\d{1,3}:\d{2}/.test(data.syncedLyrics || '');
-        const lines = data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlainLyrics(data.plainLyrics);
+        const rawLines = data.syncedLyrics ? this.parseLrc(data.syncedLyrics) : this.parsePlainLyrics(data.plainLyrics);
+        const lines = attachRomanizationToLines(rawLines, null);
         const matchScore = scoreLyricCandidate({
           candTitle: data.trackName || title,
           candArtist: data.artistName || artist,
@@ -286,9 +292,10 @@ export const lyricsService = {
 
         if (scored.length > 0) {
           const best = scored[0];
-          const lines = best.item.syncedLyrics
+          const rawLines = best.item.syncedLyrics
             ? this.parseLrc(best.item.syncedLyrics)
             : this.parsePlainLyrics(best.item.plainLyrics);
+          const lines = attachRomanizationToLines(rawLines, null);
           if (lines.length > 0) {
             return {
               source: best.isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Matched Search)',

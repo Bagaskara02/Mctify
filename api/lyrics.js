@@ -9,6 +9,7 @@
  */
 
 import { extractPrimaryArtist, scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
+import { attachRomanizationToLines } from '../src/utils/romanizer.js';
 
 const memoryCache = new Map();
 
@@ -381,7 +382,7 @@ async function fetchNetEase(title, artist, targetDuration) {
 
     for (const entry of ranked.slice(0, 2)) {
       const song = entry.song;
-      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1`, {
+      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1&rv=1`, {
         headers: {
           'Referer': 'https://music.163.com',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -389,9 +390,11 @@ async function fetchNetEase(title, artist, targetDuration) {
       });
       if (!lyricRes.ok) continue;
       const lyricData = await lyricRes.json();
+      const romalrcText = lyricData.romalrc?.lyric || null;
 
       if (lyricData.yrc?.lyric) {
-        const lines = parseYrc(lyricData.yrc.lyric);
+        let lines = parseYrc(lyricData.yrc.lyric);
+        lines = attachRomanizationToLines(lines, romalrcText);
         if (lines.length > 0) {
           return {
             source: 'NetEase YRC (Syllable-Synced)',
@@ -404,7 +407,8 @@ async function fetchNetEase(title, artist, targetDuration) {
       }
 
       if (lyricData.lrc?.lyric) {
-        const lines = parseLrc(lyricData.lrc.lyric);
+        let lines = parseLrc(lyricData.lrc.lyric);
+        lines = attachRomanizationToLines(lines, romalrcText);
         if (lines.length > 0) {
           return {
             source: 'NetEase LRC',
@@ -437,7 +441,8 @@ async function fetchLrclib(title, artist, targetDuration) {
       const data = await exactRes.json();
       if (data?.syncedLyrics || data?.plainLyrics) {
         const isEnhanced = /<\d{1,3}:\d{2}/.test(data.syncedLyrics || '');
-        const lines = data.syncedLyrics ? parseLrc(data.syncedLyrics) : parseLrc(data.plainLyrics);
+        const rawLines = data.syncedLyrics ? parseLrc(data.syncedLyrics) : parseLrc(data.plainLyrics);
+        const lines = attachRomanizationToLines(rawLines, null);
         const matchScore = scoreLyricCandidate({
           candTitle: data.trackName || title,
           candArtist: data.artistName || artist,
@@ -486,9 +491,10 @@ async function fetchLrclib(title, artist, targetDuration) {
 
         if (scored.length > 0) {
           const best = scored[0];
-          const lines = best.item.syncedLyrics
+          const rawLines = best.item.syncedLyrics
             ? parseLrc(best.item.syncedLyrics)
             : parseLrc(best.item.plainLyrics);
+          const lines = attachRomanizationToLines(rawLines, null);
           if (lines.length > 0) {
             return {
               source: best.isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Matched Search)',

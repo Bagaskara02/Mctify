@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 import { DEFAULT_ARTWORK, getHighResArtworkUrl } from '../services/musicApi';
+import { isNonLatin } from '../utils/romanizer';
 
 /**
  * Spicy Lyrics True Syllable & Word-Synced Karaoke Wipe
@@ -118,7 +119,8 @@ function KaraokeWord({ word, currentTimeSec, onTap }) {
   );
 }
 
-function KaraokeLineFallback({ line, currentTimeSec }) {
+function KaraokeLineFallback({ line, displayText, currentTimeSec }) {
+  const text = displayText || line.romanizedText || line.text;
   const dur = Math.max(0.5, line.duration || (line.endTime - line.time) || 3.5);
   let progress = 0;
   if (currentTimeSec < line.time) {
@@ -149,7 +151,7 @@ function KaraokeLineFallback({ line, currentTimeSec }) {
             }
       }
     >
-      {line.text}
+      {text}
     </span>
   );
 }
@@ -218,6 +220,25 @@ export default function BeautifulLyrics({
     }
   });
 
+  // Lyric script display mode: 'romaja' (Huruf Biasa / Latin), 'dual' (Romaja + Asli), 'native' (Asli)
+  const [scriptMode, setScriptMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mctify_lyrics_script_mode');
+      if (saved === 'romaja' || saved === 'dual' || saved === 'native') return saved;
+    } catch {}
+    return 'romaja'; // Default to "Huruf Biasa" (Romanized Latin)
+  });
+
+  const cycleScriptMode = () => {
+    setScriptMode((prev) => {
+      const next = prev === 'romaja' ? 'dual' : prev === 'dual' ? 'native' : 'romaja';
+      try {
+        localStorage.setItem('mctify_lyrics_script_mode', next);
+      } catch (_) {}
+      return next;
+    });
+  };
+
   const updateSyncOffset = (delta) => {
     setSyncOffsetSec((prev) => {
       const next = Math.round((prev + delta) * 10) / 10;
@@ -285,6 +306,7 @@ export default function BeautifulLyrics({
   // Acoustic output latency calibration for Web HTML5/YouTube audio (~120ms mixer pipeline)
   const effectiveTime = Math.max(0, smoothTime - (0.12 + syncOffsetSec));
   const lines = lyricsData?.lines || [];
+  const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
 
   // Determine active line index
   let activeIndex = -1;
@@ -377,6 +399,22 @@ export default function BeautifulLyrics({
           </button>
         </div>
 
+        {/* Script Mode Toggle (Romaja / Huruf Biasa, Dual, Native) */}
+        {hasNonLatinLyrics && (
+          <button
+            onClick={cycleScriptMode}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-semibold text-white/90 backdrop-blur-md transition-all active:scale-95 shadow-lg"
+            title="Ganti Mode Huruf Lirik: Romaja (Huruf Biasa) / Dual (Dua Huruf) / Asli (Hangul/Karakter Asli)"
+          >
+            <span className="text-[10px] uppercase font-black tracking-wider px-1.5 py-0.5 rounded bg-blue-500/30 text-blue-300">
+              {scriptMode === 'romaja' ? 'Romaja' : scriptMode === 'dual' ? 'Dual' : 'Asli'}
+            </span>
+            <span className="hidden sm:inline">
+              {scriptMode === 'romaja' ? 'Huruf Biasa' : scriptMode === 'dual' ? 'Romaja + Asli' : 'Tulisan Asli'}
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
           className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white backdrop-blur-md transition-all active:scale-95"
@@ -467,6 +505,11 @@ export default function BeautifulLyrics({
                   );
                 }
 
+                const useRomanized = (scriptMode === 'romaja' || scriptMode === 'dual') && line.hasRomanization;
+                const displayWords = (useRomanized && line.romanizedWords) ? line.romanizedWords : line.words;
+                const displayText = useRomanized ? (line.romanizedText || line.text) : line.text;
+                const showDualNative = scriptMode === 'dual' && line.hasRomanization && line.text !== displayText;
+
                 return (
                   <div
                     key={line.id || idx}
@@ -481,25 +524,40 @@ export default function BeautifulLyrics({
                     }`}
                   >
                     {isActive ? (
-                      line.words && line.words.length > 0 ? (
-                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-                          {line.words.map((w) => (
-                            <KaraokeWord
-                              key={w.id}
-                              word={w}
-                              currentTimeSec={effectiveTime}
-                              onTap={() => onSeek(w.startTime)}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <KaraokeLineFallback
-                          line={line}
-                          currentTimeSec={effectiveTime}
-                        />
-                      )
+                      <div>
+                        {displayWords && displayWords.length > 0 ? (
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+                            {displayWords.map((w) => (
+                              <KaraokeWord
+                                key={w.id}
+                                word={w}
+                                currentTimeSec={effectiveTime}
+                                onTap={() => onSeek(w.startTime)}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <KaraokeLineFallback
+                            line={line}
+                            displayText={displayText}
+                            currentTimeSec={effectiveTime}
+                          />
+                        )}
+                        {showDualNative && (
+                          <div className="text-base sm:text-lg md:text-xl font-bold text-white/50 tracking-normal mt-2 select-text">
+                            {line.text}
+                          </div>
+                        )}
+                      </div>
                     ) : (
-                      <span>{line.text}</span>
+                      <div className="flex flex-col gap-1">
+                        <span>{displayText}</span>
+                        {showDualNative && (
+                          <span className="text-sm sm:text-base font-semibold text-white/30 tracking-normal">
+                            {line.text}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

@@ -169,7 +169,7 @@ export default function RightSidebarNowPlaying({
                         : 'text-white/40 font-semibold'
                     }`}
                   >
-                    {line.text}
+                    {line.romanizedText || line.text}
                   </p>
                 );
               })}

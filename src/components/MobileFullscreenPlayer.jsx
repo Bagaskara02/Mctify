@@ -427,11 +427,11 @@ export default function MobileFullscreenPlayer({
         ) : (
           <div className="space-y-1">
             <p className="text-base font-black text-white leading-snug line-clamp-2">
-              {activeLyric?.text}
+              {activeLyric?.romanizedText || activeLyric?.text}
             </p>
             {nextLyric?.text && (
               <p className="text-sm font-bold text-white/55 leading-snug line-clamp-2">
-                {nextLyric.text}
+                {nextLyric?.romanizedText || nextLyric.text}
               </p>
             )}
           </div>

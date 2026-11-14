@@ -356,3 +356,76 @@ describe('Web URL Sync & "Dengarkan Bareng" Parameter Tests', () => {
     assert.equal(formatted, '2:05');
   });
 });
+
+describe('Web Lyrics Romanizer & "Huruf Biasa" Transliteration Tests', () => {
+  it('detects Korean Hangul and Japanese Kana as non-Latin scripts', async () => {
+    const { isNonLatin } = await import('../src/utils/romanizer.js');
+    assert.equal(isNonLatin('나의 두 눈을 감으면'), true);
+    assert.equal(isNonLatin('Stay With Me'), false);
+    assert.equal(isNonLatin('さくら (Sakura)'), true);
+    assert.equal(isNonLatin('Ed Sheeran - Shape of You'), false);
+  });
+
+  it('accurately romanizes Korean Hangul syllables to Latin letters (Revised Romanization)', async () => {
+    const { romanizeKorean } = await import('../src/utils/romanizer.js');
+    const line1 = romanizeKorean('나의 두 눈을 감으면');
+    assert.equal(line1, 'naui du nuneul gameumyeon');
+
+    const line2 = romanizeKorean('떠오르는 그 눈동자');
+    assert.equal(line2, 'tteooreuneun geu nundongja');
+
+    const greeting = romanizeKorean('안녕하세요');
+    assert.equal(greeting, 'annyeonghaseyo');
+  });
+
+  it('accurately romanizes Japanese Hiragana, Katakana, and double consonants to Romaji', async () => {
+    const { romanizeJapanese } = await import('../src/utils/romanizer.js');
+    assert.equal(romanizeJapanese('ありがとう'), 'arigatou');
+    assert.equal(romanizeJapanese('さくら'), 'sakura');
+    assert.equal(romanizeJapanese('ちょっとまって'), 'chottomatte');
+    assert.equal(romanizeJapanese('ラーメン'), 'raamen');
+  });
+
+  it('attaches studio romalrc or algorithmic romanization and generates word timings for karaoke wipe', async () => {
+    const { attachRomanizationToLines } = await import('../src/utils/romanizer.js');
+
+    const lines = [
+      {
+        id: 'l-1',
+        time: 14.64,
+        endTime: 18.0,
+        duration: 3.36,
+        text: '나의 두 눈을 감으면',
+        words: [
+          { id: 'w-1', word: '나의', startTime: 14.64, duration: 0.8 },
+          { id: 'w-2', word: '두', startTime: 15.5, duration: 0.4 },
+          { id: 'w-3', word: '눈을', startTime: 16.0, duration: 0.6 },
+          { id: 'w-4', word: '감으면', startTime: 16.7, duration: 1.0 },
+        ],
+      },
+      {
+        id: 'l-2',
+        time: 18.46,
+        endTime: 22.0,
+        duration: 3.54,
+        text: '떠오르는 그 눈동자',
+        words: [{ id: 'w-5', word: '떠오르는', startTime: 18.46, duration: 1.2 }],
+      },
+    ];
+
+    const studioRomalrc = `[00:14.640]na ui du nu neul ga meu myeon\n[00:18.460]ddeo o reu neun geu nun dong za`;
+
+    const result = attachRomanizationToLines(lines, studioRomalrc);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].hasRomanization, true);
+    assert.equal(result[0].romanizedText, 'na ui du nu neul ga meu myeon');
+    assert.ok(result[0].romanizedWords.length >= 4);
+    assert.equal(result[0].romanizedWords[0].word, 'naui');
+    assert.ok(result[0].romanizedWords[0].chars.length > 0);
+
+    // Fallback when no romalrc is provided
+    const noRomaResult = attachRomanizationToLines(lines, null);
+    assert.equal(noRomaResult[0].hasRomanization, true);
+    assert.equal(noRomaResult[0].romanizedText, 'naui du nuneul gameumyeon');
+  });
+});
