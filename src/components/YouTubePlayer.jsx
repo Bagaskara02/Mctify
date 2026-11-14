@@ -56,6 +56,31 @@ export default function YouTubePlayer({
     });
   }, []);
 
+  // Global Autoplay Unblocker: on any user tap/click/key, unpause YouTube if marked isPlaying
+  useEffect(() => {
+    const unlockAutoplay = () => {
+      if (isPlayingRef.current && playerRef.current) {
+        try {
+          const st = playerRef.current.getPlayerState?.();
+          if (st !== window.YT?.PlayerState?.PLAYING && st !== window.YT?.PlayerState?.BUFFERING) {
+            playerRef.current.unMute?.();
+            playerRef.current.playVideo?.();
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('pointerdown', unlockAutoplay, { capture: true, passive: true });
+    window.addEventListener('keydown', unlockAutoplay, { capture: true, passive: true });
+    window.addEventListener('touchstart', unlockAutoplay, { capture: true, passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAutoplay, { capture: true });
+      window.removeEventListener('keydown', unlockAutoplay, { capture: true });
+      window.removeEventListener('touchstart', unlockAutoplay, { capture: true });
+    };
+  }, []);
+
   const clearBackgroundKick = () => {
     if (backgroundKickTimerRef.current) {
       clearTimeout(backgroundKickTimerRef.current);
@@ -137,7 +162,7 @@ export default function YouTubePlayer({
         width: '100%',
         videoId: videoIdRef.current || '',
         playerVars: {
-          autoplay: 0,
+          autoplay: 1,
           controls: 0,
           disablekb: 1,
           enablejsapi: 1,
@@ -156,8 +181,9 @@ export default function YouTubePlayer({
             if (isMutedRef.current) {
               event.target.mute();
             } else {
+              event.target.unMute();
               const multiplier = webAudioEqualizer.getLoudnessMultiplier(eqSettingsRef.current);
-              const effectiveVol = Math.max(0, Math.min(100, Math.round(volumeRef.current * 100 * multiplier)));
+              const effectiveVol = Math.max(1, Math.min(100, Math.round((volumeRef.current || 0.8) * 100 * multiplier)));
               event.target.setVolume(effectiveVol);
             }
             if (videoIdRef.current) {
@@ -165,16 +191,17 @@ export default function YouTubePlayer({
               const startAt = typeof seekTimeRef.current === 'number' && seekTimeRef.current > 0 ? seekTimeRef.current : 0;
               if (isPlayingRef.current) {
                 try {
-                  event.target.loadVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
-                } catch {
                   event.target.loadVideoById(videoIdRef.current, startAt);
+                } catch {
+                  event.target.loadVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
                 }
+                event.target.playVideo?.();
                 scheduleBackgroundPlaybackKick(videoIdRef.current);
               } else {
                 try {
-                  event.target.cueVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
-                } catch {
                   event.target.cueVideoById(videoIdRef.current, startAt);
+                } catch {
+                  event.target.cueVideoById({ videoId: videoIdRef.current, startSeconds: startAt });
                 }
               }
             }
@@ -189,6 +216,7 @@ export default function YouTubePlayer({
                 const targetSec = seekTimeRef.current;
                 if (typeof targetSec === 'number' && targetSec > 0 && Math.abs(current - targetSec) > 3) {
                   playerRef.current?.seekTo?.(targetSec, true);
+                  seekTimeRef.current = null;
                 }
                 if (dur > 0 && current < dur - 2) {
                   endedVideoIdRef.current = '';
@@ -248,22 +276,24 @@ export default function YouTubePlayer({
         const startAt = typeof seekTimeRef.current === 'number' && seekTimeRef.current > 0 ? seekTimeRef.current : 0;
         if (isPlayingRef.current) {
           try {
+            playerRef.current.loadVideoById(videoId, startAt);
+          } catch {
             playerRef.current.loadVideoById({
               videoId: videoId,
               startSeconds: startAt,
             });
-          } catch {
-            playerRef.current.loadVideoById(videoId, startAt);
           }
+          playerRef.current.unMute?.();
+          playerRef.current.playVideo?.();
           scheduleBackgroundPlaybackKick(videoId);
         } else {
           try {
+            playerRef.current.cueVideoById(videoId, startAt);
+          } catch {
             playerRef.current.cueVideoById({
               videoId: videoId,
               startSeconds: startAt,
             });
-          } catch {
-            playerRef.current.cueVideoById(videoId, startAt);
           }
         }
       } catch (e) {
