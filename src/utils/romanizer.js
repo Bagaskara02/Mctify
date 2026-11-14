@@ -184,9 +184,10 @@ export function generateCharTimings(word, wordStart, wordDuration) {
   const chars = Array.from(word);
   if (chars.length === 0) return [];
 
-  // Vowels carry longer phonation in audio singing
+  // Vowels and Asian phonemes carry longer phonation in audio singing
   const charWeights = chars.map(ch => {
     if (/[aiueoAIUEO]/.test(ch)) return 1.8;
+    if (/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/.test(ch)) return 2.2;
     if (/[,.!?]/.test(ch)) return 0.6;
     return 1.0;
   });

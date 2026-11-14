@@ -62,9 +62,10 @@ function generateCharTimings(word, wordStart, wordDuration) {
   const chars = Array.from(word);
   if (chars.length === 0) return [];
 
-  // Vowels carry longer phonation
+  // Vowels and Asian syllabic phonemes carry longer phonation
   const charWeights = chars.map(ch => {
     if (/[aiueoAIUEO]/.test(ch)) return 1.8;
+    if (/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/.test(ch)) return 2.2;
     if (/[,.!?]/.test(ch)) return 0.6;
     return 1.0;
   });
@@ -217,11 +218,21 @@ function parseLrc(lrcText) {
     if (!curr.explicitEndTime) {
       if (next) {
         const rawGap = next.time - curr.time;
-        const capped = Math.min(rawGap - 0.15, Math.max(1.8, curr.text.length * 0.11));
-        curr.duration = Math.max(0.8, Math.min(capped, 9.5));
+        if (rawGap <= 1.2) {
+          curr.duration = Math.max(0.6, rawGap - 0.08);
+        } else if (rawGap <= 7.0) {
+          // Natural singing phrasing: sustains ~85-90% of the bar/gap with human breathing pause
+          curr.duration = Math.max(1.2, Math.min(rawGap - 0.35, rawGap * 0.88));
+        } else {
+          // Extended gap (interlude before next verse): calculate based on syllable count
+          const syllableCount = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length || (curr.text.split(/\s+/).length * 2);
+          const naturalDuration = Math.max(2.4, Math.min(5.8, syllableCount * 0.38 + 1.0));
+          curr.duration = Math.min(rawGap - 1.2, naturalDuration);
+        }
         curr.endTime = curr.time + curr.duration;
       } else {
-        curr.duration = Math.max(1.8, Math.min(curr.text.length * 0.11, 4.5));
+        const syllableCount = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length || (curr.text.split(/\s+/).length * 2);
+        curr.duration = Math.max(2.5, Math.min(5.5, syllableCount * 0.38 + 1.2));
         curr.endTime = curr.time + curr.duration;
       }
     }
@@ -270,15 +281,19 @@ function computeLrcWords(rawText, lineStart, lineDuration) {
   if (rawWords.length === 0) return [];
 
   const weights = rawWords.map(word => {
-    const vowels = (word.match(/[aiueoAIUEO]/g) || []).length;
-    let weight = Math.max(1, vowels * 1.6 + word.length * 0.4);
+    const latinVowels = (word.match(/[aiueoAIUEO]/g) || []).length;
+    const hangulSyllables = (word.match(/[\uAC00-\uD7A3]/g) || []).length;
+    const kanaSyllables = (word.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
+    const totalPhonemes = latinVowels + (hangulSyllables * 1.5) + (kanaSyllables * 1.5);
+
+    let weight = Math.max(1, totalPhonemes * 1.6 + word.length * 0.3);
     if (/[,;]$/.test(word)) weight += 0.8;
     if (/[.!?]$/.test(word)) weight += 1.4;
     return weight;
   });
 
   const totalWeight = weights.reduce((s, w) => s + w, 0);
-  const activeDuration = Math.max(0.6, lineDuration * 0.94);
+  const activeDuration = Math.max(0.6, lineDuration * 0.96);
 
   let curOffset = 0;
   return rawWords.map((word, idx) => {

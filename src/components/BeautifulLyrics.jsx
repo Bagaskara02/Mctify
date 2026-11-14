@@ -210,15 +210,42 @@ export default function BeautifulLyrics({
   const [palette, setPalette] = useState({ primary: '#2563EB', secondary: '#3B82F6', tertiary: '#1D4ED8' });
   const [userScrolled, setUserScrolled] = useState(false);
 
-  // User lyric timing sync calibration (persisted in localStorage)
+  // Track-specific sync key
+  const trackKey = track
+    ? `${(track.title || '').toLowerCase().trim()}__${(track.artist || '').toLowerCase().trim()}`
+    : '';
+
+  // User lyric timing sync calibration (persisted in localStorage per-track or global)
   const [syncOffsetSec, setSyncOffsetSec] = useState(() => {
     try {
+      if (trackKey) {
+        const perTrack = localStorage.getItem(`mctify_lyrics_sync_${trackKey}`);
+        if (perTrack !== null) return parseFloat(perTrack);
+      }
       const saved = localStorage.getItem('mctify_lyrics_sync_offset');
       return saved !== null ? parseFloat(saved) : 0;
     } catch {
       return 0;
     }
   });
+
+  // Re-sync whenever current track changes
+  useEffect(() => {
+    if (!trackKey) return;
+    try {
+      const perTrack = localStorage.getItem(`mctify_lyrics_sync_${trackKey}`);
+      if (perTrack !== null) {
+        setSyncOffsetSec(parseFloat(perTrack));
+        return;
+      }
+      const saved = localStorage.getItem('mctify_lyrics_sync_offset');
+      if (saved !== null) {
+        setSyncOffsetSec(parseFloat(saved));
+      } else {
+        setSyncOffsetSec(0);
+      }
+    } catch {}
+  }, [trackKey]);
 
   // Lyric script display mode: 'romaja' (Huruf Biasa / Latin), 'dual' (Romaja + Asli), 'native' (Asli)
   const [scriptMode, setScriptMode] = useState(() => {
@@ -243,6 +270,9 @@ export default function BeautifulLyrics({
     setSyncOffsetSec((prev) => {
       const next = Math.round((prev + delta) * 10) / 10;
       try {
+        if (trackKey) {
+          localStorage.setItem(`mctify_lyrics_sync_${trackKey}`, next.toString());
+        }
         localStorage.setItem('mctify_lyrics_sync_offset', next.toString());
       } catch (_) {}
       return next;
@@ -252,6 +282,9 @@ export default function BeautifulLyrics({
   const resetSyncOffset = () => {
     setSyncOffsetSec(0);
     try {
+      if (trackKey) {
+        localStorage.removeItem(`mctify_lyrics_sync_${trackKey}`);
+      }
       localStorage.setItem('mctify_lyrics_sync_offset', '0');
     } catch (_) {}
   };
@@ -303,10 +336,14 @@ export default function BeautifulLyrics({
     }
   }, [track?.artwork]);
 
-  // Acoustic output latency calibration for Web HTML5/YouTube audio (~120ms mixer pipeline)
-  const effectiveTime = Math.max(0, smoothTime - (0.12 + syncOffsetSec));
   const lines = lyricsData?.lines || [];
   const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
+
+  // Acoustic output latency calibration for Web HTML5/YouTube audio:
+  // Studio LRC timestamps run ~0.48s ahead of YouTube audio stream packaging.
+  // Standard Western studio tracks require ~0.20s acoustic pipeline offset.
+  const baseAcousticLatency = hasNonLatinLyrics ? 0.48 : 0.20;
+  const effectiveTime = Math.max(0, smoothTime - (baseAcousticLatency + syncOffsetSec));
 
   // Determine active line index
   let activeIndex = -1;
@@ -379,21 +416,23 @@ export default function BeautifulLyrics({
           <button
             onClick={() => updateSyncOffset(-0.2)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Percepat lirik 0.2s (jika lirik telat)"
+            title="Percepat lirik 0.2s (jika lirik terlambat)"
           >
             -0.2s
           </button>
           <button
             onClick={resetSyncOffset}
-            className="px-2 py-0.5 hover:text-white font-mono text-[11px] transition-colors"
-            title="Klik untuk reset sinkronisasi ke 0s"
+            className={`px-2 py-0.5 font-mono text-[11px] transition-colors ${
+              syncOffsetSec !== 0 ? 'text-[#00a3ff] font-bold drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]' : 'hover:text-white'
+            }`}
+            title="Klik untuk reset sinkronisasi lirik ke pas / standar"
           >
             Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
           </button>
           <button
             onClick={() => updateSyncOffset(0.2)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Perlambat lirik 0.2s (jika lirik kecepetan)"
+            title="Perlambat lirik 0.2s (jika lirik terlalu cepat)"
           >
             +0.2s
           </button>

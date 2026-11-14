@@ -117,9 +117,11 @@ export default function MobileFullscreenPlayer({
   const activeDisplayTime = isScrubbing ? scrubTime : currentTime;
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (activeDisplayTime / duration) * 100)) : 0;
 
-  // Live calibrated lyric lines preview (~0.12s latency on Web)
+  // Live calibrated lyric lines preview
   const lyricLines = lyricsData?.lines || [];
-  const effectiveLyricTime = Math.max(0, currentTime - 0.12);
+  const hasNonLatin = lyricLines.some((l) => l.hasRomanization || /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/.test(l.text));
+  const baseLatency = hasNonLatin ? 0.48 : 0.20;
+  const effectiveLyricTime = Math.max(0, currentTime - baseLatency);
   let activeLyricIdx = -1;
   for (let i = 0; i < lyricLines.length; i++) {
     if (lyricLines[i].time <= effectiveLyricTime) {

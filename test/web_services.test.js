@@ -471,3 +471,30 @@ describe('Web Context-Aware Radio & Vibe Clustered Autoplay Tests', () => {
     assert.equal(isCleanPopularTrack({ title: 'With', artist: 'Kim Taeri', duration: 250 }), true);
   });
 });
+
+describe('Web Korean & Foreign Lyrics Timing Calibration Tests', () => {
+  it('sustains natural vocal phrasing across Korean lines instead of rushing through in 1.8s', async () => {
+    const { lyricsService } = await import('../src/services/lyricsService.js');
+
+    const rawLrc = `[00:14.64] 나의 두 눈을 감으면\n[00:18.46] 떠오르는 그 눈동자\n[00:22.34] 자꾸 가슴이 시려서`;
+    const parsed = lyricsService.parseLrc(rawLrc);
+
+    // parsed contains intro interlude (since 14.64s > 4.2s) plus 3 lyric lines
+    assert.equal(parsed.length, 4);
+    assert.equal(parsed[0].isInterlude, true);
+
+    // Line 1 gap is 18.46 - 14.64 = 3.82s. Duration must be at least 3.0s, NOT capped to 1.8s!
+    const line1 = parsed[1];
+    assert.equal(line1.text, '나의 두 눈을 감으면');
+    assert.ok(line1.duration >= 3.0, `Duration should be >= 3.0s, got ${line1.duration}`);
+    assert.ok(line1.endTime >= 17.6, `EndTime should be >= 17.6s, got ${line1.endTime}`);
+
+    // Verify multi-syllable word '감으면' (3 Hangul blocks) receives more duration than single-block '두'
+    const words = line1.words;
+    assert.equal(words.length, 4);
+    const duWord = words.find(w => w.word === '두');
+    const gameumyeonWord = words.find(w => w.word === '감으면');
+    assert.ok(duWord && gameumyeonWord);
+    assert.ok(gameumyeonWord.duration > duWord.duration * 1.5, 'Multi-syllable word should receive longer phonation');
+  });
+});
