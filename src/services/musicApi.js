@@ -125,21 +125,30 @@ export function isCleanPopularTrack(t) {
   const title = t.title.toLowerCase();
   const artist = t.artist.toLowerCase();
   const album = (t.album || '').toLowerCase();
-  const combined = `${title} ${artist} ${album}`;
+  const genre = (t.genre || '').toLowerCase();
+  const combined = `${title} ${artist} ${album} ${genre}`;
 
   const bannedKeywords = [
     'karaoke', 'instrumental', 'instrument', 'instr.', 'backing track', 'cover by', 'tribute to',
     'parodi', 'parody', 'ringtone', 'sped up', 'speed up', 'slowed', 'reverb',
     '8d audio', 'tutorial', 'chord', 'guitar lesson', 'bass tab',
-    'drum cover', 'guitar cover', 'piano cover', 'acoustic cover', 'reaction', 'teaser', 'trailer', 'podcast',
-    'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
+    'drum cover', 'guitar cover', 'piano cover', 'piano version', 'acoustic cover', 'reaction',
+    'teaser', 'trailer', 'podcast', 'audio visualizer', 'cara ', 'belajar ', 'remake', 'audio only',
     'lirik video', 'lyrics video', 'acapella', 'minus one', 'no vocals', 'vocal guide',
-    'sing-along', 'sing along', 'type beat', 'rap beat', 'free beat', 'ombre2choc'
+    'sing-along', 'sing along', 'type beat', 'rap beat', 'free beat', 'sound effect', 'bgm',
+    'noraebang', 'dialogue track', 'dialogue', 'dialog', 'spoken word', 'ombre2choc'
   ];
 
   if (bannedKeywords.some(w => combined.includes(w))) {
     return false;
   }
+
+  // Reject instrumental genre and piano/guitar solo covers
+  if (genre.includes('instrumental')) return false;
+  if (/\b(inst|inst\.|instrumental)\b/i.test(title)) return false;
+  if (/\((inst|inst\.|instrumental|dialogue)\)/i.test(title)) return false;
+  if (/\[(inst|inst\.|instrumental|piano|guitar|dialogue)\]/i.test(title)) return false;
+  if (/\b(piano|guitar|orchestra)\s*(cover|version|solo)\b/i.test(title)) return false;
 
   // Reasonably standard radio track duration (between 1:15 and 7:30)
   const dur = t.duration || 180;
@@ -155,8 +164,137 @@ export function isCleanPopularTrack(t) {
  */
 export const ARTIST_GENRE_CLUSTERS = [
   {
+    name: 'Korean Drama OST & Emotional Ballads',
+    region: 'k-ost',
+    genreKeywords: ['soundtrack', 'tv soundtrack', 'original score', 'ost', 'kdrama', 'k-drama', 'ballad'],
+    keywords: [
+      'kim tae-ri', 'kim taeri', 'nam joo-hyuk', 'chanyeol', 'punch', 'gaho', 'crush',
+      'davichi', 'heize', 'paul kim', 'melomance', '10cm', 'gummy', 'sam kim', 'roy kim',
+      'taeyeon', 'ailee', 'yerin baek', 'sondia', 'car, the garden', 'urban zakapa',
+      'standing egg', 'k.will', 'ben', 'lyn', 'yoon mi-rae', 'eclipse', 'byeon woo-seok',
+      'lee mu-jin', 'ha hyunsang', 'd.o.', 'baekhyun', 'chen', 'suho', 'ost', 'twenty five twenty one',
+      'goblin', 'crash landing on you', 'itaewon class', 'hotel del luna', 'descendants of the sun',
+      'our beloved summer', 'hospital playlist', 'reply 1988', 'queen of tears', 'lovely runner',
+      'king the land', 'hometown cha-cha-cha', 'business proposal', 'weightlifting fairy', 'moon lovers'
+    ],
+    peers: [
+      'Punch', 'Crush', 'Gaho', 'Davichi', 'Heize', 'Paul Kim', 'MeloMance',
+      '10cm', 'Gummy', 'Sam Kim', 'Roy Kim', 'Taeyeon', 'Ailee', 'Yerin Baek',
+      'Sondia', 'Car, the garden', 'ECLIPSE', 'Lee Mu-jin', 'IU'
+    ]
+  },
+  {
+    name: 'K-Indie, K-R&B & K-Rock Hits',
+    region: 'k-indie',
+    genreKeywords: ['k-indie', 'indie', 'k-r&b', 'r&b', 'k-rock', 'rock'],
+    keywords: [
+      'day6', 'jannabi', 'wave to earth', 'lucy', 'the rose', 'hyukoh', 'se so neon',
+      'silica gel', 'dean', 'zion.t', 'rad museum', 'colde', 'dpr ian', 'dpr live',
+      'woodz', 'akmu', 'bol4', 'lee hi', 'bibi', 'offonoff', 'dept', 'nell'
+    ],
+    peers: [
+      'DAY6', 'Jannabi', 'wave to earth', 'LUCY', 'The Rose', 'Hyukoh',
+      'Dean', 'Zion.T', 'Colde', 'DPR IAN', 'AKMU', 'BOL4', 'Lee Hi', 'BIBI'
+    ]
+  },
+  {
+    name: 'K-Pop Idol & Global Hits',
+    region: 'kpop',
+    genreKeywords: ['k-pop', 'kpop', 'korean pop', 'dance pop', 'teen pop'],
+    keywords: [
+      'newjeans', 'bts', 'blackpink', 'aespa', 'le sserafim', 'twice', 'iu',
+      'seventeen', 'stray kids', 'rosé', 'jennie', 'jungkook', 'ive', 'txt',
+      'enhypen', '(g)i-dle', 'itzy', 'exo', 'red velvet', 'nct', 'babymonster',
+      'illit', 'riize', 'ateez', 'lisa', 'v', 'jimin', 'suga', 'treasure',
+      'the boyz', 'monsta x', 'zerobaseone', 'tws', 'boynextdoor', 'kiss of life',
+      'nmixx', 'kep1er', 'stayc', 'mamamoo', 'chungha', 'sunmi'
+    ],
+    peers: [
+      'NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM',
+      'TWICE', 'IU', 'SEVENTEEN', 'ROSÉ', 'IVE', '(G)I-DLE', 'ITZY',
+      'EXO', 'Stray Kids', 'TXT', 'ENHYPEN', 'Red Velvet'
+    ]
+  },
+  {
+    name: 'J-Pop, J-Rock & Anime Hits',
+    region: 'jpop',
+    genreKeywords: ['j-pop', 'jpop', 'j-rock', 'anime', 'japanese'],
+    keywords: [
+      'yoasobi', 'lisa', 'eve', 'radwimps', 'kenshi yonezu', 'ado', 'aimer',
+      'official hige dandism', 'fujii kaze', 'king gnu', 'vaundy', 'one ok rock',
+      'mrs. green apple', 'yuuri', 'back number', 'kana-boon', 'spyair', 'flow',
+      'creepy nuts', 'tatsuya kitani', 'yama', 'zutomayo', 'yorushika', 'milet', 'aimyon'
+    ],
+    peers: [
+      'YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'Official HIGE DANdism',
+      'Fujii Kaze', 'RADWIMPS', 'ONE OK ROCK', 'Eve', 'King Gnu', 'Vaundy', 'Mrs. GREEN APPLE'
+    ]
+  },
+  {
+    name: 'Indonesian Pop & Ballad Hits',
+    region: 'indo-pop',
+    genreKeywords: ['pop', 'indo pop', 'indonesian pop', 'ballad'],
+    keywords: [
+      'mahalini', 'tulus', 'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya',
+      'yura yunita', 'rizky febian', 'raisa', 'afgan', 'judika', 'fabio asher',
+      'budi doremi', 'keisya levronka', 'jaz', 'andmesh', 'cakra khan', 'arash buana',
+      'idgitaf', 'glenn fredly', 'marcell', 'rio febrian', 'sammy simorangkir', 'feby putri', 'anggi marito'
+    ],
+    peers: [
+      'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra',
+      'Yura Yunita', 'Rizky Febian', 'Raisa', 'Afgan', 'Judika',
+      'Fabio Asher', 'Budi Doremi', 'Andmesh', 'Cakra Khan'
+    ]
+  },
+  {
+    name: 'Indonesian Indie, Folk & Alternative Hits',
+    region: 'indo-indie',
+    genreKeywords: ['indie', 'alternative', 'folk', 'indie pop', 'acoustic'],
+    keywords: [
+      'hindia', 'feast', '.feast', 'nadin amizah', 'sal priadi', 'kunto aji',
+      'pamungkas', 'danilla', 'fourtwnty', 'barasuara', 'reality club',
+      'efek rumah kaca', 'sore', 'the adams', 'morad', 'fiersa besari',
+      'bilal indrajaya', 'bernadya', 'perunggu', 'jason ranti', 'soegi bornean', 'lomba sihir'
+    ],
+    peers: [
+      'Bernadya', 'Hindia', '.Feast', 'Nadin Amizah', 'Sal Priadi', 'Kunto Aji',
+      'Pamungkas', 'Fourtwnty', 'Reality Club', 'Barasuara', 'The Adams',
+      'Fiersa Besari', 'Danilla', 'Bilal Indrajaya', 'Perunggu'
+    ]
+  },
+  {
+    name: 'Indonesian Pop Rock & Legend Band Hits',
+    region: 'indo-band',
+    genreKeywords: ['rock', 'pop rock', 'legend', 'band indonesia', 'classic rock'],
+    keywords: [
+      'sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', "d'masiv",
+      'ada band', 'kotak', 'gigi', 'slank', 'chrisye', 'ari lasso', 'kerispatih',
+      'samsons', 'letto', 'naif', 'j-rocks', 'radja', 'wali', 'armada', 'repvblik',
+      'seventeen', 'kangen band', 'jamrud', 'boomerang'
+    ],
+    peers: [
+      'Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu',
+      "D'Masiv", 'Ada Band', 'Ari Lasso', 'Glenn Fredly', 'Kerispatih', 'Samsons', 'Naif'
+    ]
+  },
+  {
+    name: 'Indonesian Dangdut, Koplo & Jawa Pop Hits',
+    region: 'indo-koplo',
+    genreKeywords: ['dangdut', 'koplo', 'jawa', 'campursari'],
+    keywords: [
+      'denny caknan', 'guyon waton', 'ndarboy genk', 'happy asmara', 'gilga sahid',
+      'didi kempot', 'nella kharisma', 'via vallen', 'gildcoustic', 'aftershine',
+      'hendra kumbara', 'woro widowati', 'difarina indra', 'tasya rosmala',
+      'shinta arsinta', 'masdddho', 'niken salindry'
+    ],
+    peers: [
+      'Denny Caknan', 'Guyon Waton', 'Happy Asmara', 'Gilga Sahid',
+      'Ndarboy Genk', 'Didi Kempot', 'Aftershine', 'Gildcoustic', 'Nella Kharisma'
+    ]
+  },
+  {
     name: 'Western R&B, Chill Hop & Urban',
-    region: 'western',
+    region: 'western-rnb',
     genreKeywords: ['r&b', 'r&b/soul', 'soul', 'neo-soul', 'contemporary r&b', 'chill', 'lo-fi'],
     keywords: [
       '88rising', 'joji', 'rich brian', 'niki', 'warren hue', 'stephanie poetri',
@@ -175,7 +313,7 @@ export const ARTIST_GENRE_CLUSTERS = [
   },
   {
     name: 'Global & Western Pop Hits',
-    region: 'western',
+    region: 'western-pop',
     genreKeywords: ['pop', 'dance pop', 'electropop', 'teen pop'],
     keywords: [
       'the weeknd', 'bruno mars', 'taylor swift', 'billie eilish', 'olivia rodrigo',
@@ -194,7 +332,7 @@ export const ARTIST_GENRE_CLUSTERS = [
   },
   {
     name: 'Western Rock, Alternative, Metal & Punk Hits',
-    region: 'western',
+    region: 'western-rock',
     genreKeywords: ['rock', 'hard rock', 'metal', 'heavy metal', 'punk', 'alternative rock', 'grunge', 'emo'],
     keywords: [
       'linkin park', 'avenged sevenfold', 'bring me the horizon', 'green day',
@@ -214,7 +352,7 @@ export const ARTIST_GENRE_CLUSTERS = [
   },
   {
     name: 'Western Hip-Hop, Rap & Trap Hits',
-    region: 'western',
+    region: 'western-hiphop',
     genreKeywords: ['hip-hop', 'hip hop', 'rap', 'trap', 'urban'],
     keywords: [
       'eminem', 'drake', 'kendrick lamar', 'travis scott', 'kanye west',
@@ -231,7 +369,7 @@ export const ARTIST_GENRE_CLUSTERS = [
   },
   {
     name: 'EDM, Dance & Electronic Hits',
-    region: 'western',
+    region: 'western-edm',
     genreKeywords: ['electronic', 'dance', 'edm', 'house', 'techno', 'dubstep'],
     keywords: [
       'alan walker', 'marshmello', 'avicii', 'the chainsmokers', 'calvin harris',
@@ -242,121 +380,73 @@ export const ARTIST_GENRE_CLUSTERS = [
       'Alan Walker', 'Marshmello', 'Avicii', 'The Chainsmokers',
       'Calvin Harris', 'Martin Garrix', 'Zedd', 'Kygo', 'DJ Snake', 'David Guetta'
     ]
-  },
-  {
-    name: 'Indonesian Pop & Ballad Hits',
-    region: 'indonesia',
-    genreKeywords: ['pop', 'indo pop', 'indonesian pop', 'ballad'],
-    keywords: [
-      'mahalini', 'tulus', 'juicy luicy', 'tiara andini', 'lyodra', 'ziva magnolya',
-      'yura yunita', 'rizky febian', 'raisa', 'afgan', 'judika', 'fabio asher',
-      'budi doremi', 'keisya levronka', 'jaz', 'andmesh', 'cakra khan', 'arash buana',
-      'idgitaf', 'glenn fredly', 'marcell', 'rio febrian', 'sammy simorangkir', 'feby putri'
-    ],
-    peers: [
-      'Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra',
-      'Yura Yunita', 'Rizky Febian', 'Raisa', 'Afgan', 'Judika',
-      'Fabio Asher', 'Budi Doremi', 'Andmesh', 'Cakra Khan'
-    ]
-  },
-  {
-    name: 'Indonesian Indie, Folk & Alternative Hits',
-    region: 'indonesia',
-    genreKeywords: ['indie', 'alternative', 'folk', 'indie pop', 'acoustic'],
-    keywords: [
-      'hindia', 'feast', '.feast', 'nadin amizah', 'sal priadi', 'kunto aji',
-      'pamungkas', 'danilla', 'fourtwnty', 'barasuara', 'reality club',
-      'efek rumah kaca', 'sore', 'the adams', 'morad', 'fiersa besari',
-      'bilal indrajaya', 'bernadya', 'perunggu', 'jason ranti', 'soegi bornean'
-    ],
-    peers: [
-      'Hindia', '.Feast', 'Nadin Amizah', 'Sal Priadi', 'Kunto Aji',
-      'Pamungkas', 'Fourtwnty', 'Reality Club', 'Barasuara', 'The Adams',
-      'Fiersa Besari', 'Danilla', 'Bilal Indrajaya', 'Perunggu'
-    ]
-  },
-  {
-    name: 'Indonesian Pop Rock & Legend Band Hits',
-    region: 'indonesia',
-    genreKeywords: ['rock', 'pop rock', 'legend', 'band indonesia', 'classic rock'],
-    keywords: [
-      'sheila on 7', 'dewa 19', 'peterpan', 'noah', 'padi', 'ungu', "d'masiv",
-      'ada band', 'kotak', 'gigi', 'slank', 'chrisye', 'ari lasso', 'kerispatih',
-      'samsons', 'letto', 'naif', 'j-rocks', 'radja', 'wali', 'armada', 'repvblik',
-      'seventeen', 'kangen band', 'jamrud', 'boomerang'
-    ],
-    peers: [
-      'Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu',
-      "D'Masiv", 'Ada Band', 'Ari Lasso', 'Glenn Fredly', 'Kerispatih', 'Samsons', 'Naif'
-    ]
-  },
-  {
-    name: 'Indonesian Dangdut, Koplo & Jawa Pop Hits',
-    region: 'indonesia',
-    genreKeywords: ['dangdut', 'koplo', 'jawa', 'campursari'],
-    keywords: [
-      'denny caknan', 'guyon waton', 'ndarboy genk', 'happy asmara', 'gilga sahid',
-      'didi kempot', 'nella kharisma', 'via vallen', 'gildcoustic', 'aftershine',
-      'hendra kumbara', 'woro widowati', 'difarina indra', 'tasya rosmala',
-      'shinta arsinta', 'masdddho', 'niken salindry'
-    ],
-    peers: [
-      'Denny Caknan', 'Guyon Waton', 'Happy Asmara', 'Gilga Sahid',
-      'Ndarboy Genk', 'Didi Kempot', 'Aftershine', 'Gildcoustic', 'Nella Kharisma'
-    ]
-  },
-  {
-    name: 'K-Pop Hits',
-    region: 'kpop',
-    genreKeywords: ['k-pop', 'kpop', 'korean', 'k-rock'],
-    keywords: [
-      'newjeans', 'bts', 'blackpink', 'aespa', 'le sserafim', 'twice', 'iu',
-      'seventeen', 'stray kids', 'rosé', 'jennie', 'jungkook', 'ive', 'txt',
-      'enhypen', '(g)i-dle', 'itzy', 'exo', 'red velvet', 'nct', 'babymonster',
-      'illit', 'riize', 'ateez', 'taeyeon', 'lisa'
-    ],
-    peers: [
-      'NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM',
-      'TWICE', 'IU', 'SEVENTEEN', 'ROSÉ', 'IVE', '(G)I-DLE', 'ITZY', 'EXO'
-    ]
-  },
-  {
-    name: 'J-Pop, J-Rock & Anime Hits',
-    region: 'jpop',
-    genreKeywords: ['j-pop', 'jpop', 'j-rock', 'anime', 'japanese'],
-    keywords: [
-      'yoasobi', 'lisa', 'eve', 'radwimps', 'kenshi yonezu', 'ado', 'aimer',
-      'official hige dandism', 'fujii kaze', 'king gnu', 'vaundy', 'one ok rock',
-      'mrs. green apple', 'yuuri', 'back number', 'kana-boon', 'spyair', 'flow'
-    ],
-    peers: [
-      'YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'Official HIGE DANdism',
-      'Fujii Kaze', 'RADWIMPS', 'ONE OK ROCK', 'Eve', 'King Gnu', 'Vaundy'
-    ]
   }
 ];
 
 export const POPULAR_ARTIST_CLUSTERS = ARTIST_GENRE_CLUSTERS;
 
+function matchesKeyword(text, keyword) {
+  if (!text || !keyword) return false;
+  const kw = keyword.toLowerCase().trim();
+  const t = text.toLowerCase().trim();
+  if (kw.length <= 3) {
+    const rx = new RegExp(`(^|[^a-zA-Z0-9])${kw}([^a-zA-Z0-9]|$)`, 'i');
+    return rx.test(t);
+  }
+  return t.includes(kw);
+}
+
 /**
- * Detects the musical region of a track (western vs indonesia vs kpop vs jpop)
- * to strictly prevent regional mixing (e.g. Indonesian songs in English tracks).
+ * Detects the musical region & vibe of a track:
+ * (k-ost vs k-indie vs kpop vs jpop vs indo-pop vs indo-indie vs indo-band vs indo-koplo vs western-pop vs western-rock vs western-rnb vs western-hiphop vs western-edm)
+ * Strictly prevents cross-vibe contamination (e.g. Western pop / Daisies inside Korean OSTs).
  */
-export function detectTrackRegion(artistName = '', title = '', genre = '') {
+export function detectTrackRegion(artistName = '', title = '', genre = '', album = '') {
   const normArtist = (artistName || '').toLowerCase().trim();
   const normTitle = (title || '').toLowerCase().trim();
   const normGenre = (genre || '').toLowerCase().trim();
+  const normAlbum = (album || '').toLowerCase().trim();
+  const combined = `${normArtist} ${normTitle} ${normAlbum} ${normGenre}`;
 
-  // 1. Direct cluster keyword lookup
+  // 1. Script-based detection
+  const HANGUL_REGEX = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
+  const JAPANESE_REGEX = /[\u3040-\u309F\u30A0-\u30FF]/;
+
+  if (HANGUL_REGEX.test(combined)) {
+    if (combined.includes('ost') || combined.includes('soundtrack') || combined.includes('score') || combined.includes('drama') || normGenre.includes('soundtrack')) {
+      return 'k-ost';
+    }
+    return 'kpop';
+  }
+
+  if (JAPANESE_REGEX.test(combined)) {
+    return 'jpop';
+  }
+
+  // 2. Direct cluster keyword lookup (Exact or bounded keyword matching against artist, title, or album)
   for (const cluster of ARTIST_GENRE_CLUSTERS) {
-    if (cluster.keywords.some(k => normArtist.includes(k) || k.includes(normArtist))) {
+    if (cluster.keywords.some(k => matchesKeyword(normArtist, k) || matchesKeyword(normAlbum, k))) {
       return cluster.region;
     }
   }
 
-  // 2. Specific genre keyword hints
-  if (normGenre.includes('dangdut') || normGenre.includes('koplo') || normGenre.includes('campursari') || normGenre.includes('indo')) {
-    return 'indonesia';
+  // 3. Korean Drama & OST contextual check
+  const isOstContext = combined.includes('ost') || combined.includes('soundtrack') || combined.includes('part.') || normGenre.includes('soundtrack') || normGenre.includes('tv soundtrack');
+  const koreanNameHints = [
+    'kim ', 'lee ', 'park ', 'choi ', 'jung ', 'kang ', 'cho ', 'yoon ', 'jang ', 'lim ', 'han ',
+    'chanyeol', 'punch', 'taeyeon', 'baekhyun', 'chen', 'iu', 'gaho', 'crush', 'heize', 'davichi',
+    'taeri', 'tae-ri', 'joo-hyuk', 'hyun-wook', 'hyunsang', 'bo-gum', 'eun-woo', 'song kang'
+  ];
+  if (isOstContext && (koreanNameHints.some(hint => normArtist.includes(hint)) || combined.includes('twenty five') || combined.includes('goblin') || combined.includes('korean'))) {
+    return 'k-ost';
+  }
+
+  // 4. Genre keyword hints
+  if (normGenre.includes('dangdut') || normGenre.includes('koplo') || normGenre.includes('campursari')) {
+    return 'indo-koplo';
+  }
+  if (normGenre.includes('indo') || normGenre.includes('indonesian')) {
+    return 'indo-pop';
   }
   if (normGenre.includes('k-pop') || normGenre.includes('kpop') || normGenre.includes('korean')) {
     return 'kpop';
@@ -364,8 +454,20 @@ export function detectTrackRegion(artistName = '', title = '', genre = '') {
   if (normGenre.includes('j-pop') || normGenre.includes('jpop') || normGenre.includes('anime') || normGenre.includes('japanese')) {
     return 'jpop';
   }
+  if (normGenre.includes('rock') || normGenre.includes('metal') || normGenre.includes('punk') || normGenre.includes('grunge')) {
+    return 'western-rock';
+  }
+  if (normGenre.includes('hip-hop') || normGenre.includes('rap') || normGenre.includes('trap')) {
+    return 'western-hiphop';
+  }
+  if (normGenre.includes('electronic') || normGenre.includes('dance') || normGenre.includes('edm')) {
+    return 'western-edm';
+  }
+  if (normGenre.includes('r&b') || normGenre.includes('soul')) {
+    return 'western-rnb';
+  }
 
-  // 3. Common English words in Western song titles / artist names
+  // 5. Common English words in Western song titles / artist names
   const englishWords = [
     'the', 'you', 'me', 'love', 'night', 'madness', 'midsummer', 'die', 'smile',
     'summer', 'winter', 'fall', 'spring', 'heart', 'baby', 'boy', 'girl', 'good',
@@ -378,28 +480,28 @@ export function detectTrackRegion(artistName = '', title = '', genre = '') {
   ];
   const titleTokens = normTitle.split(/[^a-zA-Z0-9]+/).filter(Boolean);
   if (titleTokens.some(token => englishWords.includes(token))) {
-    return 'western';
+    return 'western-pop';
   }
 
-  return 'western';
+  return 'western-pop';
 }
 
 /**
  * Intelligently resolves peer hitmaker artists matching the artist, genre, or playlist context.
- * Strictly locks to the target track's region to prevent mixing languages.
+ * Strictly locks to the target track's region & vibe to ensure coherent recommendations.
  */
-export function getSimilarArtists(artistName = '', genreName = '', playlistTracks = [], title = '') {
+export function getSimilarArtists(artistName = '', genreName = '', playlistTracks = [], title = '', album = '') {
   const normArtist = (artistName || '').toLowerCase().trim();
   const normGenre = (genreName || '').toLowerCase().trim();
 
   // Determine target region
-  const targetRegion = detectTrackRegion(artistName, title, genreName);
+  const targetRegion = detectTrackRegion(artistName, title, genreName, album);
 
   // 1. Direct artist match in cluster
   if (normArtist) {
     for (const cluster of ARTIST_GENRE_CLUSTERS) {
-      if (cluster.keywords.some(k => normArtist.includes(k) || k.includes(normArtist))) {
-        const peers = cluster.peers.filter(p => !p.toLowerCase().includes(normArtist) && !normArtist.includes(p.toLowerCase()));
+      if (cluster.keywords.some(k => matchesKeyword(normArtist, k))) {
+        const peers = cluster.peers.filter(p => !matchesKeyword(normArtist, p));
         return [...peers].sort(() => Math.random() - 0.5);
       }
     }
@@ -413,7 +515,7 @@ export function getSimilarArtists(artistName = '', genreName = '', playlistTrack
       const g = (t.genre || '').toLowerCase().trim();
       for (const cluster of ARTIST_GENRE_CLUSTERS) {
         if (cluster.region === targetRegion) {
-          if (cluster.keywords.some(k => art.includes(k) || k.includes(art)) ||
+          if (cluster.keywords.some(k => matchesKeyword(art, k)) ||
               (g && cluster.genreKeywords.some(gk => g.includes(gk)))) {
             clusterScores.set(cluster, (clusterScores.get(cluster) || 0) + 1);
           }
@@ -430,7 +532,7 @@ export function getSimilarArtists(artistName = '', genreName = '', playlistTrack
         }
       }
       if (topCluster) {
-        const peers = topCluster.peers.filter(p => !p.toLowerCase().includes(normArtist) && !normArtist.includes(p.toLowerCase()));
+        const peers = topCluster.peers.filter(p => !matchesKeyword(normArtist, p));
         return [...peers].sort(() => Math.random() - 0.5);
       }
     }
@@ -440,39 +542,21 @@ export function getSimilarArtists(artistName = '', genreName = '', playlistTrack
   if (normGenre) {
     for (const cluster of ARTIST_GENRE_CLUSTERS) {
       if (cluster.region === targetRegion && cluster.genreKeywords.some(gk => normGenre.includes(gk))) {
-        const peers = cluster.peers.filter(p => !p.toLowerCase().includes(normArtist) && !normArtist.includes(p.toLowerCase()));
+        const peers = cluster.peers.filter(p => !matchesKeyword(normArtist, p));
         return [...peers].sort(() => Math.random() - 0.5);
       }
     }
   }
 
   // 4. Region-locked fallbacks (strictly respect target region!)
-  if (targetRegion === 'western') {
-    const westernPools = [
-      ['The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Billie Eilish', 'Olivia Rodrigo'],
-      ['Joji', 'Keshi', 'NIKI', 'Daniel Caesar', 'Frank Ocean', 'SZA', 'Dominic Fike'],
-      ['Linkin Park', 'Avenged Sevenfold', 'Green Day', 'Queen', 'Arctic Monkeys'],
-      ['Eminem', 'Drake', 'Kendrick Lamar', 'Travis Scott', 'Post Malone', 'Juice WRLD']
-    ];
-    const selected = westernPools[Math.floor(Math.random() * westernPools.length)];
-    return [...selected].sort(() => Math.random() - 0.5);
+  for (const cluster of ARTIST_GENRE_CLUSTERS) {
+    if (cluster.region === targetRegion) {
+      const peers = cluster.peers.filter(p => !matchesKeyword(normArtist, p));
+      return [...peers].sort(() => Math.random() - 0.5);
+    }
   }
 
-  if (targetRegion === 'kpop') {
-    return ['NewJeans', 'BTS', 'BLACKPINK', 'aespa', 'LE SSERAFIM', 'TWICE', 'IU'].sort(() => Math.random() - 0.5);
-  }
-
-  if (targetRegion === 'jpop') {
-    return ['YOASOBI', 'Kenshi Yonezu', 'Ado', 'Aimer', 'RADWIMPS', 'Official HIGE DANdism'].sort(() => Math.random() - 0.5);
-  }
-
-  const indoPools = [
-    ['Sheila On 7', 'Dewa 19', 'NOAH', 'Peterpan', 'Padi', 'Ungu', 'D\'Masiv'],
-    ['Mahalini', 'Tulus', 'Juicy Luicy', 'Tiara Andini', 'Lyodra', 'Yura Yunita', 'Rizky Febian'],
-    ['Denny Caknan', 'Guyon Waton', 'Happy Asmara', 'Gilga Sahid', 'Ndarboy Genk']
-  ];
-  const selected = indoPools[Math.floor(Math.random() * indoPools.length)];
-  return [...selected].sort(() => Math.random() - 0.5);
+  return ['The Weeknd', 'Bruno Mars', 'Coldplay', 'Taylor Swift', 'Billie Eilish'];
 }
 
 function levenshtein(a, b) {
@@ -1261,18 +1345,29 @@ export const musicApi = {
     const targetId = track.id;
     const targetTitle = (track.title || '').toLowerCase().trim();
     const targetArtist = (track.artist || '').toLowerCase().trim();
+    const targetAlbum = (track.album || '').toLowerCase().trim();
+    const targetGenre = (track.genre || '').toLowerCase().trim();
 
     try {
       const seen = new Set();
       if (targetId) seen.add(targetId);
       seen.add(targetTitle);
 
-      const targetRegion = detectTrackRegion(track.artist, track.title, track.genre);
+      // 1. Precise region & vibe detection (prevents cross-genre/cross-language mixing)
+      const targetRegion = detectTrackRegion(track.artist, track.title, track.genre, track.album);
 
-      // 1. Identify peer hitmaker cluster dynamically using artist, genre, playlist context, and title
-      const peerArtists = getSimilarArtists(track.artist, track.genre, playlistContext, track.title);
+      // 2. Identify peer hitmaker cluster dynamically using artist, genre, playlist context, title, and album
+      const peerArtists = getSimilarArtists(track.artist, track.genre, playlistContext, track.title, track.album);
 
-      // 2. Fetch user's frequently played & liked songs (strictly matching target region!)
+      // Extract primary artist name cleanly (e.g. "Kim Taeri" from "Kim Taeri, Nam Joo-hyuk, 보나...")
+      const primaryArtist = (track.artist || '')
+        .replace(/\s*\(feat\..*?\)/i, '')
+        .replace(/\s*\[feat\..*?\]/i, '')
+        .replace(/\s*feat\..*$/i, '')
+        .split(/[,&/x]/)[0]
+        .trim();
+
+      // 3. Fetch user's frequently played & liked songs (STRICTLY matching target region!)
       const userFavoriteHits = [];
       try {
         const liked = storageService.getLikedTracks() || [];
@@ -1286,12 +1381,12 @@ export const musicApi = {
           const cleanT = (t.title || '').toLowerCase().trim();
           if (seen.has(t.id) || seen.has(cleanT)) continue;
 
-          // STRICT REGION CHECK: If current track is Western, do NOT include Indonesian songs!
-          const itemRegion = detectTrackRegion(t.artist, t.title, t.genre);
+          // STRICT REGION & VIBE CHECK: If track is Korean OST, NEVER include Western pop / Daisies!
+          const itemRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
           if (itemRegion !== targetRegion) continue;
 
           // If track belongs to the target artist or matching genre peers
-          const isArtistMatch = artLower.includes(targetArtist) || targetArtist.includes(artLower);
+          const isArtistMatch = primaryArtist && (artLower.includes(primaryArtist.toLowerCase()) || primaryArtist.toLowerCase().includes(artLower));
           const isPeerMatch = peerArtists.some(p => artLower.includes(p.toLowerCase()));
 
           if ((isArtistMatch || isPeerMatch) && isCleanPopularTrack(t)) {
@@ -1304,30 +1399,58 @@ export const musicApi = {
         console.warn('Taste profile lookup in radio:', err);
       }
 
-      // 3. Pick 5-6 random peers each time from the cluster pool for infinite non-template variety
-      const selectedPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 6);
+      // 4. Queries based on track context:
+      // A. Primary artist's hits
+      const artistQuery = primaryArtist || track.artist;
+      const artistSearchPromise = artistQuery ? this.searchTracks(artistQuery, 12).catch(() => []) : Promise.resolve([]);
 
-      // 4. Fetch artist's verified top hits & peer hitmakers in parallel
-      const artistSearchPromise = this.searchTracks(track.artist, 15).catch(() => []);
-      const peerPromises = selectedPeers.map(peer => this.searchTracks(peer, 8).catch(() => []));
+      // B. Album / Soundtrack context (e.g. "Twenty Five Twenty One OST" or "Goblin OST")
+      let albumSearchPromise = Promise.resolve([]);
+      const isSoundtrack = targetRegion === 'k-ost' || targetAlbum.includes('ost') || targetAlbum.includes('soundtrack') || targetGenre.includes('soundtrack');
+      if (isSoundtrack && track.album && track.album !== 'Single' && !track.album.includes('Unknown')) {
+        albumSearchPromise = this.searchTracks(track.album, 10).catch(() => []);
+      }
 
-      const [artistSearch, ...peerResults] = await Promise.all([
+      // C. Peer hitmakers (randomly pick 4-5 peers from the cluster)
+      const selectedPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 5);
+      const peerPromises = selectedPeers.map(peer => {
+        const q = (targetRegion === 'k-ost' && !peer.toLowerCase().includes('ost')) ? `${peer} OST` : peer;
+        return this.searchTracks(q, 8).catch(() => []);
+      });
+
+      const [artistSearch, albumSearch, ...peerResults] = await Promise.all([
         artistSearchPromise,
+        albumSearchPromise,
         ...peerPromises,
       ]);
 
-      // Collect artist's popular tracks and randomly sample 2-3 hits from the top hits
+      // Collect album/soundtrack hits (same drama / same album)
+      const cleanAlbumHits = [];
+      for (const t of albumSearch) {
+        const cleanT = (t.title || '').toLowerCase().trim();
+        const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
+        const isRegionCoherent = songRegion === targetRegion || (targetRegion === 'k-ost' && (songRegion === 'kpop' || songRegion === 'k-indie'));
+        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+          seen.add(t.id);
+          seen.add(cleanT);
+          cleanAlbumHits.push(t);
+        }
+      }
+      const sampledAlbumHits = cleanAlbumHits.sort(() => Math.random() - 0.5).slice(0, 4);
+
+      // Collect artist's popular tracks and randomly sample 2-3 hits
       const cleanArtistHits = [];
       for (const t of artistSearch) {
         const cleanT = (t.title || '').toLowerCase().trim();
-        if (isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+        const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
+        const isRegionCoherent = songRegion === targetRegion || (targetRegion === 'k-ost' && (songRegion === 'kpop' || songRegion === 'k-indie'));
+        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
           seen.add(t.id);
           seen.add(cleanT);
           cleanArtistHits.push(t);
         }
       }
-      // Sample 2-3 different artist hits each time
-      const sampledArtistHits = [...cleanArtistHits].sort(() => Math.random() - 0.5).slice(0, 3);
+      const sampledArtistHits = cleanArtistHits.sort(() => Math.random() - 0.5).slice(0, 3);
 
       // Collect peer hitmakers' popular tracks and randomly sample 1-2 hits from each peer
       const sampledPeerHits = [];
@@ -1335,29 +1458,29 @@ export const musicApi = {
         const cleanPeers = [];
         for (const t of peerSongs) {
           const cleanT = (t.title || '').toLowerCase().trim();
-          const songRegion = detectTrackRegion(t.artist, t.title, t.genre);
+          const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
           if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
             seen.add(t.id);
             seen.add(cleanT);
             cleanPeers.push(t);
           }
         }
-        // Randomly sample 1-2 tracks from this peer
         const sampled = cleanPeers.sort(() => Math.random() - 0.5).slice(0, 2);
         sampledPeerHits.push(...sampled);
       });
 
-      // Shuffle the peer hits so the artist ordering is dynamic and exciting
+      // Shuffle peer hits
       sampledPeerHits.sort(() => Math.random() - 0.5);
 
       // Fallback: If not enough hits found, query remaining peer hitmakers from same genre
-      if (sampledArtistHits.length + sampledPeerHits.length < 8) {
+      if (sampledAlbumHits.length + sampledArtistHits.length + sampledPeerHits.length < 10) {
         const extraPeers = peerArtists.filter(p => !selectedPeers.includes(p)).slice(0, 4);
         for (const peer of extraPeers) {
-          const peerSongs = await this.searchTracks(peer, 5).catch(() => []);
+          const q = (targetRegion === 'k-ost' && !peer.toLowerCase().includes('ost')) ? `${peer} OST` : peer;
+          const peerSongs = await this.searchTracks(q, 6).catch(() => []);
           for (const t of peerSongs) {
             const cleanT = (t.title || '').toLowerCase().trim();
-            const songRegion = detectTrackRegion(t.artist, t.title, t.genre);
+            const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
             if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
               seen.add(t.id);
               seen.add(cleanT);
@@ -1367,8 +1490,8 @@ export const musicApi = {
         }
       }
 
-      // Combine artist hits and peer hits
-      const combinedCandidates = [...cleanArtistHits, ...sampledPeerHits];
+      // Combine candidates: same album/OST, artist hits, and peer hits
+      const combinedCandidates = [...sampledAlbumHits, ...sampledArtistHits, ...sampledPeerHits];
 
       // Anti-template memory filter: filter out tracks played recently in this session
       const freshCandidates = combinedCandidates.filter(t => {
@@ -1384,7 +1507,7 @@ export const musicApi = {
       // Apply Yugen-inspired Round-Robin spread across artists
       const spreadTracks = spreadArtists(poolToSpread, 2);
 
-      // Build structured popular queue interleaving user favorites:
+      // Build structured popular queue interleaving user favorites
       const finalRadioQueue = [];
       let userIdx = 0;
       let spreadIdx = 0;
@@ -1393,15 +1516,12 @@ export const musicApi = {
         finalRadioQueue.length < limit &&
         (userIdx < userFavoriteHits.length || spreadIdx < spreadTracks.length)
       ) {
-        // Interleave user favorite hit periodically
-        if (userIdx < userFavoriteHits.length && (finalRadioQueue.length === 0 || finalRadioQueue.length % 4 === 0)) {
-          finalRadioQueue.push(userFavoriteHits[userIdx++]);
-        }
-        // Interleave spread radio track
-        if (spreadIdx < spreadTracks.length && finalRadioQueue.length < limit) {
+        if (spreadIdx < spreadTracks.length) {
           finalRadioQueue.push(spreadTracks[spreadIdx++]);
         }
-        // If spread tracks are exhausted, fill with remaining favorites
+        if (userIdx < userFavoriteHits.length && finalRadioQueue.length % 3 === 0 && finalRadioQueue.length < limit) {
+          finalRadioQueue.push(userFavoriteHits[userIdx++]);
+        }
         if (spreadIdx >= spreadTracks.length && userIdx < userFavoriteHits.length && finalRadioQueue.length < limit) {
           finalRadioQueue.push(userFavoriteHits[userIdx++]);
         }

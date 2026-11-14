@@ -429,3 +429,45 @@ describe('Web Lyrics Romanizer & "Huruf Biasa" Transliteration Tests', () => {
     assert.equal(noRomaResult[0].romanizedText, 'naui du nuneul gameumyeon');
   });
 });
+
+describe('Web Context-Aware Radio & Vibe Clustered Autoplay Tests', () => {
+  it('accurately identifies regional genres and isolates Korean OSTs from Western Pop', async () => {
+    const { detectTrackRegion, getSimilarArtists, isCleanPopularTrack } = await import('../src/services/musicApi.js');
+
+    // 1. Korean Drama OST (Kim Tae-ri, Chanyeol)
+    const kimTaeriRegion = detectTrackRegion('Kim Taeri, Nam Joo-hyuk, 보나, 최현욱 & Lee Ju-myung', 'With', 'TV Soundtrack', 'Twenty Five Twenty One OST');
+    assert.equal(kimTaeriRegion, 'k-ost');
+
+    const chanyeolRegion = detectTrackRegion('CHANYEOL', 'Stay With Me', 'Soundtrack', '도깨비 OST Part 1 Guardian');
+    assert.equal(chanyeolRegion, 'k-ost');
+
+    // 2. Korean Pop (NewJeans)
+    const newjeansRegion = detectTrackRegion('NewJeans', 'Ditto', 'K-Pop', 'OMG');
+    assert.equal(newjeansRegion, 'kpop');
+
+    // 3. Indonesian Indie (Bernadya)
+    const bernadyaRegion = detectTrackRegion('Bernadya', 'Satu Bulan', 'Pop', 'Sialnya, Hidup Harus Tetap Berjalan');
+    assert.equal(bernadyaRegion, 'indo-indie');
+
+    // 4. Western Pop (Katy Perry - Daisies)
+    const daisiesRegion = detectTrackRegion('Katy Perry', 'Daisies', 'Pop', 'Smile');
+    assert.equal(daisiesRegion, 'western-pop');
+
+    // 5. Western Rock (Linkin Park)
+    const lpRegion = detectTrackRegion('LINKIN PARK', 'Numb', 'Alternative Rock', 'Meteora');
+    assert.equal(lpRegion, 'western-rock');
+
+    // Verify peers: Korean OST must NEVER contain Katy Perry or Western rock
+    const ostPeers = getSimilarArtists('Kim Taeri', 'TV Soundtrack', [], 'With', 'Twenty Five Twenty One OST');
+    assert.ok(ostPeers.length > 0);
+    assert.ok(!ostPeers.includes('Katy Perry'));
+    assert.ok(!ostPeers.includes('Justin Bieber'));
+    assert.ok(!ostPeers.includes('Green Day'));
+    assert.ok(ostPeers.some(p => ['Punch', 'Crush', 'Gaho', 'Davichi', 'Heize', 'Paul Kim', 'MeloMance', '10cm', 'Gummy', 'Sam Kim', 'Roy Kim', 'Taeyeon', 'Ailee', 'Yerin Baek', 'Sondia', 'Car, the garden', 'Lee Mu-jin', 'IU'].includes(p)));
+
+    // Verify instrumental rejection in isCleanPopularTrack
+    assert.equal(isCleanPopularTrack({ title: 'With (Inst.)', artist: 'Kim Taeri', duration: 250 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Twenty Five Twenty One (Instrumental)', artist: 'Roy Kim', duration: 240 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'With', artist: 'Kim Taeri', duration: 250 }), true);
+  });
+});
