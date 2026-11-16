@@ -735,12 +735,14 @@ export default function App() {
 
     // 3. Queue / Playlist Finished! -> Trigger Smart Autoplay (Spotify Radio)
     if (activeTrack) {
-      setSmartToast(`Radio Pintar: Mencari musik serupa dengan ${activeTrack.artist}...`);
+      setSmartToast(`Radio Pintar: Menyiapkan lagu rekomendasi baru...`);
       try {
-        const smartRecommendations = await musicApi.getSmartRecommendations(activeTrack, liveQueue, 30);
+        // Pass only activeTrack so recommendations are NOT choked by past dead queue items
+        const smartRecommendations = await musicApi.getSmartRecommendations(activeTrack, [activeTrack], 30);
         if (smartRecommendations && smartRecommendations.length > 0) {
           const nextTrack = smartRecommendations[0];
-          const newQueue = [...liveQueue, ...smartRecommendations];
+          // Refresh active queue with activeTrack + 30 fresh recommendations (keeps queue lean, fast, and rich!)
+          const newQueue = [activeTrack, ...smartRecommendations];
           queueRef.current = newQueue;
           setQueue(newQueue);
           handlePlayTrack(nextTrack, newQueue);
@@ -753,10 +755,26 @@ export default function App() {
       }
     }
 
-    // Fallback: loop to beginning if no smart recommendations found
-    if (liveQueue.length > 0) {
-      handlePlayTrack(liveQueue[0]);
+    // Emergency Fallback: If network had temporary glitch, fetch direct artist/genre radio
+    // NEVER loop back to liveQueue[0] (which would rewind to the initial search track)!
+    if (activeTrack) {
+      try {
+        const emergencyRadio = await musicApi.getArtistGenreRadio(activeTrack, 25, [activeTrack]);
+        if (emergencyRadio && emergencyRadio.length > 0) {
+          const nextTrack = emergencyRadio[0];
+          const newQueue = [activeTrack, ...emergencyRadio];
+          queueRef.current = newQueue;
+          setQueue(newQueue);
+          handlePlayTrack(nextTrack, newQueue);
+          return;
+        }
+      } catch (_) {}
     }
+
+    // Clean finish if queue genuinely cannot fetch more songs (never rewind to beginning)
+    setIsPlaying(false);
+    setSmartToast('Semua rekomendasi telah selesai diputar.');
+    setTimeout(() => setSmartToast(null), 3000);
   };
 
   // Previous Track

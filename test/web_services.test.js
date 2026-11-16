@@ -555,4 +555,21 @@ describe('Smart Adaptive Autoplay & Skip Learning Tests', () => {
     // Ensure recommendations provide a generous volume (at least 20 songs, not just 1-5!)
     assert.ok(recommendations.length >= 20, `Recommendations must be generous (>= 20), got ${recommendations.length}`);
   });
+
+  it('continues providing 20+ fresh recommendations without dying or rewinding even after extensive skipping', async () => {
+    const seedTrack = { id: 'seed-2', title: 'Stay With Me', artist: 'CHANYEOL', duration: 192, album: 'Goblin OST' };
+
+    // Simulate user rapidly skipping 15 songs
+    for (let i = 1; i <= 15; i++) {
+      storageService.recordTrackSkip({ id: `skip-${i}`, title: `Skipped Song ${i}`, artist: 'Various Artists' }, 5, 200);
+    }
+
+    // Next recommendation batch must STILL deliver >= 20 songs!
+    const batch2 = await musicApi.getSmartRecommendations(seedTrack, [seedTrack], 25);
+    assert.ok(Array.isArray(batch2));
+    assert.ok(batch2.length >= 20, `Second batch after 15 skips must still have >= 20 songs, got ${batch2.length}`);
+
+    // Must never loop back to seedTrack
+    assert.equal(batch2.some(t => t.id === 'seed-2'), false);
+  });
 });

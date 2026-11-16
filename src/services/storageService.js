@@ -265,33 +265,30 @@ export const storageService = {
    * Returns a unified set of excluded track keys (recently played + skipped)
    * to guarantee zero immediate repetition across consecutive randomize cycles.
    */
-  getRecentExclusionKeys(historyLimit = 12) {
+  getRecentExclusionKeys(historyLimit = 6) {
     const exclusions = new Set();
     try {
       const history = this.getHistory() || [];
-      // Only exclude immediate recent history (last 10-12 tracks) so queue doesn't repeat back-to-back
+      // Only exclude immediate recent history (last 5-6 tracks) so queue doesn't repeat back-to-back
       for (const t of history.slice(0, historyLimit)) {
         if (t?.id) exclusions.add(String(t.id));
-        if (t?.title) {
+        if (t?.title && t?.artist) {
           const tClean = (t.title || '').toLowerCase().trim();
-          if (t?.artist) {
-            exclusions.add(`${tClean}:::${(t.artist || '').toLowerCase().trim()}`);
-          }
+          const aClean = (t.artist || '').toLowerCase().trim();
+          exclusions.add(`${tClean}:::${aClean}`);
         }
       }
 
       const skips = this.getSkips();
-      const cutoff = Date.now() - (48 * 60 * 60 * 1000); // 48 hours
+      const cutoff = Date.now() - (6 * 60 * 60 * 1000); // 6 hours
       for (const item of Object.values(skips)) {
         if (!item || typeof item !== 'object') continue;
-        if (item.lastSkippedAt && item.lastSkippedAt < cutoff && item.count < 2) continue;
+        if (item.lastSkippedAt && item.lastSkippedAt < cutoff) continue;
         if (item.id) exclusions.add(String(item.id));
-        if (item.title) {
+        if (item.title && item.artist) {
           const tClean = (item.title || '').toLowerCase().trim();
-          exclusions.add(tClean);
-          if (item.artist) {
-            exclusions.add(`${tClean}:::${(item.artist || '').toLowerCase().trim()}`);
-          }
+          const aClean = (item.artist || '').toLowerCase().trim();
+          exclusions.add(`${tClean}:::${aClean}`);
         }
       }
     } catch {}
