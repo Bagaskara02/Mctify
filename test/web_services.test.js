@@ -148,6 +148,7 @@ describe('Spotify Search History Persistence Tests', () => {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
       setItem: (k, v) => store.set(k, String(v)),
       removeItem: (k) => store.delete(k),
+      clear: () => store.clear(),
     };
 
     storageService.clearRecentSearches();
@@ -496,5 +497,59 @@ describe('Web Korean & Foreign Lyrics Timing Calibration Tests', () => {
     const gameumyeonWord = words.find(w => w.word === '감으면');
     assert.ok(duWord && gameumyeonWord);
     assert.ok(gameumyeonWord.duration > duWord.duration * 1.5, 'Multi-syllable word should receive longer phonation');
+  });
+});
+
+describe('Smart Adaptive Autoplay & Skip Learning Tests', () => {
+  it('records early skips, down-weights artists, and rewards completed listens', () => {
+    // Reset mock storage
+    globalThis.localStorage.clear();
+
+    const annoyingTrack = { id: 'track-bad-1', title: 'Song I Hate', artist: 'Annoying Artist', duration: 200 };
+    const goodTrack = { id: 'track-good-1', title: 'Song I Love', artist: 'Great Artist', duration: 200 };
+
+    // 1. Record 2 early skips on the annoying track
+    storageService.recordTrackSkip(annoyingTrack, 10, 200);
+    storageService.recordTrackSkip(annoyingTrack, 15, 200);
+
+    const skips = storageService.getSkips();
+    assert.ok(skips['song i hate:::annoying artist']);
+    assert.equal(skips['song i hate:::annoying artist'].count, 2);
+
+    // 2. Taste profile should reflect skipped track and penalized artist
+    const taste = storageService.getTasteProfile();
+    assert.ok(taste.skippedTrackKeys.has('track-bad-1') || taste.skippedTrackKeys.has('song i hate'));
+    assert.ok(taste.penalizedArtists['annoying artist'] >= 2);
+
+    // 3. Record complete on good track
+    storageService.recordTrackComplete(goodTrack);
+    const completes = storageService.getCompletes();
+    assert.ok(completes['song i love:::great artist']);
+    assert.equal(completes['song i love:::great artist'].count, 1);
+
+    // 4. Recent exclusions should include the skipped track
+    const exclusions = storageService.getRecentExclusionKeys(50);
+    assert.ok(exclusions.has('track-bad-1') || exclusions.has('song i hate'));
+  });
+
+  it('guarantees smart recommendations exclude skipped tracks and recent history without repeats', async () => {
+    const seedTrack = { id: 'seed-1', title: 'With', artist: 'Kim Taeri', duration: 250, album: 'Twenty Five Twenty One OST' };
+
+    // Record skip on a peer track
+    const dislikedPeer = { id: 'bad-peer', title: 'Very Bad Track', artist: 'Kim Taeri', duration: 240 };
+    storageService.recordTrackSkip(dislikedPeer, 8, 240);
+
+    const recommendations = await musicApi.getSmartRecommendations(seedTrack, [seedTrack]);
+    assert.ok(Array.isArray(recommendations));
+
+    // Ensure the disliked track is NEVER recommended
+    const hasDisliked = recommendations.some(t => 
+      t.id === 'bad-peer' || (t.title || '').toLowerCase().includes('very bad track')
+    );
+    assert.equal(hasDisliked, false, 'Skipped track must not be recommended');
+
+    // Ensure seed track itself is not in recommendations
+    const hasSeed = recommendations.some(t => t.id === 'seed-1');
+    assert.equal(hasSeed, false, 'Existing queue track must not be duplicated');
   });
 });

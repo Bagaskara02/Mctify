@@ -3,6 +3,8 @@ const STORAGE_KEYS = {
   LIKED_TRACKS: 'mcmusic_liked_tracks_v2',
   HISTORY: 'mcmusic_history_v2',
   SETTINGS: 'mcmusic_settings_v2',
+  SKIPS: 'mcmusic_skips_v2',
+  COMPLETES: 'mcmusic_completes_v2',
 };
 
 const DEFAULT_PLAYLISTS = [
@@ -170,18 +172,190 @@ export const storageService = {
     }
   },
 
+  getSkips() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SKIPS);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  getCompletes() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.COMPLETES);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  },
+
   /**
-   * Get dynamic taste profile based on history, play counts, and liked songs
-   * Analyzes most played artists, genres, and recent tracks.
+   * Negative Feedback: Records user skip or queue jump
+   * Early skips down-weight the track and artist so they are not recommended again.
+   */
+  recordTrackSkip(track, listenedSec = 0, duration = 0) {
+    if (!track || !track.title) return;
+    const cleanT = (track.title || '').toLowerCase().trim();
+    const cleanA = (track.artist || '').toLowerCase().trim();
+    const trackKey = `${cleanT}:::${cleanA}`;
+    const idKey = track.id ? String(track.id) : trackKey;
+
+    try {
+      const skips = this.getSkips();
+      const current = skips[trackKey] || skips[idKey] || {
+        trackKey,
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        genre: track.genre || '',
+        count: 0,
+        lastSkippedAt: 0,
+      };
+
+      current.count = (current.count || 0) + 1;
+      current.lastSkippedAt = Date.now();
+      current.title = track.title;
+      current.artist = track.artist;
+      current.genre = track.genre || current.genre || '';
+      current.lastDuration = duration;
+      current.lastListenedSec = listenedSec;
+
+      skips[trackKey] = current;
+      if (track.id) skips[track.id] = current;
+      localStorage.setItem(STORAGE_KEYS.SKIPS, JSON.stringify(skips));
+    } catch (e) {
+      console.warn('recordTrackSkip error:', e);
+    }
+  },
+
+  /**
+   * Positive Feedback: Records full or engaged listen
+   * Rewards track affinity and cancels negative skip penalties on artist.
+   */
+  recordTrackComplete(track) {
+    if (!track || !track.title) return;
+    const cleanT = (track.title || '').toLowerCase().trim();
+    const cleanA = (track.artist || '').toLowerCase().trim();
+    const trackKey = `${cleanT}:::${cleanA}`;
+    const idKey = track.id ? String(track.id) : trackKey;
+
+    try {
+      const completes = this.getCompletes();
+      const current = completes[trackKey] || completes[idKey] || {
+        trackKey,
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        count: 0,
+        lastCompletedAt: 0,
+      };
+
+      current.count = (current.count || 0) + 1;
+      current.lastCompletedAt = Date.now();
+      completes[trackKey] = current;
+      if (track.id) completes[track.id] = current;
+      localStorage.setItem(STORAGE_KEYS.COMPLETES, JSON.stringify(completes));
+    } catch (e) {
+      console.warn('recordTrackComplete error:', e);
+    }
+  },
+
+  /**
+   * Returns a unified set of excluded track keys (recently played + skipped)
+   * to guarantee zero repetition across consecutive randomize cycles.
+   */
+  getRecentExclusionKeys(historyLimit = 50) {
+    const exclusions = new Set();
+    try {
+      const history = this.getHistory() || [];
+      for (const t of history.slice(0, historyLimit)) {
+        if (t?.id) exclusions.add(String(t.id));
+        if (t?.title) {
+          const tClean = (t.title || '').toLowerCase().trim();
+          exclusions.add(tClean);
+          if (t?.artist) {
+            exclusions.add(`${tClean}:::${(t.artist || '').toLowerCase().trim()}`);
+          }
+        }
+      }
+
+      const skips = this.getSkips();
+      const cutoff = Date.now() - (48 * 60 * 60 * 1000); // 48 hours
+      for (const item of Object.values(skips)) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.lastSkippedAt && item.lastSkippedAt < cutoff && item.count < 2) continue;
+        if (item.id) exclusions.add(String(item.id));
+        if (item.title) {
+          const tClean = (item.title || '').toLowerCase().trim();
+          exclusions.add(tClean);
+          if (item.artist) {
+            exclusions.add(`${tClean}:::${(item.artist || '').toLowerCase().trim()}`);
+          }
+        }
+      }
+    } catch {}
+    return exclusions;
+  },
+
+  /**
+   * Get dynamic taste profile based on history, play counts, liked songs, and skip learning
+   * Analyzes most played artists, genres, skipped tracks, and penalized artists.
    */
   getTasteProfile() {
     try {
       const history = this.getHistory() || [];
       const liked = this.getLikedTracks() || [];
       const playCounts = this.getPlayCounts() || {};
+      const skips = this.getSkips() || {};
+      const completes = this.getCompletes() || {};
       const combined = [...liked, ...history];
 
-      if (combined.length === 0 && Object.keys(playCounts).length === 0) return null;
+      // Calculate skipped track keys & artist penalties
+      const skippedTrackKeys = new Set();
+      const penalizedArtists = {}; // artist -> penalty score
+      const skipCutoff = Date.now() - (72 * 60 * 60 * 1000); // 3 days
+
+      for (const item of Object.values(skips)) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.count >= 1 && (!item.lastSkippedAt || item.lastSkippedAt > skipCutoff)) {
+          if (item.id) skippedTrackKeys.add(String(item.id));
+          if (item.title) {
+            const cleanT = (item.title || '').toLowerCase().trim();
+            skippedTrackKeys.add(cleanT);
+            if (item.artist) {
+              const artKey = (item.artist || '').toLowerCase().trim();
+              skippedTrackKeys.add(`${cleanT}:::${artKey}`);
+              penalizedArtists[artKey] = (penalizedArtists[artKey] || 0) + (Number(item.count) || 1);
+            }
+          }
+        }
+      }
+
+      // Offset penalties for artists where user also completed tracks
+      for (const item of Object.values(completes)) {
+        if (!item || typeof item !== 'object') continue;
+        if (item.artist) {
+          const artKey = (item.artist || '').toLowerCase().trim();
+          if (penalizedArtists[artKey]) {
+            penalizedArtists[artKey] = Math.max(0, penalizedArtists[artKey] - (Number(item.count) || 1));
+          }
+        }
+      }
+
+      if (combined.length === 0 && Object.keys(playCounts).length === 0) {
+        return {
+          topArtists: [],
+          topGenres: [],
+          mostPlayedTracks: [],
+          lastPlayedTrack: null,
+          recentTracks: [],
+          likedTracks: [],
+          skippedTrackKeys,
+          penalizedArtists,
+          hasHistory: false,
+        };
+      }
 
       const artistCounts = {};
       const genreCounts = {};
@@ -215,7 +389,14 @@ export const storageService = {
         }
       }
 
+      // Subtract negative skip penalties from artist affinity
+      for (const [art, count] of Object.entries(artistCounts)) {
+        const pen = penalizedArtists[art.toLowerCase()] || 0;
+        artistCounts[art] = Math.max(0, count - pen * 2);
+      }
+
       const topArtists = Object.entries(artistCounts)
+        .filter(([, score]) => score > 0)
         .sort((a, b) => b[1] - a[1])
         .map(entry => entry[0]);
 
@@ -223,9 +404,16 @@ export const storageService = {
         .sort((a, b) => b[1] - a[1])
         .map(entry => entry[0]);
 
-      // Top played tracks sorted by play count
+      // Top played tracks sorted by play count, excluding explicitly skipped tracks
       const topPlayedTracks = Object.values(playCounts)
         .filter(item => item && typeof item === 'object' && item.track)
+        .filter(item => {
+          const t = item.track;
+          const idStr = String(t.id || '');
+          const cleanT = (t.title || '').toLowerCase().trim();
+          const key = `${cleanT}:::${(t.artist || '').toLowerCase().trim()}`;
+          return !skippedTrackKeys.has(idStr) && !skippedTrackKeys.has(cleanT) && !skippedTrackKeys.has(key);
+        })
         .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
         .map(item => item.track)
         .filter(Boolean);
@@ -237,6 +425,8 @@ export const storageService = {
         lastPlayedTrack: history[0] || null,
         recentTracks: history.slice(0, 8),
         likedTracks: liked.slice(0, 8),
+        skippedTrackKeys,
+        penalizedArtists,
         hasHistory: history.length > 0 || liked.length > 0 || topPlayedTracks.length > 0,
       };
     } catch (e) {

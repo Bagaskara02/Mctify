@@ -1326,23 +1326,35 @@ export const musicApi = {
 
   /**
    * Smart Next / Autoplay: Intelligently finds famous, popular tracks related to current track and playlist
+   * strictly filtering out skipped tracks, penalized artists, and recently played songs.
    */
   async getSmartRecommendations(currentTrack, existingQueue = []) {
     if (!currentTrack) return [];
     const radioTracks = await this.getArtistGenreRadio(currentTrack, 15, existingQueue);
-    const existingIds = new Set(existingQueue.map(t => t.id));
+    const existingIds = new Set(existingQueue.map(t => String(t.id || '')));
     const existingTitles = new Set(existingQueue.map(t => (t.title || '').toLowerCase().trim()));
-    return radioTracks.filter(t => !existingIds.has(t.id) && !existingTitles.has((t.title || '').toLowerCase().trim()));
+    const historyExclusions = storageService.getRecentExclusionKeys(50);
+
+    return radioTracks.filter(t => {
+      const idStr = String(t.id || '');
+      const cleanT = (t.title || '').toLowerCase().trim();
+      const pairKey = `${cleanT}:::${(t.artist || '').toLowerCase().trim()}`;
+      return !existingIds.has(idStr) && 
+             !existingTitles.has(cleanT) && 
+             !historyExclusions.has(idStr) &&
+             !historyExclusions.has(cleanT) &&
+             !historyExclusions.has(pairKey);
+    });
   },
 
   /**
-   * Search Radio Mode:
+   * Search Radio Mode / Smart Autoplay Engine:
    * Generates a context-aware randomized queue of TOP POPULAR, FAMOUS songs matching the artist or peer hitmakers.
-   * Dynamically adapts to the artist, genre, and playlist without static bias.
+   * Dynamically adapts to user taste profile, skips, and negative feedback with zero repetition across cycles.
    */
   async getArtistGenreRadio(track, limit = 18, playlistContext = []) {
     if (!track) return [];
-    const targetId = track.id;
+    const targetId = track.id ? String(track.id) : '';
     const targetTitle = (track.title || '').toLowerCase().trim();
     const targetArtist = (track.artist || '').toLowerCase().trim();
     const targetAlbum = (track.album || '').toLowerCase().trim();
@@ -1353,11 +1365,43 @@ export const musicApi = {
       if (targetId) seen.add(targetId);
       seen.add(targetTitle);
 
-      // 1. Precise region & vibe detection (prevents cross-genre/cross-language mixing)
+      // 1. Fetch user taste profile, skipped tracks, and recent session exclusions
+      let taste = null;
+      let historyExclusions = new Set();
+      try {
+        taste = storageService.getTasteProfile();
+        historyExclusions = storageService.getRecentExclusionKeys(50);
+      } catch (err) {
+        console.warn('Taste retrieval in radio:', err);
+      }
+
+      const skippedKeys = taste?.skippedTrackKeys || new Set();
+      const penalizedArtists = taste?.penalizedArtists || {};
+
+      // Helper to check if a track is skipped, penalized, or recently repeated
+      const isNegativeFeedback = (t) => {
+        if (!t) return true;
+        const idStr = String(t.id || '');
+        const cleanT = (t.title || '').toLowerCase().trim();
+        const artKey = (t.artist || '').toLowerCase().trim();
+        const pairKey = `${cleanT}:::${artKey}`;
+
+        if (skippedKeys.has(idStr) || skippedKeys.has(cleanT) || skippedKeys.has(pairKey)) return true;
+        const pen = penalizedArtists[artKey] || 0;
+        // If artist has > 1 early skips, penalize unless current target track is specifically by this artist
+        if (pen > 1 && !targetArtist.includes(artKey) && !artKey.includes(targetArtist)) return true;
+        return false;
+      };
+
+      // 2. Precise region & vibe detection (prevents cross-genre/cross-language mixing)
       const targetRegion = detectTrackRegion(track.artist, track.title, track.genre, track.album);
 
-      // 2. Identify peer hitmaker cluster dynamically using artist, genre, playlist context, title, and album
-      const peerArtists = getSimilarArtists(track.artist, track.genre, playlistContext, track.title, track.album);
+      // 3. Identify peer hitmaker cluster dynamically using artist, genre, playlist context, title, and album
+      const peerArtists = getSimilarArtists(track.artist, track.genre, playlistContext, track.title, track.album)
+        .filter(peer => {
+          const pen = penalizedArtists[peer.toLowerCase()] || 0;
+          return pen <= 1; // Filter out peer artists that the user has penalized with repeated skips
+        });
 
       // Extract primary artist name cleanly (e.g. "Kim Taeri" from "Kim Taeri, Nam Joo-hyuk, 보나...")
       const primaryArtist = (track.artist || '')
@@ -1367,11 +1411,10 @@ export const musicApi = {
         .split(/[,&/x]/)[0]
         .trim();
 
-      // 3. Fetch user's frequently played & liked songs (STRICTLY matching target region!)
+      // 4. Fetch user's frequently played & liked songs (STRICTLY matching target region & NOT skipped!)
       const userFavoriteHits = [];
       try {
         const liked = storageService.getLikedTracks() || [];
-        const taste = storageService.getTasteProfile();
         const mostPlayed = taste?.mostPlayedTracks || [];
         const userPool = [...liked, ...mostPlayed];
 
@@ -1379,7 +1422,7 @@ export const musicApi = {
           if (!t || !t.id || !t.title) continue;
           const artLower = (t.artist || '').toLowerCase();
           const cleanT = (t.title || '').toLowerCase().trim();
-          if (seen.has(t.id) || seen.has(cleanT)) continue;
+          if (seen.has(t.id) || seen.has(cleanT) || isNegativeFeedback(t)) continue;
 
           // STRICT REGION & VIBE CHECK: If track is Korean OST, NEVER include Western pop / Daisies!
           const itemRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
@@ -1399,7 +1442,7 @@ export const musicApi = {
         console.warn('Taste profile lookup in radio:', err);
       }
 
-      // 4. Queries based on track context:
+      // 5. Queries based on track context:
       // A. Primary artist's hits
       const artistQuery = primaryArtist || track.artist;
       const artistSearchPromise = artistQuery ? this.searchTracks(artistQuery, 12).catch(() => []) : Promise.resolve([]);
@@ -1411,7 +1454,7 @@ export const musicApi = {
         albumSearchPromise = this.searchTracks(track.album, 10).catch(() => []);
       }
 
-      // C. Peer hitmakers (randomly pick 4-5 peers from the cluster)
+      // C. Peer hitmakers (randomly pick 4-5 non-penalized peers from the cluster)
       const selectedPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 5);
       const peerPromises = selectedPeers.map(peer => {
         const q = (targetRegion === 'k-ost' && !peer.toLowerCase().includes('ost')) ? `${peer} OST` : peer;
@@ -1430,7 +1473,7 @@ export const musicApi = {
         const cleanT = (t.title || '').toLowerCase().trim();
         const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
         const isRegionCoherent = songRegion === targetRegion || (targetRegion === 'k-ost' && (songRegion === 'kpop' || songRegion === 'k-indie'));
-        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT) && !isNegativeFeedback(t)) {
           seen.add(t.id);
           seen.add(cleanT);
           cleanAlbumHits.push(t);
@@ -1444,7 +1487,7 @@ export const musicApi = {
         const cleanT = (t.title || '').toLowerCase().trim();
         const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
         const isRegionCoherent = songRegion === targetRegion || (targetRegion === 'k-ost' && (songRegion === 'kpop' || songRegion === 'k-indie'));
-        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+        if (isRegionCoherent && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT) && !isNegativeFeedback(t)) {
           seen.add(t.id);
           seen.add(cleanT);
           cleanArtistHits.push(t);
@@ -1459,7 +1502,7 @@ export const musicApi = {
         for (const t of peerSongs) {
           const cleanT = (t.title || '').toLowerCase().trim();
           const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
-          if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+          if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT) && !isNegativeFeedback(t)) {
             seen.add(t.id);
             seen.add(cleanT);
             cleanPeers.push(t);
@@ -1481,7 +1524,7 @@ export const musicApi = {
           for (const t of peerSongs) {
             const cleanT = (t.title || '').toLowerCase().trim();
             const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
-            if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT)) {
+            if (songRegion === targetRegion && isCleanPopularTrack(t) && !seen.has(t.id) && !seen.has(cleanT) && !isNegativeFeedback(t)) {
               seen.add(t.id);
               seen.add(cleanT);
               sampledPeerHits.push(t);
@@ -1493,13 +1536,16 @@ export const musicApi = {
       // Combine candidates: same album/OST, artist hits, and peer hits
       const combinedCandidates = [...sampledAlbumHits, ...sampledArtistHits, ...sampledPeerHits];
 
-      // Anti-template memory filter: filter out tracks played recently in this session
+      // Anti-repetition filter across sessions & cycles:
+      // Exclude tracks in recentRadioHistory AND recent history from storage
       const freshCandidates = combinedCandidates.filter(t => {
+        const idStr = String(t.id || '');
         const cleanT = cleanTrackTitle(t.title || '').toLowerCase().trim();
-        return !recentRadioHistory.has(cleanT);
+        const pairKey = `${cleanT}:::${(t.artist || '').toLowerCase().trim()}`;
+        return !recentRadioHistory.has(cleanT) && !historyExclusions.has(idStr) && !historyExclusions.has(cleanT) && !historyExclusions.has(pairKey);
       });
 
-      const poolToSpread = freshCandidates.length >= limit ? freshCandidates : combinedCandidates;
+      const poolToSpread = freshCandidates.length >= limit ? freshCandidates : (freshCandidates.length > 0 ? freshCandidates : combinedCandidates.filter(t => !isNegativeFeedback(t)));
       if (poolToSpread === combinedCandidates) {
         recentRadioHistory.clear();
       }

@@ -316,7 +316,24 @@ export default function App() {
 
   // Realtime Broadcast for McTify Discord RPC Bridge & Extensions
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack) {
+      try {
+        window.postMessage({
+          type: 'MCTIFY_TRACK_STATE',
+          data: {
+            title: '',
+            artist: '',
+            album: '',
+            artwork: '',
+            currentTime: 0,
+            duration: 0,
+            paused: true,
+            cleared: true,
+          }
+        }, '*');
+      } catch (_) {}
+      return;
+    }
     try {
       window.postMessage({
         type: 'MCTIFY_TRACK_STATE',
@@ -326,7 +343,7 @@ export default function App() {
           album: currentTrack.album || '',
           artwork: currentTrack.artwork || '',
           currentTime: Math.floor(currentTime || 0),
-          duration: Math.floor(duration || 0),
+          duration: Math.floor(duration || currentTrack.duration || 0),
           paused: !isPlaying,
           videoId: currentTrack.videoId || '',
         }
@@ -433,10 +450,35 @@ export default function App() {
   const handlePlayTrack = async (track, newQueue = null, initialSeekTime = 0) => {
     if (!track) return;
 
+    const prevTrack = currentTrackRef.current;
+    const liveQueue = queueRef.current;
+
+    // Detect user skipping away or completing previous track
+    if (prevTrack && prevTrack.id !== track.id) {
+      const listened = currentTime || 0;
+      const dur = duration || prevTrack.duration || 0;
+      if (dur > 0 && listened / dur >= 0.6) {
+        storageService.recordTrackComplete(prevTrack);
+      } else if (listened < 35 || (dur > 0 && listened / dur < 0.35)) {
+        storageService.recordTrackSkip(prevTrack, listened, dur);
+      }
+
+      // Detect jumped tracks in queue (e.g. clicking 3 tracks ahead)
+      const oldIdx = findTrackIndexInQueue(prevTrack, liveQueue);
+      const newIdx = findTrackIndexInQueue(track, liveQueue);
+      if (oldIdx !== -1 && newIdx > oldIdx + 1) {
+        for (let i = oldIdx + 1; i < newIdx; i++) {
+          const jumpedTrack = liveQueue[i];
+          if (jumpedTrack) {
+            storageService.recordTrackSkip(jumpedTrack, 0, jumpedTrack.duration || 0);
+          }
+        }
+      }
+    }
+
     const gen = ++playGenRef.current;
     startBgKeepAlive();
 
-    const liveQueue = queueRef.current;
     const liveShuffle = isShuffleRef.current;
 
     if (newQueue && Array.isArray(newQueue) && newQueue.length > 0) {
@@ -661,6 +703,17 @@ export default function App() {
     const liveShuffle = isShuffleRef.current;
 
     if (!activeTrack && liveQueue.length === 0) return;
+
+    // Record positive vs negative feedback on current track
+    if (activeTrack) {
+      const listened = currentTime || 0;
+      const dur = duration || activeTrack.duration || 0;
+      if (isAutoEnded || (dur > 0 && listened / dur >= 0.6)) {
+        storageService.recordTrackComplete(activeTrack);
+      } else if (!isAutoEnded && (listened < 35 || (dur > 0 && listened / dur < 0.35))) {
+        storageService.recordTrackSkip(activeTrack, listened, dur);
+      }
+    }
 
     const currentIndex = findTrackIndexInQueue(activeTrack, liveQueue);
 
