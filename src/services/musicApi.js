@@ -1327,24 +1327,49 @@ export const musicApi = {
   /**
    * Smart Next / Autoplay: Intelligently finds famous, popular tracks related to current track and playlist
    * strictly filtering out skipped tracks, penalized artists, and recently played songs.
+   * Guarantees a generous batch of 25-35 recommendations for a deep, non-exhausting queue.
    */
-  async getSmartRecommendations(currentTrack, existingQueue = []) {
+  async getSmartRecommendations(currentTrack, existingQueue = [], targetCount = 30) {
     if (!currentTrack) return [];
-    const radioTracks = await this.getArtistGenreRadio(currentTrack, 15, existingQueue);
+    // Request plenty of candidates from radio engine so post-deduplication yields targetCount
+    const radioTracks = await this.getArtistGenreRadio(currentTrack, targetCount + 20, existingQueue);
     const existingIds = new Set(existingQueue.map(t => String(t.id || '')));
     const existingTitles = new Set(existingQueue.map(t => (t.title || '').toLowerCase().trim()));
-    const historyExclusions = storageService.getRecentExclusionKeys(50);
+    const historyExclusions = storageService.getRecentExclusionKeys(12);
 
-    return radioTracks.filter(t => {
+    const result = [];
+    const seen = new Set();
+
+    // 1. First pass: strict filter (no existingQueue, no immediate history repetition)
+    for (const t of radioTracks) {
+      if (result.length >= targetCount) break;
       const idStr = String(t.id || '');
       const cleanT = (t.title || '').toLowerCase().trim();
       const pairKey = `${cleanT}:::${(t.artist || '').toLowerCase().trim()}`;
-      return !existingIds.has(idStr) && 
-             !existingTitles.has(cleanT) && 
-             !historyExclusions.has(idStr) &&
-             !historyExclusions.has(cleanT) &&
-             !historyExclusions.has(pairKey);
-    });
+
+      if (existingIds.has(idStr) || existingTitles.has(cleanT) || seen.has(idStr) || seen.has(cleanT)) continue;
+      if (historyExclusions.has(pairKey)) continue;
+
+      seen.add(idStr);
+      seen.add(cleanT);
+      result.push(t);
+    }
+
+    // 2. Guarantee volume: If result is still fewer than targetCount, backfill from clean radio tracks
+    if (result.length < targetCount) {
+      for (const t of radioTracks) {
+        if (result.length >= targetCount) break;
+        const idStr = String(t.id || '');
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (!existingIds.has(idStr) && !existingTitles.has(cleanT) && !seen.has(idStr) && !seen.has(cleanT)) {
+          seen.add(idStr);
+          seen.add(cleanT);
+          result.push(t);
+        }
+      }
+    }
+
+    return result.slice(0, targetCount);
   },
 
   /**
@@ -1352,7 +1377,7 @@ export const musicApi = {
    * Generates a context-aware randomized queue of TOP POPULAR, FAMOUS songs matching the artist or peer hitmakers.
    * Dynamically adapts to user taste profile, skips, and negative feedback with zero repetition across cycles.
    */
-  async getArtistGenreRadio(track, limit = 18, playlistContext = []) {
+  async getArtistGenreRadio(track, limit = 35, playlistContext = []) {
     if (!track) return [];
     const targetId = track.id ? String(track.id) : '';
     const targetTitle = (track.title || '').toLowerCase().trim();
@@ -1370,7 +1395,7 @@ export const musicApi = {
       let historyExclusions = new Set();
       try {
         taste = storageService.getTasteProfile();
-        historyExclusions = storageService.getRecentExclusionKeys(50);
+        historyExclusions = storageService.getRecentExclusionKeys(12);
       } catch (err) {
         console.warn('Taste retrieval in radio:', err);
       }
@@ -1442,23 +1467,23 @@ export const musicApi = {
         console.warn('Taste profile lookup in radio:', err);
       }
 
-      // 5. Queries based on track context:
-      // A. Primary artist's hits
+      // 5. Broad Queries based on track context for rich volume:
+      // A. Primary artist's hits (up to 25 hits)
       const artistQuery = primaryArtist || track.artist;
-      const artistSearchPromise = artistQuery ? this.searchTracks(artistQuery, 12).catch(() => []) : Promise.resolve([]);
+      const artistSearchPromise = artistQuery ? this.searchTracks(artistQuery, 25).catch(() => []) : Promise.resolve([]);
 
-      // B. Album / Soundtrack context (e.g. "Twenty Five Twenty One OST" or "Goblin OST")
+      // B. Album / Soundtrack context (up to 20 hits)
       let albumSearchPromise = Promise.resolve([]);
       const isSoundtrack = targetRegion === 'k-ost' || targetAlbum.includes('ost') || targetAlbum.includes('soundtrack') || targetGenre.includes('soundtrack');
       if (isSoundtrack && track.album && track.album !== 'Single' && !track.album.includes('Unknown')) {
-        albumSearchPromise = this.searchTracks(track.album, 10).catch(() => []);
+        albumSearchPromise = this.searchTracks(track.album, 20).catch(() => []);
       }
 
-      // C. Peer hitmakers (randomly pick 4-5 non-penalized peers from the cluster)
-      const selectedPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 5);
+      // C. Peer hitmakers (query 7-9 non-penalized peers in parallel)
+      const selectedPeers = [...peerArtists].sort(() => Math.random() - 0.5).slice(0, 8);
       const peerPromises = selectedPeers.map(peer => {
         const q = (targetRegion === 'k-ost' && !peer.toLowerCase().includes('ost')) ? `${peer} OST` : peer;
-        return this.searchTracks(q, 8).catch(() => []);
+        return this.searchTracks(q, 10).catch(() => []);
       });
 
       const [artistSearch, albumSearch, ...peerResults] = await Promise.all([
@@ -1479,9 +1504,9 @@ export const musicApi = {
           cleanAlbumHits.push(t);
         }
       }
-      const sampledAlbumHits = cleanAlbumHits.sort(() => Math.random() - 0.5).slice(0, 4);
+      const sampledAlbumHits = cleanAlbumHits.sort(() => Math.random() - 0.5).slice(0, 10);
 
-      // Collect artist's popular tracks and randomly sample 2-3 hits
+      // Collect artist's popular tracks (up to 8 hits)
       const cleanArtistHits = [];
       for (const t of artistSearch) {
         const cleanT = (t.title || '').toLowerCase().trim();
@@ -1493,9 +1518,9 @@ export const musicApi = {
           cleanArtistHits.push(t);
         }
       }
-      const sampledArtistHits = cleanArtistHits.sort(() => Math.random() - 0.5).slice(0, 3);
+      const sampledArtistHits = cleanArtistHits.sort(() => Math.random() - 0.5).slice(0, 8);
 
-      // Collect peer hitmakers' popular tracks and randomly sample 1-2 hits from each peer
+      // Collect peer hitmakers' popular tracks (up to 4 hits per peer)
       const sampledPeerHits = [];
       peerResults.forEach(peerSongs => {
         const cleanPeers = [];
@@ -1508,7 +1533,7 @@ export const musicApi = {
             cleanPeers.push(t);
           }
         }
-        const sampled = cleanPeers.sort(() => Math.random() - 0.5).slice(0, 2);
+        const sampled = cleanPeers.sort(() => Math.random() - 0.5).slice(0, 4);
         sampledPeerHits.push(...sampled);
       });
 
@@ -1516,11 +1541,11 @@ export const musicApi = {
       sampledPeerHits.sort(() => Math.random() - 0.5);
 
       // Fallback: If not enough hits found, query remaining peer hitmakers from same genre
-      if (sampledAlbumHits.length + sampledArtistHits.length + sampledPeerHits.length < 10) {
-        const extraPeers = peerArtists.filter(p => !selectedPeers.includes(p)).slice(0, 4);
+      if (sampledAlbumHits.length + sampledArtistHits.length + sampledPeerHits.length < limit) {
+        const extraPeers = peerArtists.filter(p => !selectedPeers.includes(p)).slice(0, 6);
         for (const peer of extraPeers) {
           const q = (targetRegion === 'k-ost' && !peer.toLowerCase().includes('ost')) ? `${peer} OST` : peer;
-          const peerSongs = await this.searchTracks(q, 6).catch(() => []);
+          const peerSongs = await this.searchTracks(q, 8).catch(() => []);
           for (const t of peerSongs) {
             const cleanT = (t.title || '').toLowerCase().trim();
             const songRegion = detectTrackRegion(t.artist, t.title, t.genre, t.album);
@@ -1537,12 +1562,11 @@ export const musicApi = {
       const combinedCandidates = [...sampledAlbumHits, ...sampledArtistHits, ...sampledPeerHits];
 
       // Anti-repetition filter across sessions & cycles:
-      // Exclude tracks in recentRadioHistory AND recent history from storage
+      // Exclude tracks in recentRadioHistory AND immediate recent history from storage
       const freshCandidates = combinedCandidates.filter(t => {
-        const idStr = String(t.id || '');
         const cleanT = cleanTrackTitle(t.title || '').toLowerCase().trim();
         const pairKey = `${cleanT}:::${(t.artist || '').toLowerCase().trim()}`;
-        return !recentRadioHistory.has(cleanT) && !historyExclusions.has(idStr) && !historyExclusions.has(cleanT) && !historyExclusions.has(pairKey);
+        return !recentRadioHistory.has(cleanT) && !historyExclusions.has(pairKey);
       });
 
       const poolToSpread = freshCandidates.length >= limit ? freshCandidates : (freshCandidates.length > 0 ? freshCandidates : combinedCandidates.filter(t => !isNegativeFeedback(t)));
@@ -1550,11 +1574,25 @@ export const musicApi = {
         recentRadioHistory.clear();
       }
 
-      // Apply Yugen-inspired Round-Robin spread across artists
-      const spreadTracks = spreadArtists(poolToSpread, 2);
+      // Apply Yugen-inspired Round-Robin spread across artists (up to 3 tracks per artist)
+      const spreadTracks = spreadArtists(poolToSpread, 3);
 
       // Build structured popular queue interleaving user favorites
       const finalRadioQueue = [];
+      const queuedIds = new Set();
+      const queuedTitles = new Set();
+
+      const addTrackToQueue = (t) => {
+        if (!t || !t.id) return false;
+        const idStr = String(t.id);
+        const cleanT = (t.title || '').toLowerCase().trim();
+        if (queuedIds.has(idStr) || queuedTitles.has(cleanT)) return false;
+        queuedIds.add(idStr);
+        queuedTitles.add(cleanT);
+        finalRadioQueue.push(t);
+        return true;
+      };
+
       let userIdx = 0;
       let spreadIdx = 0;
 
@@ -1563,13 +1601,23 @@ export const musicApi = {
         (userIdx < userFavoriteHits.length || spreadIdx < spreadTracks.length)
       ) {
         if (spreadIdx < spreadTracks.length) {
-          finalRadioQueue.push(spreadTracks[spreadIdx++]);
+          addTrackToQueue(spreadTracks[spreadIdx++]);
         }
         if (userIdx < userFavoriteHits.length && finalRadioQueue.length % 3 === 0 && finalRadioQueue.length < limit) {
-          finalRadioQueue.push(userFavoriteHits[userIdx++]);
+          addTrackToQueue(userFavoriteHits[userIdx++]);
         }
         if (spreadIdx >= spreadTracks.length && userIdx < userFavoriteHits.length && finalRadioQueue.length < limit) {
-          finalRadioQueue.push(userFavoriteHits[userIdx++]);
+          addTrackToQueue(userFavoriteHits[userIdx++]);
+        }
+      }
+
+      // Backfill to GUARANTEE generous volume: if queue is still short, pull from remaining candidates
+      if (finalRadioQueue.length < limit) {
+        for (const t of combinedCandidates) {
+          if (finalRadioQueue.length >= limit) break;
+          if (!isNegativeFeedback(t)) {
+            addTrackToQueue(t);
+          }
         }
       }
 

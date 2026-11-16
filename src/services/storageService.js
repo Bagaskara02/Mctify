@@ -263,17 +263,17 @@ export const storageService = {
 
   /**
    * Returns a unified set of excluded track keys (recently played + skipped)
-   * to guarantee zero repetition across consecutive randomize cycles.
+   * to guarantee zero immediate repetition across consecutive randomize cycles.
    */
-  getRecentExclusionKeys(historyLimit = 50) {
+  getRecentExclusionKeys(historyLimit = 12) {
     const exclusions = new Set();
     try {
       const history = this.getHistory() || [];
+      // Only exclude immediate recent history (last 10-12 tracks) so queue doesn't repeat back-to-back
       for (const t of history.slice(0, historyLimit)) {
         if (t?.id) exclusions.add(String(t.id));
         if (t?.title) {
           const tClean = (t.title || '').toLowerCase().trim();
-          exclusions.add(tClean);
           if (t?.artist) {
             exclusions.add(`${tClean}:::${(t.artist || '').toLowerCase().trim()}`);
           }

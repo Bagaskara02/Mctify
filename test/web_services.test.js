@@ -551,5 +551,8 @@ describe('Smart Adaptive Autoplay & Skip Learning Tests', () => {
     // Ensure seed track itself is not in recommendations
     const hasSeed = recommendations.some(t => t.id === 'seed-1');
     assert.equal(hasSeed, false, 'Existing queue track must not be duplicated');
+
+    // Ensure recommendations provide a generous volume (at least 20 songs, not just 1-5!)
+    assert.ok(recommendations.length >= 20, `Recommendations must be generous (>= 20), got ${recommendations.length}`);
   });
 });

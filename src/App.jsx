@@ -589,9 +589,9 @@ export default function App() {
     // 2. Display notification
     setSmartToast(`Radio Hits: Menyiapkan lagu populer untuk ${track.artist || track.title}...`);
 
-    // 3. Asynchronously fetch popular artist & genre tracks
+    // 3. Asynchronously fetch popular artist & genre tracks (generous 35-song queue)
     try {
-      const radioTracks = await musicApi.getArtistGenreRadio(track, 18, [track]);
+      const radioTracks = await musicApi.getArtistGenreRadio(track, 35, [track]);
       if (radioTracks && radioTracks.length > 0) {
         const baseQueue = [
           track,
@@ -737,7 +737,7 @@ export default function App() {
     if (activeTrack) {
       setSmartToast(`Radio Pintar: Mencari musik serupa dengan ${activeTrack.artist}...`);
       try {
-        const smartRecommendations = await musicApi.getSmartRecommendations(activeTrack, liveQueue);
+        const smartRecommendations = await musicApi.getSmartRecommendations(activeTrack, liveQueue, 30);
         if (smartRecommendations && smartRecommendations.length > 0) {
           const nextTrack = smartRecommendations[0];
           const newQueue = [...liveQueue, ...smartRecommendations];
@@ -1246,7 +1246,7 @@ export default function App() {
   const handleStartRadio = (track) => {
     handlePlayTrack(track);
     setSmartToast(`Memulai Radio Lagu: ${track.title} • ${track.artist}`);
-    musicApi.getSmartRecommendations(track, [track]).then(recs => {
+    musicApi.getSmartRecommendations(track, [track], 35).then(recs => {
       if (recs && recs.length > 0) {
         setQueue([track, ...recs]);
       }
