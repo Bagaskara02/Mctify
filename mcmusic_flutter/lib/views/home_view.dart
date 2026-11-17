@@ -605,11 +605,12 @@ class _HomeViewState extends State<HomeView> {
                             ),
                             const SizedBox(height: 12),
                             GridView.builder(
+                              padding: EdgeInsets.zero,
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 2,
-                                childAspectRatio: 2.85,
+                                childAspectRatio: 3.0,
                                 crossAxisSpacing: 8,
                                 mainAxisSpacing: 8,
                               ),
@@ -626,7 +627,7 @@ class _HomeViewState extends State<HomeView> {
                       ),
                     ),
 
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 12)),
 
                   // Section 2: "Dibuat Untuk Kamu" (Daily Mixes & Release Radar)
                   if (_selectedFilter == 'Semua' || _selectedFilter == 'Mix' || _selectedFilter == 'Musik')

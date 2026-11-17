@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as ja;
@@ -716,6 +718,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void _initAudioContext() {
     try {
       _player.setVolume(1.0);
+      () async {
+        try {
+          final session = await AudioSession.instance;
+          await session.configure(const AudioSessionConfiguration.music());
+        } catch (_) {}
+      }();
     } catch (e) {
       debugPrint('AudioContext init note: $e');
     }
@@ -1179,6 +1187,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           );
           await _player.setAudioSource(audioSource);
           if (gen != _playGeneration) return;
+          if (Platform.isIOS) {
+            try {
+              final session = await AudioSession.instance;
+              await session.setActive(true);
+            } catch (_) {}
+          }
           await _player.play();
           if (gen != _playGeneration) return;
           if (_playbackSpeed != 1.0) {

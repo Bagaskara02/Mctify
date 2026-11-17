@@ -1,6 +1,10 @@
+import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'services/audio_player_manager.dart';
 import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
@@ -15,6 +19,16 @@ import 'widgets/floating_bubble_player.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Configure AudioSession for iOS background audio & silent switch override
+  if (!kIsWeb && Platform.isIOS) {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      debugPrint('AudioSession init note: $e');
+    }
+  }
 
   MediaAudioHandler? mediaHandler;
   try {
@@ -199,7 +213,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   );
                 },
               ),
-              BottomNavigationBar(
+              if (!kIsWeb && Platform.isIOS)
+                _buildIosInstagramNavbar()
+              else
+                BottomNavigationBar(
                 currentIndex: _currentIndex,
                 onTap: (index) {
                   HapticFeedback.selectionClick();
@@ -260,6 +277,75 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Custom Instagram-style floating capsule navbar exclusively for iOS
+  Widget _buildIosInstagramNavbar() {
+    final navItems = [
+      (Icons.home_outlined, Icons.home_filled, 'Beranda'),
+      (Icons.search_rounded, Icons.search_rounded, 'Cari'),
+      (Icons.library_music_outlined, Icons.library_music_rounded, 'Koleksi'),
+      (Icons.swap_horizontal_circle_outlined, Icons.swap_horizontal_circle_rounded, 'Impor'),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 8, top: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(35),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+          child: Container(
+            height: 54,
+            decoration: BoxDecoration(
+              color: const Color(0xE614161C),
+              borderRadius: BorderRadius.circular(35),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.14),
+                width: 1.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(navItems.length, (idx) {
+                final isSelected = _currentIndex == idx;
+                final (unselectedIcon, selectedIcon, _) = navItems[idx];
+
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _currentIndex = idx);
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    padding: isSelected
+                        ? const EdgeInsets.symmetric(horizontal: 22, vertical: 8)
+                        : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFF383838) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: Icon(
+                      isSelected ? selectedIcon : unselectedIcon,
+                      color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.72),
+                      size: isSelected ? 24 : 23,
+                    ),
+                  ),
+                );
+              }),
+            ),
           ),
         ),
       ),

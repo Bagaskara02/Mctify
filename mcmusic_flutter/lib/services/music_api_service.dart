@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -22,6 +23,25 @@ class MusicApiService {
     AudioQuality quality,
   ) {
     final mp4Streams = allStreams.where((s) => s.container.name.toLowerCase() == 'mp4').toList();
+
+    // Apple iOS (AVPlayer) cannot decode WebM / Opus containers natively!
+    // iOS MUST strictly choose MP4 (AAC) containers across all quality tiers.
+    if (!kIsWeb && Platform.isIOS && mp4Streams.isNotEmpty) {
+      mp4Streams.sort((a, b) => a.bitrate.compareTo(b.bitrate));
+      switch (quality) {
+        case AudioQuality.dataSaver:
+          return mp4Streams.first;
+        case AudioQuality.standard:
+          return mp4Streams.firstWhere(
+            (s) => s.bitrate.kiloBitsPerSecond <= 140,
+            orElse: () => mp4Streams.last,
+          );
+        case AudioQuality.high:
+        case AudioQuality.lossless:
+          return mp4Streams.last;
+      }
+    }
+
     if (quality == AudioQuality.lossless) {
       // Lossless / Hi-Fi mode: choose highest bitrate across all audio codecs (Opus 251 / Hi-Fi AAC)
       final sortedAll = List<AudioStreamInfo>.from(allStreams)

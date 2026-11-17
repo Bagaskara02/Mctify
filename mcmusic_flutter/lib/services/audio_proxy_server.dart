@@ -100,12 +100,19 @@ class AudioProxyServer {
         refreshUrl: refreshUrl,
       );
     }
-    return 'http://127.0.0.1:$port/stream?id=${Uri.encodeQueryComponent(key)}';
+    final ext = (contentType.contains('mp4') || contentType.contains('m4a') || contentType.contains('aac'))
+        ? '.m4a'
+        : (contentType.contains('webm') ? '.webm' : '.mp3');
+    return 'http://127.0.0.1:$port/stream$ext?id=${Uri.encodeQueryComponent(key)}';
   }
 
   String? getRegisteredProxyUrl(String key) {
     if (_port == null || !_entries.containsKey(key)) return null;
-    return 'http://127.0.0.1:$_port/stream?id=${Uri.encodeQueryComponent(key)}';
+    final entry = _entries[key];
+    final ext = (entry?.contentType.contains('mp4') == true || entry?.contentType.contains('m4a') == true)
+        ? '.m4a'
+        : (entry?.contentType.contains('webm') == true ? '.webm' : '.mp3');
+    return 'http://127.0.0.1:$_port/stream$ext?id=${Uri.encodeQueryComponent(key)}';
   }
 
   bool hasHeadCached(String key) => _chunkCache.containsKey('$key:0');
@@ -134,7 +141,7 @@ class AudioProxyServer {
 
   Future<void> _handleRequest(HttpRequest req) async {
     try {
-      if (req.uri.path != '/stream') {
+      if (req.uri.path != '/stream' && !req.uri.path.startsWith('/stream.')) {
         req.response.statusCode = HttpStatus.notFound;
         await req.response.close();
         return;
