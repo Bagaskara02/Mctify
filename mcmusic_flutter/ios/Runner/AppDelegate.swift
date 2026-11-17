@@ -15,42 +15,48 @@ import AVFoundation
       print("AVAudioSession error: \(error)")
     }
 
-    let controller: FlutterViewController = window?.rootViewController as! FlutterViewController
-    let equalizerChannel = FlutterMethodChannel(name: "com.mcmusic.app/equalizer", binaryMessenger: controller.binaryMessenger)
-    equalizerChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
-      switch call.method {
-      case "setEnabled":
-        let args = call.arguments as? [String: Any]
-        let enabled = args?["enabled"] as? Bool ?? true
-        AppDelegate.applyIosAudioProfile(enabled: enabled)
-        result(true)
-      case "setBands":
-        let args = call.arguments as? [String: Any]
-        let enabled = args?["enabled"] as? Bool ?? true
-        let rawBands = args?["bands"] as? [Double] ?? []
-        AppDelegate.applyIosBands(bands: rawBands, enabled: enabled)
-        result(true)
-      case "setBandLevel":
-        result(true)
-      case "setBassBoost":
-        let args = call.arguments as? [String: Any]
-        let strength = args?["strength"] as? Double ?? 0.0
-        AppDelegate.applyIosBassBoost(strength: strength)
-        result(true)
-      case "setVirtualizer":
-        result(true)
-      case "setLoudnessGain":
-        let args = call.arguments as? [String: Any]
-        let gain = args?["gain"] as? Int ?? 0
-        let enabled = args?["enabled"] as? Bool ?? true
-        AppDelegate.applyIosLoudness(gainMb: gain, enabled: enabled)
-        result(true)
-      default:
-        result(FlutterMethodNotImplemented)
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+
+    // Safely configure MethodChannel without force-unwrapping rootViewController
+    let messenger: FlutterBinaryMessenger? = (self.window?.rootViewController as? FlutterViewController)?.binaryMessenger ?? self.registrar(forPlugin: "com.mcmusic.app/equalizer")?.messenger()
+
+    if let messenger = messenger {
+      let equalizerChannel = FlutterMethodChannel(name: "com.mcmusic.app/equalizer", binaryMessenger: messenger)
+      equalizerChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+        switch call.method {
+        case "setEnabled":
+          let args = call.arguments as? [String: Any]
+          let enabled = args?["enabled"] as? Bool ?? true
+          AppDelegate.applyIosAudioProfile(enabled: enabled)
+          result(true)
+        case "setBands":
+          let args = call.arguments as? [String: Any]
+          let enabled = args?["enabled"] as? Bool ?? true
+          let rawBands = args?["bands"] as? [Double] ?? []
+          AppDelegate.applyIosBands(bands: rawBands, enabled: enabled)
+          result(true)
+        case "setBandLevel":
+          result(true)
+        case "setBassBoost":
+          let args = call.arguments as? [String: Any]
+          let strength = args?["strength"] as? Double ?? 0.0
+          AppDelegate.applyIosBassBoost(strength: strength)
+          result(true)
+        case "setVirtualizer":
+          result(true)
+        case "setLoudnessGain":
+          let args = call.arguments as? [String: Any]
+          let gain = args?["gain"] as? Int ?? 0
+          let enabled = args?["enabled"] as? Bool ?? true
+          AppDelegate.applyIosLoudness(gainMb: gain, enabled: enabled)
+          result(true)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
       }
     }
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    return launched
   }
 
   static func applyIosAudioProfile(enabled: Bool) {
