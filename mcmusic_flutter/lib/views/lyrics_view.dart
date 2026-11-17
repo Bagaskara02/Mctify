@@ -22,6 +22,39 @@ class LyricsView extends StatefulWidget {
     required this.player,
   });
 
+  /// Opens the Lyrics view with a vertical slide-up transition from the bottom,
+  /// and slides back down to the bottom when dismissed.
+  static Future<T?> open<T>(
+    BuildContext context, {
+    required Track track,
+    required AudioPlayerManager player,
+  }) {
+    return Navigator.push<T>(
+      context,
+      PageRouteBuilder<T>(
+        pageBuilder: (context, animation, secondaryAnimation) => LyricsView(
+          track: track,
+          player: player,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(begin: begin, end: end).animate(curve),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+      ),
+    );
+  }
+
   @override
   State<LyricsView> createState() => _LyricsViewState();
 }
@@ -237,14 +270,28 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
           child: Column(
             children: [
               // Modern Spotify / Apple Music Top Header with Cover Art + Lossless Pill + Sync Calibrator
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 12, 4),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragUpdate: (details) {
+                  if ((details.primaryDelta ?? 0) > 10) {
+                    HapticFeedback.lightImpact();
+                    Navigator.pop(context);
+                  }
+                },
+                onVerticalDragEnd: (details) {
+                  if ((details.primaryVelocity ?? 0) > 180) {
+                    HapticFeedback.lightImpact();
+                    Navigator.pop(context);
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 12, 4),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
+                      ),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(6),
                       child: OptimizedImage(
@@ -334,8 +381,9 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                   ],
                 ),
               ),
+            ),
 
-              // Compact Timing Calibrator Strip
+            // Compact Timing Calibrator Strip
               if (_lyrics.isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(bottom: 4),

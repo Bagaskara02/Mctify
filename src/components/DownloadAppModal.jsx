@@ -181,14 +181,14 @@ export default function DownloadAppModal({ isOpen, onClose }) {
                 Jika Anda ingin memasang aplikasi native murni dari file paket <code>.ipa</code>:
               </p>
               <a
-                href="https://github.com/Bagaskara02/Mctify/releases/download/v1.4.5/McTify-v1.4.5.ipa"
-                download="McTify-v1.4.5.ipa"
+                href="https://github.com/Bagaskara02/Mctify/releases/download/v1.4.6/McTify-v1.4.6.ipa"
+                download="McTify-v1.4.6.ipa"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2.5 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 no-underline"
               >
                 <Download className="w-3.5 h-3.5 text-white" />
-                <span>Download Paket McTify-v1.4.5.ipa (9.3 MB)</span>
+                <span>Download Paket McTify-v1.4.6.ipa (9.3 MB)</span>
               </a>
               <div className="text-[11px] text-[#94a3b8] space-y-1 bg-black/30 p-2.5 rounded-lg">
                 <p className="font-semibold text-white flex items-center gap-1">

@@ -35,7 +35,7 @@ class FullscreenPlayer extends StatefulWidget {
   State<FullscreenPlayer> createState() => _FullscreenPlayerState();
 }
 
-class _FullscreenPlayerState extends State<FullscreenPlayer> {
+class _FullscreenPlayerState extends State<FullscreenPlayer> with SingleTickerProviderStateMixin {
   final LyricsService _lyricsService = LyricsService();
   final MusicApiService _api = MusicApiService();
   List<LyricLine> _lyrics = [];
@@ -44,11 +44,51 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
   ArtworkColors _palette = ArtworkColors.fallbackDefault;
   double? _dragSeconds;
 
+  double _sheetDragOffset = 0.0;
+  late AnimationController _dragAnimController;
+  Animation<double>? _dragAnimation;
+
   @override
   void initState() {
     super.initState();
+    _dragAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )..addListener(() {
+        if (_dragAnimation != null) {
+          setState(() {
+            _sheetDragOffset = _dragAnimation!.value;
+          });
+        }
+      });
     _fetchLyricsIfNeeded();
     _syncPalette();
+  }
+
+  @override
+  void dispose() {
+    _dragAnimController.dispose();
+    super.dispose();
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    if (_dragAnimController.isAnimating) _dragAnimController.stop();
+    setState(() {
+      _sheetDragOffset = (_sheetDragOffset + details.delta.dy).clamp(0.0, 500.0);
+    });
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0.0;
+    if (_sheetDragOffset > 80.0 || velocity > 260.0) {
+      HapticFeedback.lightImpact();
+      Navigator.pop(context);
+    } else if (_sheetDragOffset > 0.0) {
+      _dragAnimation = Tween<double>(begin: _sheetDragOffset, end: 0.0).animate(
+        CurvedAnimation(parent: _dragAnimController, curve: Curves.easeOutCubic),
+      );
+      _dragAnimController.forward(from: 0.0);
+    }
   }
 
   void _syncPalette() {
@@ -379,110 +419,139 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
             ? _lyrics[activeLyricIndex + 1]
             : null;
 
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 500),
-          curve: Curves.easeOutCubic,
-          height: MediaQuery.of(context).size.height * 0.96,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                _palette.primary,
-                _palette.secondary,
-                const Color(0xFF0A0A0C),
-              ],
-              stops: const [0.0, 0.56, 1.0],
+        return Transform.translate(
+          offset: Offset(0, _sheetDragOffset),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            height: MediaQuery.of(context).size.height * 0.96,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _palette.primary,
+                  _palette.secondary,
+                  const Color(0xFF0A0A0C),
+                ],
+                stops: const [0.0, 0.56, 1.0],
+              ),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 24),
-                child: Column(
-                  children: [
-                    // Pull down handle
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10, bottom: 2),
-                      child: Container(
-                        width: 38,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.white30,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-
-                    // Top Bar (Chevron Down, "MEMUTAR DARI ..." + Album title, More Options)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'MEMUTAR DARI',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.65),
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 1),
-                                Text(
-                                  track.album.isNotEmpty ? track.album : 'Koleksi McTify',
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
+            child: SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  // Dedicated Draggable Top Bar & Handle (Sticky at top, always catches pull-down)
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onVerticalDragUpdate: _onDragUpdate,
+                    onVerticalDragEnd: _onDragEnd,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Pull down handle with generous touch hit target
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10, bottom: 4),
+                          child: Center(
+                            child: Container(
+                              width: 40,
+                              height: 4.5,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.4),
+                                borderRadius: BorderRadius.circular(2.5),
+                              ),
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.more_vert_rounded, size: 26, color: Colors.white),
-                            onPressed: () => _showMoreOptionsModal(context),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Main Square Album Artwork with Play/Pause Scale Bounce & Tap to Lyrics (MySpoti + Apple Music aesthetic)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 26),
-                      child: AspectRatio(
-                        aspectRatio: 1,
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => LyricsView(
-                                  track: track,
-                                  player: widget.player,
+                        ),
+                        // Top Bar (Chevron Down, "MEMUTAR DARI ..." + Album title, More Options)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      'MEMUTAR DARI',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.65),
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      track.album.isNotEmpty ? track.album : 'Koleksi McTify',
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            );
-                          },
-                          child: AnimatedScale(
+                              IconButton(
+                                icon: const Icon(Icons.more_vert_rounded, size: 26, color: Colors.white),
+                                onPressed: () => _showMoreOptionsModal(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Scrollable Body for Album Art, Controls, Lyrics Card
+                  Expanded(
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        if (notification is ScrollUpdateNotification) {
+                          if (notification.metrics.pixels <= 0 && (notification.scrollDelta ?? 0) < -2) {
+                            if (_dragAnimController.isAnimating) _dragAnimController.stop();
+                            setState(() {
+                              _sheetDragOffset = (_sheetDragOffset - (notification.scrollDelta ?? 0)).clamp(0.0, 500.0);
+                            });
+                          }
+                        } else if (notification is ScrollEndNotification) {
+                          if (_sheetDragOffset > 0.0) {
+                            _onDragEnd(DragEndDetails(primaryVelocity: 0.0));
+                          }
+                        }
+                        return false;
+                      },
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 24),
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 10),
+
+                              // Main Square Album Artwork with Play/Pause Scale Bounce & Tap to Lyrics (and vertical drag to dismiss)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 26),
+                                child: AspectRatio(
+                                  aspectRatio: 1,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      HapticFeedback.lightImpact();
+                                      LyricsView.open(context, track: track, player: widget.player);
+                                    },
+                                    onVerticalDragUpdate: _onDragUpdate,
+                                    onVerticalDragEnd: _onDragEnd,
+                                    child: AnimatedScale(
                             scale: widget.player.isPlaying ? 1.0 : 0.92,
                             duration: const Duration(milliseconds: 340),
                             curve: Curves.easeOutBack,
@@ -869,15 +938,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                     GestureDetector(
                       onTap: () {
                         HapticFeedback.lightImpact();
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LyricsView(
-                              track: track,
-                              player: widget.player,
-                            ),
-                          ),
-                        );
+                        LyricsView.open(context, track: track, player: widget.player);
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 450),
@@ -989,7 +1050,12 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
               ),
             ),
           ),
-        );
+        ),
+      ],
+    ),
+  ),
+),
+);
       },
     );
   }
