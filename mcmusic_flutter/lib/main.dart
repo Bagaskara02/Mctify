@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'services/audio_player_manager.dart';
+import 'services/audio_proxy_server.dart';
 import 'services/equalizer_service.dart';
 import 'services/media_audio_handler.dart';
 import 'services/storage_service.dart';
@@ -28,6 +30,13 @@ void main() async {
     } catch (e) {
       debugPrint('AudioSession init note: $e');
     }
+  }
+
+  // Pre-warm local AudioProxyServer socket so initial song play starts immediately
+  if (!kIsWeb) {
+    try {
+      unawaited(AudioProxyServer.instance.ensureStarted());
+    } catch (_) {}
   }
 
   MediaAudioHandler? mediaHandler;
@@ -214,7 +223,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 },
               ),
               if (!kIsWeb && Platform.isIOS)
-                _buildIosInstagramNavbar()
+                _buildIosLiquidGlassNavbar()
               else
                 BottomNavigationBar(
                 currentIndex: _currentIndex,
@@ -283,8 +292,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  /// Custom Instagram-style floating capsule navbar exclusively for iOS
-  Widget _buildIosInstagramNavbar() {
+  /// Liquid Glass floating dock navbar exclusively for iOS (ref: iOS Liquid Glass / BetaProfiles)
+  /// Features optical frosted glass with specular highlight refraction and fluid sliding glass pill animation.
+  Widget _buildIosLiquidGlassNavbar() {
     final navItems = [
       (Icons.home_outlined, Icons.home_filled, 'Beranda'),
       (Icons.search_rounded, Icons.search_rounded, 'Cari'),
@@ -292,59 +302,135 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       (Icons.swap_horizontal_circle_outlined, Icons.swap_horizontal_circle_rounded, 'Impor'),
     ];
 
+    const double dockHeight = 56.0;
+    const double pillHeight = 42.0;
+
     return Padding(
-      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 8, top: 4),
+      padding: const EdgeInsets.only(left: 18, right: 18, bottom: 8, top: 4),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(35),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
           child: Container(
-            height: 54,
+            height: dockHeight,
             decoration: BoxDecoration(
-              color: const Color(0xE614161C),
               borderRadius: BorderRadius.circular(35),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.14),
-                width: 1.0,
+              // Dual-layer specular refraction gradient border (glows brighter at top edge like genuine curved liquid glass)
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.38),
+                  Colors.white.withValues(alpha: 0.14),
+                  Colors.white.withValues(alpha: 0.06),
+                ],
+                stops: const [0.0, 0.45, 1.0],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
+                  color: Colors.black.withValues(alpha: 0.55),
+                  blurRadius: 26,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(navItems.length, (idx) {
-                final isSelected = _currentIndex == idx;
-                final (unselectedIcon, selectedIcon, _) = navItems[idx];
+            padding: const EdgeInsets.all(1.0), // 1px specular gradient rim
+            child: Container(
+              decoration: BoxDecoration(
+                // Semi-translucent dark liquid acrylic tint
+                color: const Color(0xB813151D),
+                borderRadius: BorderRadius.circular(34),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final totalWidth = constraints.maxWidth;
+                  final slotWidth = totalWidth / navItems.length;
+                  final pillWidth = slotWidth - 12;
 
-                return GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _currentIndex = idx);
-                  },
-                  behavior: HitTestBehavior.opaque,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    padding: isSelected
-                        ? const EdgeInsets.symmetric(horizontal: 22, vertical: 8)
-                        : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFF383838) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Icon(
-                      isSelected ? selectedIcon : unselectedIcon,
-                      color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.72),
-                      size: isSelected ? 24 : 23,
-                    ),
-                  ),
-                );
-              }),
+                  return Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [
+                      // 1. Fluid Sliding Liquid Glass Pill Glider (morphs & slides smoothly across tabs)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 380),
+                        curve: Curves.easeOutBack,
+                        left: _currentIndex * slotWidth + 6,
+                        top: (dockHeight - 2.0 - pillHeight) / 2,
+                        width: pillWidth,
+                        height: pillHeight,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(21),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color(0xFF3E4350),
+                                Color(0xFF262832),
+                              ],
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.26),
+                              width: 1.0,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                              BoxShadow(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                blurRadius: 3,
+                                offset: const Offset(0, -1),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // 2. Tab Items Row with interactive scale bounce & haptic feedback
+                      Row(
+                        children: List.generate(navItems.length, (idx) {
+                          final isSelected = _currentIndex == idx;
+                          final (unselectedIcon, selectedIcon, _) = navItems[idx];
+
+                          return Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _currentIndex = idx);
+                              },
+                              behavior: HitTestBehavior.opaque,
+                              child: Center(
+                                child: AnimatedScale(
+                                  scale: isSelected ? 1.15 : 0.94,
+                                  duration: const Duration(milliseconds: 280),
+                                  curve: Curves.easeOutBack,
+                                  child: AnimatedOpacity(
+                                    opacity: isSelected ? 1.0 : 0.65,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: Icon(
+                                      isSelected ? selectedIcon : unselectedIcon,
+                                      color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.82),
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
         ),

@@ -44,6 +44,9 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -283,65 +286,142 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
     widget.player.playTrack(firstTrack, allTracks);
   }
 
+  Widget _buildPillTab(IconData icon, String label, int index) {
+    final isSelected = _tabController.index == index;
+    return Tab(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryAzure : const Color(0xFF242428),
+          borderRadius: BorderRadius.circular(20),
+          border: isSelected ? null : Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: isSelected ? Colors.black : Colors.white70),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.black : Colors.white,
+                fontSize: 12.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
-                onPressed: () => Navigator.pop(context),
-              )
-            : null,
-        title: const Text(
-          'Impor Playlist',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1D1E24),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white10),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              indicator: BoxDecoration(
-                color: AppTheme.primaryAzure,
-                borderRadius: BorderRadius.circular(10),
+      body: Stack(
+        children: [
+          // Ambient Mesh Top Glow matching HomeView
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 240,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF00A3FF).withValues(alpha: 0.26),
+                      const Color(0xFF172033).withValues(alpha: 0.16),
+                      const Color(0xFF121212),
+                    ],
+                    stops: const [0.0, 0.55, 1.0],
+                  ),
+                ),
               ),
-              labelColor: Colors.black,
-              unselectedLabelColor: Colors.white70,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              tabs: const [
-                Tab(icon: Icon(Icons.link, size: 16), text: 'Spotify'),
-                Tab(icon: Icon(Icons.play_circle_fill, size: 16), text: 'YouTube'),
-                Tab(icon: Icon(Icons.notes, size: 16), text: 'Teks'),
-                Tab(icon: Icon(Icons.auto_awesome, size: 16), text: 'Preset'),
-                Tab(icon: Icon(Icons.data_object, size: 16), text: 'JSON'),
-              ],
             ),
           ),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
+
+          SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Authentic Spotify Top Header with Brand Emblem 'M'
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                  child: Row(
+                    children: [
+                      if (Navigator.canPop(context)) ...[
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        const SizedBox(width: 4),
+                      ] else ...[
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: const BoxDecoration(
+                            color: AppTheme.primaryAzure,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'M',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      const Text(
+                        'Impor Playlist',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Spotify Filter-Pills TabBar (floating pills matching Home & Library)
+                Container(
+                  height: 38,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: TabBar(
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    labelPadding: const EdgeInsets.only(right: 8),
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    indicatorColor: Colors.transparent,
+                    tabs: [
+                      _buildPillTab(Icons.link_rounded, 'Spotify', 0),
+                      _buildPillTab(Icons.play_circle_fill_rounded, 'YouTube', 1),
+                      _buildPillTab(Icons.notes_rounded, 'Teks', 2),
+                      _buildPillTab(Icons.auto_awesome_rounded, 'Preset', 3),
+                      _buildPillTab(Icons.data_object_rounded, 'JSON', 4),
+                    ],
+                  ),
+                ),
+
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Column(
             children: [
               // Error Banner
               if (_errorMessage != null)
@@ -437,9 +517,14 @@ class _ImportPlaylistViewState extends State<ImportPlaylistView> with SingleTick
                         ],
                       ),
               ),
-            ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

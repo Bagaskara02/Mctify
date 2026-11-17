@@ -348,40 +348,74 @@ class _SearchViewState extends State<SearchView> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Spotify Authentic Header: Title + Quick YouTube URL Import
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.primaryAzure,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.music_note_rounded, color: Colors.black, size: 18),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'Cari',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 25,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.6,
-                        ),
-                      ),
+      body: Stack(
+        children: [
+          // Ambient Mesh Top Glow matching HomeView
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 240,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF00A3FF).withValues(alpha: 0.22),
+                      const Color(0xFF172033).withValues(alpha: 0.14),
+                      const Color(0xFF121212),
                     ],
+                    stops: const [0.0, 0.55, 1.0],
                   ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Spotify Authentic Header: Title + Quick YouTube URL Import
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.primaryAzure,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'M',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Cari',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 25,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.6,
+                            ),
+                          ),
+                        ],
+                      ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -585,6 +619,8 @@ class _SearchViewState extends State<SearchView> {
             ),
           ],
         ),
+      ),
+        ],
       ),
     );
   }

@@ -80,6 +80,9 @@ class MusicApiService {
       if (manifest.muxed.isNotEmpty) {
         return manifest.muxed.toList();
       }
+      if (manifest.audioOnly.isNotEmpty) {
+        return manifest.audioOnly.toList();
+      }
     } catch (_) {}
 
     try {

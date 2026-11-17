@@ -270,32 +270,57 @@ class _LibraryViewState extends State<LibraryView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            // Top Bar: "Your Library", Search, Add - NO PROFILE ICON!
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
+      body: Stack(
+        children: [
+          // Ambient Mesh Top Glow matching HomeView
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 240,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF00A3FF).withValues(alpha: 0.24),
+                      const Color(0xFF161F2E).withValues(alpha: 0.15),
+                      const Color(0xFF121212),
+                    ],
+                    stops: const [0.0, 0.55, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // Top Bar: "Your Library", Search, Add - NO PROFILE ICON!
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.primaryAzure,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'M',
-                            style: TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w900),
+                      Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.primaryAzure,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'M',
+                                style: TextStyle(color: Colors.black, fontSize: 15, fontWeight: FontWeight.w900),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
                       const SizedBox(width: 10),
                       const Text(
                         'Koleksi Kamu',
@@ -348,15 +373,16 @@ class _LibraryViewState extends State<LibraryView> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                         decoration: BoxDecoration(
-                          color: isSelected ? AppTheme.primaryAzure : const Color(0xFF242426),
+                          color: isSelected ? AppTheme.primaryAzure : const Color(0xFF242428),
                           borderRadius: BorderRadius.circular(20),
+                          border: isSelected ? null : Border.all(color: Colors.white.withValues(alpha: 0.08)),
                         ),
                         child: Text(
                           filter,
                           style: TextStyle(
                             color: isSelected ? Colors.black : Colors.white,
-                            fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            fontSize: 12.5,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                           ),
                         ),
                       ),
@@ -640,8 +666,10 @@ class _LibraryViewState extends State<LibraryView> {
                       ],
                     ),
             ),
-          ],
-        ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
