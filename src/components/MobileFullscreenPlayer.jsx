@@ -432,7 +432,7 @@ export default function MobileFullscreenPlayer({
               {activeLyric?.romanizedText || activeLyric?.text}
             </p>
             {nextLyric?.text && (
-              <p className="text-sm font-bold text-white/55 leading-snug line-clamp-2">
+              <p className="text-sm font-extrabold text-white/85 leading-snug line-clamp-2">
                 {nextLyric?.romanizedText || nextLyric.text}
               </p>
             )}

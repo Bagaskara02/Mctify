@@ -156,7 +156,7 @@ function KaraokeLineFallback({ line, displayText, currentTimeSec }) {
   );
 }
 
-function InterludeLine({ line, currentTimeSec, isActive }) {
+function InterludeLine({ line, currentTimeSec, isActive, isPast }) {
   const dur = Math.max(0.5, line.endTime - line.time);
   const progress = Math.max(0, Math.min(1, (currentTimeSec - line.time) / dur));
   const dot1 = progress >= 0.1;
@@ -166,7 +166,11 @@ function InterludeLine({ line, currentTimeSec, isActive }) {
   return (
     <div
       className={`transition-all duration-300 py-4 flex items-center gap-3 select-none ${
-        isActive ? 'opacity-100 scale-100' : 'opacity-25 scale-95'
+        isActive
+          ? 'opacity-100 scale-100'
+          : isPast
+          ? 'opacity-25 scale-95'
+          : 'opacity-70 scale-95'
       }`}
     >
       <div className="flex items-center gap-2.5">
@@ -529,7 +533,10 @@ export default function BeautifulLyrics({
             <div className="space-y-8 sm:space-y-10 py-32 select-none">
               {lines.map((line, idx) => {
                 const isActive = idx === activeIndex;
-                const isPast = idx < activeIndex;
+                const nextIdx = activeIndex === -1 ? 0 : activeIndex + 1;
+                const isImmediateNext = idx === nextIdx;
+                const isUpcoming = idx > nextIdx;
+                const isPast = activeIndex !== -1 && idx < activeIndex;
 
                 // Instrumental interlude line (3 dots)
                 if (line.isInstrumental || line.isInterlude) {
@@ -539,6 +546,7 @@ export default function BeautifulLyrics({
                         line={line}
                         currentTimeSec={effectiveTime}
                         isActive={isActive}
+                        isPast={isPast}
                       />
                     </div>
                   );
@@ -557,9 +565,11 @@ export default function BeautifulLyrics({
                     className={`cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] transform origin-left leading-snug ${
                       isActive
                         ? 'opacity-100 scale-100 font-black blur-0 text-3xl sm:text-4xl md:text-5xl text-white'
-                        : isPast
-                        ? 'opacity-30 hover:opacity-75 scale-[0.96] font-extrabold blur-[1.2px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/40'
-                        : 'opacity-25 hover:opacity-70 scale-[0.94] font-extrabold blur-[1.8px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/30'
+                        : isImmediateNext
+                        ? 'opacity-85 hover:opacity-100 scale-[0.98] font-black blur-0 text-2xl sm:text-3xl md:text-4xl text-white/90 drop-shadow-sm hover:scale-[0.99] hover:text-white'
+                        : isUpcoming
+                        ? 'opacity-65 hover:opacity-95 scale-[0.96] font-extrabold blur-[0.3px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/70 hover:scale-[0.98] hover:text-white'
+                        : 'opacity-25 hover:opacity-70 scale-[0.93] font-semibold blur-[1.2px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/30'
                     }`}
                   >
                     {isActive ? (
@@ -592,7 +602,15 @@ export default function BeautifulLyrics({
                       <div className="flex flex-col gap-1">
                         <span>{displayText}</span>
                         {showDualNative && (
-                          <span className="text-sm sm:text-base font-semibold text-white/30 tracking-normal">
+                          <span
+                            className={`text-sm sm:text-base font-semibold tracking-normal transition-colors ${
+                              isImmediateNext
+                                ? 'text-white/60'
+                                : isUpcoming
+                                ? 'text-white/45'
+                                : 'text-white/20'
+                            }`}
+                          >
                             {line.text}
                           </span>
                         )}

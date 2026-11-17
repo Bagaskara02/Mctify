@@ -162,13 +162,16 @@ export default function RightSidebarNowPlaying({
             <div className="space-y-2 py-1 select-none">
               {previewLines.map((line, idx) => {
                 const isCurrentLine = idx === 0 && activeIndex !== -1;
+                const isNextLine = idx === 1;
                 return (
                   <p
                     key={line.id || idx}
                     className={`text-sm sm:text-base transition-all font-bold line-clamp-2 leading-snug ${
                       isCurrentLine 
                         ? 'text-white font-black text-lg scale-[1.02] drop-shadow-md' 
-                        : 'text-white/40 font-semibold'
+                        : isNextLine
+                        ? 'text-white/85 font-extrabold'
+                        : 'text-white/60 font-semibold'
                     }`}
                   >
                     {line.romanizedText || line.text}
