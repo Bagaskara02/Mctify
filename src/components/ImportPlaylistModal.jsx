@@ -15,7 +15,7 @@ import {
 import { playlistImporter } from '../services/playlistImporter';
 
 export default function ImportPlaylistModal({ isOpen, onClose, onPlaylistImported }) {
-  const [activeTab, setActiveTab] = useState('spotify'); // 'spotify' | 'text' | 'presets' | 'json'
+  const [activeTab, setActiveTab] = useState('spotify'); // 'spotify' | 'youtube' | 'text' | 'presets' | 'json'
   const [urlInput, setUrlInput] = useState('');
   const [textInput, setTextInput] = useState('');
   const [playlistTitle, setPlaylistTitle] = useState('');
@@ -53,6 +53,31 @@ export default function ImportPlaylistModal({ isOpen, onClose, onPlaylistImporte
       setImportedResult(playlist);
     } catch (err) {
       setErrorMsg(err.message || 'Gagal mengimpor playlist Spotify. Pastikan link publik.');
+    } finally {
+      setIsLoading(false);
+      setProgressInfo(null);
+    }
+  };
+
+  // 1.5. Import from YouTube Playlist Link
+  const handleImportYouTube = async (e) => {
+    e.preventDefault();
+    if (!urlInput.trim()) return;
+
+    setIsLoading(true);
+    setErrorMsg(null);
+    setImportedResult(null);
+
+    try {
+      const playlist = await playlistImporter.importFromYouTube(urlInput, (info) => {
+        if (info && info.message) {
+          setProgressInfo({ message: info.message });
+        }
+      });
+
+      setImportedResult(playlist);
+    } catch (err) {
+      setErrorMsg(err.message || 'Gagal mengimpor playlist YouTube. Pastikan playlist publik.');
     } finally {
       setIsLoading(false);
       setProgressInfo(null);
@@ -165,6 +190,18 @@ export default function ImportPlaylistModal({ isOpen, onClose, onPlaylistImporte
           >
             <span className="w-2 h-2 rounded-full bg-[#00a3ff]" />
             Link Spotify
+          </button>
+
+          <button
+            onClick={() => { setActiveTab('youtube'); setImportedResult(null); }}
+            className={`py-3.5 px-3 sm:px-4 text-xs font-bold border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
+              activeTab === 'youtube'
+                ? 'border-[#ff0000] text-[#ff0000]'
+                : 'border-transparent text-[#b3b3b3] hover:text-white'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-[#ff0000]" />
+            Link YouTube
           </button>
 
           <button
@@ -329,7 +366,40 @@ export default function ImportPlaylistModal({ isOpen, onClose, onPlaylistImporte
                       className="px-6 py-3 rounded-full bg-[#00a3ff] hover:bg-[#2eb4ff] disabled:opacity-50 text-black font-bold text-xs shadow-lg shadow-[#00a3ff]/25 flex items-center gap-2 active:scale-95 transition-all"
                     >
                       {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link className="w-4 h-4" />}
-                      Ambil & Impor Playlist
+                      Ambil &amp; Impor Playlist
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB 1.5: YOUTUBE PLAYLIST LINK */}
+              {activeTab === 'youtube' && (
+                <form onSubmit={handleImportYouTube} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-neutral-300 text-xs font-semibold block">
+                      URL Playlist YouTube / YouTube Music
+                    </label>
+                    <input
+                      type="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://www.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj"
+                      className="w-full px-4 py-3 rounded-xl bg-[#242424] border border-white/10 text-white placeholder-neutral-500 text-sm focus:outline-none focus:border-red-500 transition-colors"
+                      disabled={isLoading}
+                    />
+                    <p className="text-[#b3b3b3] text-xs leading-relaxed">
+                      Tempelkan tautan playlist publik YouTube atau YouTube Music (berisi <code>?list=...</code>). Seluruh lagu akan langsung diekstrak secara otomatis ke koleksi playlist Anda!
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isLoading || !urlInput.trim()}
+                      className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-red-600/25 flex items-center gap-2 active:scale-95 transition-all"
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link className="w-4 h-4" />}
+                      Ambil &amp; Impor YouTube Playlist
                     </button>
                   </div>
                 </form>

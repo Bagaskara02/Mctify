@@ -1549,6 +1549,14 @@ class _SearchViewState extends State<SearchView> {
           widget.player.playTrackFromSearch(track);
         }
       },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        showTrackActionSheet(
+          context: context,
+          track: track,
+          player: widget.player,
+        );
+      },
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),

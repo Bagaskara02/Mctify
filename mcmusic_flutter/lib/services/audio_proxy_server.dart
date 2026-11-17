@@ -55,17 +55,33 @@ class AudioProxyServer {
   int? _port;
   Future<int>? _startingFuture;
 
-  Future<int> ensureStarted() async {
-    if (_port != null) return _port!;
+  Future<int> ensureStarted({bool forceRestartIfBroken = false}) async {
+    if (!forceRestartIfBroken && _port != null && _server != null) return _port!;
     if (_startingFuture != null) return _startingFuture!;
 
     _startingFuture = () async {
+      if (forceRestartIfBroken && _server != null) {
+        try {
+          await _server?.close(force: true);
+        } catch (_) {}
+        _server = null;
+        _port = null;
+      }
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _server = server;
       _port = server.port;
       server.listen(
         (req) => unawaited(_handleRequest(req)),
-        onError: (e) => debugPrint('[AudioProxyServer] Server error: $e'),
+        onError: (e) {
+          debugPrint('[AudioProxyServer] Server socket error: $e');
+          _server = null;
+          _port = null;
+        },
+        onDone: () {
+          debugPrint('[AudioProxyServer] Server socket closed');
+          _server = null;
+          _port = null;
+        },
       );
       return server.port;
     }();

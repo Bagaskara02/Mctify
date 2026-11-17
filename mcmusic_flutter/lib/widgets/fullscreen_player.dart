@@ -549,6 +549,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with SingleTickerPr
                                       HapticFeedback.lightImpact();
                                       LyricsView.open(context, track: track, player: widget.player);
                                     },
+                                    onLongPress: () {
+                                      HapticFeedback.mediumImpact();
+                                      _showMoreOptionsModal(context);
+                                    },
                                     onVerticalDragUpdate: _onDragUpdate,
                                     onVerticalDragEnd: _onDragEnd,
                                     child: AnimatedScale(

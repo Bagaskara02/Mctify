@@ -1186,6 +1186,10 @@ class _HomeViewState extends State<HomeView> {
           widget.player.playTrackFromSearch(t);
         }
       },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _showTrackMenu(t);
+      },
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),

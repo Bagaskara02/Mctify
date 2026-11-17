@@ -11,6 +11,7 @@ import DownloadAppModal from './components/DownloadAppModal';
 import EqualizerModal from './components/EqualizerModal';
 import AudioQualityModal from './components/AudioQualityModal';
 import SleepTimerModal from './components/SleepTimerModal';
+import SpotifyTransitionModal from './components/SpotifyTransitionModal';
 import { webAudioEqualizer } from './services/webAudioEqualizer';
 import YouTubePlayer from './components/YouTubePlayer';
 import MobileBottomNav from './components/MobileBottomNav';
@@ -104,6 +105,7 @@ export default function App() {
   const [isAudioQualityOpen, setIsAudioQualityOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
+  const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
   const sleepTimerIntervalRef = useRef(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -1094,6 +1096,7 @@ export default function App() {
         if (isQueueOpen) setIsQueueOpen(false);
         if (isImportModalOpen) setIsImportModalOpen(false);
         if (isDownloadModalOpen) setIsDownloadModalOpen(false);
+        if (isTransitionModalOpen) setIsTransitionModalOpen(false);
         if (contextMenuData) setContextMenuData(null);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight') {
         // Ctrl+Right / Cmd+Right: Skip Next
@@ -1692,6 +1695,8 @@ export default function App() {
           onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
           onToggleEqualizer={() => setIsEqualizerOpen(!isEqualizerOpen)}
           onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
+          onOpenTransitionModal={() => setIsTransitionModalOpen(true)}
+          isTransitionModalOpen={isTransitionModalOpen}
           onTrackContextMenu={handleTrackContextMenu}
           onShareTrack={() => currentTrack && handleCopyShare(currentTrack)}
         />
@@ -1836,6 +1841,23 @@ export default function App() {
         sleepTimerSeconds={sleepTimerSeconds}
         onSetTimer={handleSetSleepTimer}
         onCancelTimer={handleCancelSleepTimer}
+      />
+
+      {/* --- SPOTIFY TRANSITION SONGS MODAL (EDIT TRANSITION BETA) --- */}
+      <SpotifyTransitionModal
+        isOpen={isTransitionModalOpen}
+        onClose={() => setIsTransitionModalOpen(false)}
+        currentTrack={currentTrack}
+        nextTrack={(() => {
+          if (!currentTrack || queue.length === 0) return null;
+          const idx = findTrackIndexInQueue(currentTrack, queue);
+          if (idx !== -1 && idx + 1 < queue.length) return queue[idx + 1];
+          return queue[0];
+        })()}
+        onSaveTransition={(saved) => {
+          setSmartToast(`Transisi lagu disimpan: ${saved.bars} • ${saved.volume}`);
+          setTimeout(() => setSmartToast(null), 3500);
+        }}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}

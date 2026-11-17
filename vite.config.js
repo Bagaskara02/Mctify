@@ -513,6 +513,90 @@ function musicBackendPlugin() {
           res.end(JSON.stringify({ error: e.message }));
         }
       });
+
+      // 5. YouTube Playlist Resolver Endpoint
+      server.middlewares.use('/api/yt/playlist', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          let playlistId = url.searchParams.get('id') || '';
+          const rawUrl = url.searchParams.get('url') || '';
+
+          if (!playlistId && rawUrl) {
+            const match = rawUrl.match(/[?&]list=([^#&?]+)/);
+            if (match) playlistId = match[1];
+          }
+
+          if (!playlistId) {
+            res.statusCode = 400;
+            return res.end(JSON.stringify({ error: 'Missing YouTube playlist ID or list parameter' }));
+          }
+
+          if (!ytPromise) {
+            const { Innertube } = await import('youtubei.js');
+            ytPromise = Innertube.create();
+          }
+          const yt = await ytPromise;
+          const pl = await yt.getPlaylist(playlistId);
+
+          const playlistTitle = pl.info?.title || 'YouTube Playlist';
+          const playlistAuthor = pl.info?.author?.name || 'YouTube';
+          const rawThumb = pl.info?.thumbnails?.[0]?.url || '';
+          const playlistCover = toHighResUrl(rawThumb);
+
+          const rawVideos = pl.videos || [];
+          const tracks = rawVideos.map((v, idx) => {
+            const videoId = v.content_id || v.id || v.videoId || '';
+            let title = v.metadata?.title?.text || v.title?.text || v.title?.toString() || '';
+            let artist = v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text || 
+                         v.author?.name || v.author?.toString() || playlistAuthor;
+            
+            if (title.includes(' - ')) {
+              const parts = title.split(' - ');
+              if (!artist || artist === playlistAuthor) {
+                artist = parts[0].trim();
+              }
+              title = parts.slice(1).join(' - ').trim();
+            }
+
+            let durationSec = 200;
+            if (v.duration?.seconds) {
+              durationSec = v.duration.seconds;
+            } else if (v.duration?.text) {
+              const parts = v.duration.text.split(':').map(Number);
+              durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
+            }
+
+            const thumbUrl = v.content_image?.image?.[0]?.url || 
+                             v.thumbnails?.[v.thumbnails.length - 1]?.url || 
+                             v.thumbnails?.[0]?.url || 
+                             (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
+
+            return {
+              id: videoId || `yt-track-${idx}-${Date.now()}`,
+              videoId,
+              title: title.trim(),
+              artist: artist.trim(),
+              album: playlistTitle,
+              duration: durationSec,
+              artwork: toHighResUrl(thumbUrl),
+            };
+          }).filter(t => t.title && t.videoId);
+
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          return res.end(JSON.stringify({
+            id: playlistId,
+            name: playlistTitle,
+            author: playlistAuthor,
+            cover: playlistCover,
+            totalTracks: tracks.length,
+            tracks,
+          }));
+        } catch (e) {
+          console.error('YouTube playlist fetch error:', e);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message || 'Gagal memproses YouTube playlist' }));
+        }
+      });
     },
   };
 }

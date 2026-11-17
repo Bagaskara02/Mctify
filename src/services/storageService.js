@@ -503,4 +503,36 @@ export const storageService = {
       return [];
     }
   },
+
+  getTransitionSettings() {
+    try {
+      const saved = localStorage.getItem('mcmusic_transition_settings_v1');
+      if (saved) return JSON.parse(saved);
+      return {
+        bars: '2 bars',
+        durationSec: 5.5,
+        volume: 'overlap',
+        eq: 'none',
+        effect: 'high_pass',
+        enabled: true,
+      };
+    } catch {
+      return {
+        bars: '2 bars',
+        durationSec: 5.5,
+        volume: 'overlap',
+        eq: 'none',
+        effect: 'high_pass',
+        enabled: true,
+      };
+    }
+  },
+
+  saveTransitionSettings(settings) {
+    try {
+      localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify(settings));
+    } catch (e) {
+      console.error('Failed to save transition settings', e);
+    }
+  },
 };

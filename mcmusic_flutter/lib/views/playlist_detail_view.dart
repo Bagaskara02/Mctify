@@ -817,6 +817,10 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                         HapticFeedback.lightImpact();
                         widget.player.playTrack(track, filteredTracks);
                       },
+                      onLongPress: () {
+                        HapticFeedback.mediumImpact();
+                        _showTrackMenu(track);
+                      },
                     ),
                   );
                 },

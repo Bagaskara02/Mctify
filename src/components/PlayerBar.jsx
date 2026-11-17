@@ -19,7 +19,8 @@ import {
   Sliders,
   Gauge,
   Moon,
-  Share2
+  Share2,
+  Wand2
 } from 'lucide-react';
 import { DEFAULT_ARTWORK, cleanTrackTitle } from '../services/musicApi';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
@@ -60,6 +61,8 @@ export default function PlayerBar({
   onToggleRightSidebar,
   onToggleEqualizer,
   onToggleAudioQuality,
+  onOpenTransitionModal,
+  isTransitionModalOpen,
   onTrackContextMenu,
   onShareTrack,
 }) {
@@ -481,6 +484,20 @@ export default function PlayerBar({
           title="Equalizer & Efek Suara"
         >
           <Sliders className="w-4 h-4" />
+        </button>
+
+        {/* Spotify Transition Songs Trigger (Edit transition Beta) */}
+        <button
+          onClick={onOpenTransitionModal}
+          className={`p-2 rounded-full transition-all active:scale-95 relative ${
+            isTransitionModalOpen
+              ? 'text-emerald-400'
+              : 'text-[#b3b3b3] hover:text-emerald-400'
+          }`}
+          title="Edit transition (Beta) - Spotify Transition Songs"
+        >
+          <Wand2 className="w-4 h-4" />
+          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
         </button>
 
         {/* Dengarkan Bareng / Share Live URL Trigger */}

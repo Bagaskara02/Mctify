@@ -77,16 +77,55 @@ export const playlistImporter = {
    * Import playlist from YouTube / YouTube Music URL
    */
   async importFromYouTube(url, onProgress = () => {}) {
-    onProgress({ status: 'analyzing', message: 'Analyzing YouTube playlist...' });
+    onProgress({ status: 'analyzing', message: 'Menganalisis link YouTube playlist...' });
 
+    let playlistId = '';
     const listMatch = url.match(/[?&]list=([^#&?]+)/);
-    if (!listMatch) {
-      throw new Error('Invalid YouTube Playlist URL. URL must contain "?list=..." parameter.');
+    if (listMatch) {
+      playlistId = listMatch[1];
+    } else if (/^[a-zA-Z0-9_-]{12,}$/.test(url.trim())) {
+      playlistId = url.trim();
+    } else {
+      throw new Error('Link YouTube playlist tidak valid. URL harus memiliki parameter ?list=...');
     }
 
-    throw new Error(
-      'Direct YouTube Playlist scraping in browser requires an API key or backend proxy. You can quickly paste the song names in the "Paste Tracklist" tab!'
-    );
+    onProgress({ status: 'fetching', message: 'Menghubungkan ke YouTube dan mengambil daftar lagu...' });
+    const res = await fetch(`/api/yt/playlist?id=${encodeURIComponent(playlistId)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Gagal mengambil playlist dari YouTube (Status ${res.status})`);
+    }
+
+    const data = await res.json();
+    if (!data.tracks || data.tracks.length === 0) {
+      throw new Error('Tidak ada lagu yang ditemukan di dalam playlist YouTube ini. Pastikan playlist bersifat publik.');
+    }
+
+    const playlistTitle = data.name || 'YouTube Playlist';
+    const playlistCover = data.cover || data.tracks[0]?.artwork || DEFAULT_ARTWORK;
+
+    onProgress({ status: 'done', message: `Berhasil mengambil ${data.tracks.length} lagu!` });
+
+    return {
+      id: 'pl-' + Date.now(),
+      name: playlistTitle,
+      description: `Diimpor dari YouTube Playlist (${data.tracks.length} lagu)`,
+      cover: playlistCover,
+      source: 'youtube',
+      tracks: data.tracks.map((t, idx) => ({
+        id: t.id || `yt-${t.videoId || idx}`,
+        videoId: t.videoId,
+        title: t.title,
+        artist: t.artist,
+        album: t.album || playlistTitle,
+        duration: t.duration || 180,
+        artwork: t.artwork || playlistCover,
+        audioUrl: '',
+        genre: 'Music',
+        releaseYear: '2024',
+      })),
+      createdAt: Date.now(),
+    };
   },
 
   /**

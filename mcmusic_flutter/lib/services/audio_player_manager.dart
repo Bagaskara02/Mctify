@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart' as ja;
 import 'package:youtube_player_iframe/youtube_player_iframe.dart' as ytp;
 import '../models/track.dart';
 import '../models/audio_quality.dart';
+import 'audio_proxy_server.dart';
 import 'equalizer_service.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
@@ -54,6 +55,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _resumeDebounceTimer;
   Timer? _networkReconnectTimer;
   DateTime? _trackStartTime;
+  DateTime? _lastPauseTime;
   bool _isRecovering = false;
   int _networkRetryCount = 0;
   bool _isNetworkOnline = true;
@@ -223,13 +225,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _trackStartTime = DateTime.now().subtract(_position);
 
     _backgroundWatchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_isPreparingTrack || _isRecovering) return;
-      if (!_userRequestedPause && _currentTrack != null && _isNetworkOnline) {
+      // CRITICAL: Strictly guard against ghost auto-resuming when user intentionally paused
+      if (_userRequestedPause || !_isPlaying || _isPreparingTrack || _isRecovering) return;
+      if (_currentTrack != null && _isNetworkOnline) {
         if (_isUsingYoutubeIframe && _ytController != null) {
           final playerState = _ytController?.value.playerState;
 
-          // 1. Resume if unexpectedly paused by OS while screen is off
-          if (playerState == ytp.PlayerState.paused) {
+          // 1. Resume if unexpectedly paused by OS while screen is off and user DID NOT request pause
+          if (playerState == ytp.PlayerState.paused && !_userRequestedPause && _isPlaying) {
             debugPrint('[AudioPlayerManager] Watchdog: unexpected pause detected, auto-resuming...');
             _acquireNativeLocks();
             _setJsUserRequestedPause(false);
@@ -317,6 +320,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else if (state == AppLifecycleState.resumed) {
       _isAppBackgrounded = false;
+      if (Platform.isIOS) {
+        unawaited(AudioSession.instance.then((s) => s.setActive(true)).catchError((_) {}));
+        unawaited(AudioProxyServer.instance.ensureStarted().catchError((_) {}));
+      }
       if (!_userRequestedPause && _isPlaying) {
         _acquireNativeLocks();
         if (_isUsingYoutubeIframe) {
@@ -1309,6 +1316,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
     if (_isPlaying) {
       _userRequestedPause = true;
+      _lastPauseTime = DateTime.now();
       _stopWatchdog();
       _releaseNativeLocks();
       await _player.pause();
@@ -1317,9 +1325,41 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       _userRequestedPause = false;
       _acquireNativeLocks();
       _startWatchdog();
+
+      if (Platform.isIOS) {
+        try {
+          final session = await AudioSession.instance;
+          await session.setActive(true);
+        } catch (_) {}
+      }
+
+      // If paused for more than 2 minutes in background, refresh audio stream so expired URLs / suspended sockets resume instantly
+      final wasPausedLong = _lastPauseTime != null &&
+          DateTime.now().difference(_lastPauseTime!).inMinutes >= 2;
+      _lastPauseTime = null;
+
+      if (wasPausedLong && _currentTrack != null) {
+        final resumePos = _position;
+        await playTrack(_currentTrack!);
+        if (resumePos > Duration.zero) {
+          await seek(resumePos);
+        }
+        return;
+      }
+
       if (_player.processingState == ja.ProcessingState.ready ||
           _player.processingState == ja.ProcessingState.buffering) {
-        await _player.play();
+        try {
+          await _player.play();
+        } catch (e) {
+          debugPrint('[AudioPlayerManager] play() error: $e, reloading track...');
+          if (_currentTrack != null) {
+            final resumePos = _position;
+            await playTrack(_currentTrack!);
+            if (resumePos > Duration.zero) await seek(resumePos);
+            return;
+          }
+        }
       } else if (_currentTrack != null) {
         await playTrack(_currentTrack!);
         return;

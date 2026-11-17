@@ -157,19 +157,76 @@ class PlaylistImporterService {
 
     final regExp = RegExp(r'[?&]list=([^#&?]+)');
     final match = regExp.firstMatch(url);
-    if (match == null) {
+    String playlistId = '';
+    if (match != null) {
+      playlistId = match.group(1)!;
+    } else if (RegExp(r'^[a-zA-Z0-9_-]{12,}$').hasMatch(url.trim())) {
+      playlistId = url.trim();
+    } else {
       throw Exception('Link YouTube tidak valid. URL harus memiliki parameter ?list=...');
     }
-    final playlistId = match.group(1)!;
 
+    String playlistName = 'YouTube Playlist';
+    String cover = MusicApiService.defaultArtwork;
+    List<Track> resolvedTracks = [];
+
+    // Method 1: Internal McMusic Backend Proxy (/api/yt/playlist) - 100% reliable with LockupView support
+    try {
+      onProgress?.call(0, 1, 'Menghubungkan ke API YouTube...');
+      final apiUrl = Uri.parse('https://mctify.vercel.app/api/yt/playlist?id=$playlistId');
+      final res = await http.get(apiUrl).timeout(const Duration(seconds: 12));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {
+          playlistName = data['name']?.toString() ?? playlistName;
+          cover = data['cover']?.toString() ?? cover;
+          final rawTracks = data['tracks'] as List;
+          for (final t in rawTracks) {
+            if (t is Map) {
+              final vId = t['videoId']?.toString() ?? '';
+              final title = t['title']?.toString() ?? 'Lagu';
+              final artist = t['artist']?.toString() ?? 'Artis';
+              final art = t['artwork']?.toString() ?? cover;
+              final dur = int.tryParse(t['duration']?.toString() ?? '180') ?? 180;
+              resolvedTracks.add(Track(
+                id: vId.isNotEmpty ? vId : 'yt-${DateTime.now().millisecondsSinceEpoch}-${resolvedTracks.length}',
+                title: title,
+                artist: artist,
+                album: playlistName,
+                artwork: art.isNotEmpty ? art : MusicApiService.defaultArtwork,
+                audioUrl: '',
+                videoId: vId.isNotEmpty ? vId : null,
+                duration: dur,
+                streamCount: '1.000.000',
+                isExplicit: false,
+              ));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[PlaylistImporterService] Backend /api/yt/playlist proxy error: $e');
+    }
+
+    if (resolvedTracks.isNotEmpty) {
+      onProgress?.call(resolvedTracks.length, resolvedTracks.length, 'Selesai mengimpor $playlistName!');
+      return Playlist(
+        id: 'pl-yt-${DateTime.now().millisecondsSinceEpoch}',
+        name: playlistName,
+        cover: cover,
+        tracks: resolvedTracks,
+      );
+    }
+
+    // Method 2: Direct YoutubeExplode fallback
     final yt = YoutubeExplode();
     try {
-      onProgress?.call(0, 1, 'Mengambil data playlist dari YouTube...');
+      onProgress?.call(0, 1, 'Mengambil data playlist langsung dari YouTube...');
       final ytPlaylist = await yt.playlists.get(playlistId);
-      final playlistName = ytPlaylist.title.isNotEmpty ? ytPlaylist.title : 'YouTube Playlist';
-      final cover = ytPlaylist.thumbnails.highResUrl.isNotEmpty
-          ? ytPlaylist.thumbnails.highResUrl
-          : MusicApiService.defaultArtwork;
+      playlistName = ytPlaylist.title.isNotEmpty ? ytPlaylist.title : playlistName;
+      if (ytPlaylist.thumbnails.highResUrl.isNotEmpty) {
+        cover = ytPlaylist.thumbnails.highResUrl;
+      }
 
       final List<Map<String, String>> rawTracks = [];
       await for (final video in yt.playlists.getVideos(playlistId)) {

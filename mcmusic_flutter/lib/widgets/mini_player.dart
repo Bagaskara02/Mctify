@@ -7,6 +7,7 @@ import '../utils/artwork_palette.dart';
 import 'audio_quality_modal.dart';
 import 'fullscreen_player.dart';
 import 'optimized_image.dart';
+import 'track_action_sheet.dart';
 
 class MiniPlayer extends StatefulWidget {
   final AudioPlayerManager player;
@@ -66,6 +67,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
             isLiked: widget.isLiked,
             onToggleLike: widget.onToggleLike,
           ),
+        );
+      },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        showTrackActionSheet(
+          context: context,
+          track: track,
+          player: widget.player,
         );
       },
       // Spotify / RiMusic Horizontal Swipe to Skip / Previous

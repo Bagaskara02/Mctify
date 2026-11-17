@@ -52,7 +52,7 @@ class EqualizerService extends ChangeNotifier {
 
   Future<void> _applyNativeSettings() async {
     try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
         await _channel.invokeMethod('setEnabled', {'enabled': _isEnabled});
         await _channel.invokeMethod('setBands', {
           'bands': _currentBands,
@@ -158,7 +158,7 @@ class EqualizerService extends ChangeNotifier {
     _loudnessGain = value.clamp(0.0, 1.0);
     notifyListeners();
     try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
         await _channel.invokeMethod('setLoudnessGain', {
           'gain': (_loudnessGain * 1000).round(),
           'enabled': _loudnessGain > 0,

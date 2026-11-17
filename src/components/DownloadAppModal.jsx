@@ -99,11 +99,11 @@ export default function DownloadAppModal({ isOpen, onClose }) {
             {/* Android Download Button */}
             <a
               href="/downloads/McMusic-arm64.apk"
-              download="McTify-v1.4.7-arm64.apk"
+              download="McTify-v1.4.8-arm64.apk"
               className="w-full py-3.5 px-4 rounded-xl bg-[#00a3ff] hover:bg-[#2eb4ff] text-black font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#00a3ff]/20 active:scale-95 transition-all cursor-pointer no-underline text-center"
             >
               <Smartphone className="w-4 h-4 stroke-[2.5]" />
-              <span>Download McTify Android APK (v1.4.7 • 22 MB)</span>
+              <span>Download McTify Android APK (v1.4.8 • 22 MB)</span>
             </a>
 
             {/* Quick Android Steps */}
@@ -181,14 +181,14 @@ export default function DownloadAppModal({ isOpen, onClose }) {
                 Jika Anda ingin memasang aplikasi native murni dari file paket <code>.ipa</code>:
               </p>
               <a
-                href="https://github.com/Bagaskara02/Mctify/releases/download/v1.4.7/McTify-v1.4.7.ipa"
-                download="McTify-v1.4.7.ipa"
+                href="https://github.com/Bagaskara02/Mctify/releases/download/v1.4.8/McTify-v1.4.8.ipa"
+                download="McTify-v1.4.8.ipa"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2.5 px-3 rounded-lg bg-white/10 hover:bg-white/15 border border-white/20 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 no-underline"
               >
                 <Download className="w-3.5 h-3.5 text-white" />
-                <span>Download Paket McTify-v1.4.7.ipa (9.3 MB)</span>
+                <span>Download Paket McTify-v1.4.8.ipa (9.3 MB)</span>
               </a>
               <div className="text-[11px] text-[#94a3b8] space-y-1 bg-black/30 p-2.5 rounded-lg">
                 <p className="font-semibold text-white flex items-center gap-1">
@@ -211,7 +211,7 @@ export default function DownloadAppModal({ isOpen, onClose }) {
             <span>→</span>
           </a>
           <a
-            href="https://github.com/Bagaskara02/Mctify/releases/tag/v1.4.7"
+            href="https://github.com/Bagaskara02/Mctify/releases/tag/v1.4.8"
             target="_blank"
             rel="noopener noreferrer"
             className="text-[#b3b3b3] hover:text-white inline-flex items-center gap-1 text-[11px]"
