@@ -1847,15 +1847,23 @@ export default function App() {
       <SpotifyTransitionModal
         isOpen={isTransitionModalOpen}
         onClose={() => setIsTransitionModalOpen(false)}
-        currentTrack={currentTrack}
+        currentTrack={currentTrack || queue[0] || personalizedFeed?.quickCards?.[0] || trendingTracks[0] || null}
         nextTrack={(() => {
-          if (!currentTrack || queue.length === 0) return null;
-          const idx = findTrackIndexInQueue(currentTrack, queue);
-          if (idx !== -1 && idx + 1 < queue.length) return queue[idx + 1];
-          return queue[0];
+          if (currentTrack && queue.length > 0) {
+            const idx = findTrackIndexInQueue(currentTrack, queue);
+            if (idx !== -1 && idx + 1 < queue.length) return queue[idx + 1];
+          }
+          if (queue.length > 1) return queue[1];
+          if (personalizedFeed?.quickCards?.length > 1) return personalizedFeed.quickCards[1];
+          if (trendingTracks.length > 1) return trendingTracks[1];
+          return null;
         })()}
+        queue={queue}
+        likedTracks={likedTracks}
+        trendingTracks={trendingTracks}
+        onPlayTrack={handlePlayTrack}
         onSaveTransition={(saved) => {
-          setSmartToast(`Transisi lagu disimpan: ${saved.bars} • ${saved.volume}`);
+          setSmartToast(`Transisi disimpan: ${saved.bars} • ${saved.volume}`);
           setTimeout(() => setSmartToast(null), 3500);
         }}
       />
