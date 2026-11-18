@@ -341,6 +341,7 @@ export default function BeautifulLyrics({
   }, [track?.artwork]);
 
   const lines = lyricsData?.lines || [];
+  const isSynced = lyricsData?.synced !== false;
   const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
 
   // Fine-tuned visual attack lead (+0.04s / 40ms):
@@ -349,13 +350,15 @@ export default function BeautifulLyrics({
   const visualAttackLeadSec = 0.04;
   const effectiveTime = Math.max(0, smoothTime + visualAttackLeadSec + syncOffsetSec);
 
-  // Determine active line index
+  // Determine active line index (only for synchronized lyrics)
   let activeIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].time <= effectiveTime) {
-      if (i === lines.length - 1 || lines[i + 1].time > effectiveTime) {
-        activeIndex = i;
-        break;
+  if (isSynced) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].time <= effectiveTime) {
+        if (i === lines.length - 1 || lines[i + 1].time > effectiveTime) {
+          activeIndex = i;
+          break;
+        }
       }
     }
   }
@@ -415,32 +418,38 @@ export default function BeautifulLyrics({
 
       {/* Floating Minimal Controls (Top Right: Timing Calibrator, Fullscreen & Close) */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-8 z-30 flex items-center gap-2">
-        {/* Real-time Lyrics Timing Calibrator */}
-        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg">
-          <button
-            onClick={() => updateSyncOffset(-0.1)}
-            className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Mundur 0.1s (perlambat lirik jika lirik mendahului lagu)"
-          >
-            -0.1s
-          </button>
-          <button
-            onClick={resetSyncOffset}
-            className={`px-2 py-0.5 font-mono text-[11px] transition-colors ${
-              syncOffsetSec !== 0 ? 'text-[#00a3ff] font-bold drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]' : 'hover:text-white'
-            }`}
-            title="Klik untuk reset sinkronisasi lirik ke normal (0.0s)"
-          >
-            Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
-          </button>
-          <button
-            onClick={() => updateSyncOffset(0.1)}
-            className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Maju 0.1s (percepat lirik jika lirik terlambat di belakang lagu)"
-          >
-            +0.1s
-          </button>
-        </div>
+        {/* Real-time Lyrics Timing Calibrator (Synced) or Static Indicator */}
+        {isSynced ? (
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg">
+            <button
+              onClick={() => updateSyncOffset(-0.1)}
+              className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
+              title="Mundur 0.1s (perlambat lirik jika lirik mendahului lagu)"
+            >
+              -0.1s
+            </button>
+            <button
+              onClick={resetSyncOffset}
+              className={`px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                syncOffsetSec !== 0 ? 'text-[#00a3ff] font-bold drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]' : 'hover:text-white'
+              }`}
+              title="Klik untuk reset sinkronisasi lirik ke normal (0.0s)"
+            >
+              Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
+            </button>
+            <button
+              onClick={() => updateSyncOffset(0.1)}
+              className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
+              title="Maju 0.1s (percepat lirik jika lirik terlambat di belakang lagu)"
+            >
+              +0.1s
+            </button>
+          </div>
+        ) : (
+          <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/70 shadow-lg">
+            Lirik Statis
+          </span>
+        )}
 
         {/* Script Mode Toggle (Romaja / Huruf Biasa, Dual, Native) */}
         {hasNonLatinLyrics && (
@@ -567,22 +576,30 @@ export default function BeautifulLyrics({
                 const displayText = useRomanized ? (line.romanizedText || line.text) : line.text;
                 const showDualNative = scriptMode === 'dual' && line.hasRomanization && line.text !== displayText;
 
+                const isLineActive = isSynced && isActive;
+                const isLineImmediateNext = isSynced && isImmediateNext;
+                const isLineUpcoming = isSynced && isUpcoming;
+
                 return (
                   <div
                     key={line.id || idx}
-                    ref={isActive ? activeLineRef : null}
-                    onClick={() => onSeek(line.time)}
+                    ref={isLineActive ? activeLineRef : null}
+                    onClick={() => {
+                      if (isSynced) onSeek(line.time);
+                    }}
                     className={`cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] transform origin-left leading-snug ${
-                      isActive
+                      !isSynced
+                        ? 'opacity-85 hover:opacity-100 scale-100 font-bold text-2xl sm:text-3xl md:text-4xl text-white/90 hover:text-white py-1'
+                        : isLineActive
                         ? 'opacity-100 scale-100 font-black blur-0 text-3xl sm:text-4xl md:text-5xl text-white'
-                        : isImmediateNext
+                        : isLineImmediateNext
                         ? 'opacity-85 hover:opacity-100 scale-[0.98] font-black blur-0 text-2xl sm:text-3xl md:text-4xl text-white/90 drop-shadow-sm hover:scale-[0.99] hover:text-white'
-                        : isUpcoming
+                        : isLineUpcoming
                         ? 'opacity-65 hover:opacity-95 scale-[0.96] font-extrabold blur-[0.3px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/70 hover:scale-[0.98] hover:text-white'
                         : 'opacity-25 hover:opacity-70 scale-[0.93] font-semibold blur-[1.2px] hover:blur-0 text-2xl sm:text-3xl md:text-4xl text-white/30'
                     }`}
                   >
-                    {isActive ? (
+                    {isLineActive ? (
                       <div>
                         {displayWords && displayWords.length > 0 ? (
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">

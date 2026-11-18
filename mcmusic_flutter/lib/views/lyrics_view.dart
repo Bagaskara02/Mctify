@@ -67,6 +67,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   late Track _currentTrack;
   List<LyricLine> _lyrics = [];
   bool _isLoading = true;
+  bool _isSynced = true;
   int _activeLineIndex = 0;
   bool _userScrolled = false;
   Timer? _userScrollTimer;
@@ -203,6 +204,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     if (mounted && _currentTrack.id == target.id) {
       setState(() {
         _lyrics = result.lines;
+        _isSynced = result.isSynced;
         _isLoading = false;
         _lineKeys.clear();
       });
@@ -246,13 +248,15 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     const double anticipatoryLeadSec = 0.04;
     final effectiveSec = math.max(0.0, _currentEffectiveSec + anticipatoryLeadSec + _syncOffsetSec);
 
-    // Determine current active lyric line
+    // Determine current active lyric line (only if synced)
     int currentActive = -1;
-    for (int i = 0; i < _lyrics.length; i++) {
-      if (_lyrics[i].time <= effectiveSec) {
-        if (i == _lyrics.length - 1 || _lyrics[i + 1].time > effectiveSec) {
-          currentActive = i;
-          break;
+    if (_isSynced) {
+      for (int i = 0; i < _lyrics.length; i++) {
+        if (_lyrics[i].time <= effectiveSec) {
+          if (i == _lyrics.length - 1 || _lyrics[i + 1].time > effectiveSec) {
+            currentActive = i;
+            break;
+          }
         }
       }
     }
@@ -404,60 +408,71 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
               ),
             ),
 
-            // Compact Timing Calibrator Strip
+            // Compact Timing Calibrator Strip or Static Pill
               if (_lyrics.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.25),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          final next = ((_syncOffsetSec - 0.1) * 10).round() / 10;
-                          setState(() => _syncOffsetSec = next);
-                          _saveSyncOffset(next);
-                        },
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text('-0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                _isSynced
+                    ? Container(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _syncOffsetSec = 0.0);
-                          _saveSyncOffset(0.0);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          child: Text(
-                            'Sync ${_syncOffsetSec >= 0 ? '+' : ''}${_syncOffsetSec.toStringAsFixed(1)}s',
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                final next = ((_syncOffsetSec - 0.1) * 10).round() / 10;
+                                setState(() => _syncOffsetSec = next);
+                                _saveSyncOffset(next);
+                              },
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Text('-0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _syncOffsetSec = 0.0);
+                                _saveSyncOffset(0.0);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                child: Text(
+                                  'Sync ${_syncOffsetSec >= 0 ? '+' : ''}${_syncOffsetSec.toStringAsFixed(1)}s',
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                final next = ((_syncOffsetSec + 0.1) * 10).round() / 10;
+                                setState(() => _syncOffsetSec = next);
+                                _saveSyncOffset(next);
+                              },
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                child: Text('+0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          final next = ((_syncOffsetSec + 0.1) * 10).round() / 10;
-                          setState(() => _syncOffsetSec = next);
-                          _saveSyncOffset(next);
-                        },
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text('+0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                      )
+                    : Container(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
                         ),
+                        child: const Text('Lirik Statis', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
                       ),
-                    ],
-                  ),
-                ),
 
               // Lyrics Karaoke Body
               Expanded(
@@ -548,11 +563,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                                           : Text(
                                               line.text,
                                               style: TextStyle(
-                                                color: isActive
-                                                    ? Colors.white
-                                                    : isPassed
-                                                        ? Colors.white.withAlpha(75)
-                                                        : Colors.white.withAlpha(45),
+                                                color: !_isSynced
+                                                    ? Colors.white.withValues(alpha: 0.88)
+                                                    : isActive
+                                                        ? Colors.white
+                                                        : isPassed
+                                                            ? Colors.white.withAlpha(75)
+                                                            : Colors.white.withAlpha(45),
                                                 shadows: isActive
                                                     ? const [
                                                         Shadow(
