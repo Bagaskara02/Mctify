@@ -113,12 +113,13 @@ export const playlistImporter = {
       cover: playlistCover,
       source: 'youtube',
       tracks: data.tracks.map((t, idx) => {
-        let art = t.artwork || playlistCover;
-        if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
-          art = art.replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg');
-        }
-        if ((!art || art === DEFAULT_ARTWORK) && t.videoId) {
+        let art = t.artwork;
+        if (t.videoId) {
           art = `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`;
+        } else if (art) {
+          art = art.split('?')[0].replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg');
+        } else {
+          art = playlistCover || DEFAULT_ARTWORK;
         }
         return {
           id: t.id || `yt-${t.videoId || idx}`,

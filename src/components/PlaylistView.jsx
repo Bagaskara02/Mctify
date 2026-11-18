@@ -543,12 +543,18 @@ export default function PlaylistView({
                     </div>
 
                     <img
-                      src={(t.artwork && t.artwork.replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg')) || (t.videoId ? `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
+                      src={
+                        (t.videoId ? `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg` : (t.artwork ? t.artwork.split('?')[0].replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg') : DEFAULT_ARTWORK))
+                      }
                       alt={t.title}
                       onLoad={(e) => {
                         // YouTube 120x90 404 placeholder detection
                         if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
-                          e.currentTarget.src = DEFAULT_ARTWORK;
+                          if (t.artwork && !t.artwork.includes('ytimg.com') && !t.artwork.includes('default.jpg')) {
+                            e.currentTarget.src = t.artwork;
+                          } else {
+                            e.currentTarget.src = DEFAULT_ARTWORK;
+                          }
                         }
                       }}
                       onError={(e) => {

@@ -8,7 +8,10 @@ async function getYT() {
   return ytPromise;
 }
 
-const toHighResUrl = (url) => {
+const toHighResUrl = (url, fallbackVideoId = '') => {
+  if (fallbackVideoId) {
+    return `https://i.ytimg.com/vi/${fallbackVideoId}/hqdefault.jpg`;
+  }
   if (!url || typeof url !== 'string') return '';
   if (url.includes('googleusercontent.com')) {
     if (/=w\d+-h\d+/i.test(url)) {
@@ -22,15 +25,11 @@ const toHighResUrl = (url) => {
     }
   }
   if (url.includes('ytimg.com')) {
-    // If it has signed params from Innertube (sqp= or rs=), keep them intact to avoid 404
-    if (url.includes('sqp=') || url.includes('&rs=') || url.includes('?rs=')) {
-      return url;
-    }
     const viMatch = url.match(/\/vi\/([a-zA-Z0-9_-]+)\//);
     if (viMatch) {
       return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
     }
-    return url.replace(/(hqdefault|mqdefault|sddefault|maxresdefault|default)\.jpg/i, 'hqdefault.jpg').split('?')[0];
+    return url.split('?')[0].replace(/(hqdefault|mqdefault|sddefault|maxresdefault|default)\.jpg/i, 'hqdefault.jpg');
   }
   return url;
 };
@@ -107,11 +106,11 @@ export default async function handler(req, res) {
         artist: artist.trim(),
         album: playlistTitle,
         duration: durationSec,
-        artwork: toHighResUrl(thumbUrl),
+        artwork: toHighResUrl(thumbUrl, videoId),
       };
     }).filter(t => t.title && t.videoId);
 
-    if (!playlistCover && tracks.length > 0) {
+    if ((!playlistCover || playlistCover.includes('default.jpg') || playlistCover.includes('sqp=')) && tracks.length > 0) {
       playlistCover = tracks[0].artwork || (tracks[0].videoId ? `https://i.ytimg.com/vi/${tracks[0].videoId}/hqdefault.jpg` : '');
     }
 

@@ -214,20 +214,25 @@ export default function BeautifulLyrics({
   const [palette, setPalette] = useState({ primary: '#2563EB', secondary: '#3B82F6', tertiary: '#1D4ED8' });
   const [userScrolled, setUserScrolled] = useState(false);
 
-  // Track-specific sync key
-  const trackKey = track
-    ? `${(track.title || '').toLowerCase().trim()}__${(track.artist || '').toLowerCase().trim()}`
-    : '';
+  // Normalized track-specific sync key (immune to YouTube video title noise)
+  const cleanTitle = (track?.title || '')
+    .replace(/\s*[\(\[](official\s*(music\s*)?video|official\s*audio|visualizer|mv|hd|4k)[^\)\]]*[\)\]]/gi, '')
+    .toLowerCase()
+    .trim();
+  const cleanArtist = (track?.artist || '')
+    .replace(/\s*-\s*topic$/i, '')
+    .toLowerCase()
+    .trim();
+  const trackKey = cleanTitle ? `${cleanTitle}__${cleanArtist}` : '';
 
-  // User lyric timing sync calibration (persisted in localStorage per-track or global)
+  // User lyric timing sync calibration (persisted strictly per-track so one song never corrupts others)
   const [syncOffsetSec, setSyncOffsetSec] = useState(() => {
     try {
       if (trackKey) {
         const perTrack = localStorage.getItem(`mctify_lyrics_sync_${trackKey}`);
         if (perTrack !== null) return parseFloat(perTrack);
       }
-      const saved = localStorage.getItem('mctify_lyrics_sync_offset');
-      return saved !== null ? parseFloat(saved) : 0;
+      return 0;
     } catch {
       return 0;
     }
@@ -235,20 +240,20 @@ export default function BeautifulLyrics({
 
   // Re-sync whenever current track changes
   useEffect(() => {
-    if (!trackKey) return;
+    if (!trackKey) {
+      setSyncOffsetSec(0);
+      return;
+    }
     try {
       const perTrack = localStorage.getItem(`mctify_lyrics_sync_${trackKey}`);
       if (perTrack !== null) {
         setSyncOffsetSec(parseFloat(perTrack));
-        return;
-      }
-      const saved = localStorage.getItem('mctify_lyrics_sync_offset');
-      if (saved !== null) {
-        setSyncOffsetSec(parseFloat(saved));
       } else {
         setSyncOffsetSec(0);
       }
-    } catch {}
+    } catch {
+      setSyncOffsetSec(0);
+    }
   }, [trackKey]);
 
   // Lyric script display mode: 'romaja' (Huruf Biasa / Latin), 'dual' (Romaja + Asli), 'native' (Asli)
@@ -277,7 +282,6 @@ export default function BeautifulLyrics({
         if (trackKey) {
           localStorage.setItem(`mctify_lyrics_sync_${trackKey}`, next.toString());
         }
-        localStorage.setItem('mctify_lyrics_sync_offset', next.toString());
       } catch (_) {}
       return next;
     });
@@ -289,14 +293,14 @@ export default function BeautifulLyrics({
       if (trackKey) {
         localStorage.removeItem(`mctify_lyrics_sync_${trackKey}`);
       }
-      localStorage.setItem('mctify_lyrics_sync_offset', '0');
     } catch (_) {}
   };
 
-  // 60 FPS sub-millisecond smooth interpolation ticker
+  // Monotonic, buttery-smooth time tracker that NEVER freezes at 300ms or snaps backwards
   const [smoothTime, setSmoothTime] = useState(currentTime);
-  const lastReportedTimeRef = useRef(currentTime);
-  const lastTimestampRef = useRef(performance.now());
+  const smoothTimeRef = useRef(currentTime);
+  const lastSyncWallRef = useRef(performance.now());
+  const lastSyncPlayerRef = useRef(currentTime);
 
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
@@ -304,28 +308,50 @@ export default function BeautifulLyrics({
 
   // Synchronize reference with player's actual time
   useEffect(() => {
-    lastReportedTimeRef.current = currentTime;
-    lastTimestampRef.current = performance.now();
-    setSmoothTime(currentTime);
-  }, [currentTime]);
+    const now = performance.now();
+    const dt = (now - lastSyncWallRef.current) / 1000;
+    const expected = lastSyncPlayerRef.current + (isPlaying ? dt : 0);
+    const diff = Math.abs(currentTime - expected);
 
-  // High-precision animation frame ticker for buttery smooth wipe
+    // Hard jump ONLY on user scrub/seek (> 0.75s) or when paused
+    if (diff > 0.75 || !isPlaying) {
+      lastSyncPlayerRef.current = currentTime;
+      lastSyncWallRef.current = now;
+      smoothTimeRef.current = currentTime;
+      setSmoothTime(currentTime);
+    } else {
+      // Continuous forward playback: update baseline without snapping backwards!
+      lastSyncPlayerRef.current = currentTime;
+      lastSyncWallRef.current = now;
+      if (currentTime > smoothTimeRef.current) {
+        smoothTimeRef.current = currentTime;
+      }
+    }
+  }, [currentTime, isPlaying]);
+
+  // High-precision animation frame ticker for buttery smooth wipe (continuous up to 4s)
   useEffect(() => {
     if (!isPlaying) {
+      smoothTimeRef.current = currentTime;
       setSmoothTime(currentTime);
       return;
     }
     let animId;
     const loop = () => {
-      const elapsed = (performance.now() - lastTimestampRef.current) / 1000;
-      if (elapsed >= 0 && elapsed <= 0.3) {
-        setSmoothTime(lastReportedTimeRef.current + elapsed);
+      const now = performance.now();
+      const dt = (now - lastSyncWallRef.current) / 1000;
+      if (dt >= 0 && dt <= 4.0) {
+        const nextTime = lastSyncPlayerRef.current + dt;
+        if (nextTime > smoothTimeRef.current) {
+          smoothTimeRef.current = nextTime;
+          setSmoothTime(nextTime);
+        }
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, currentTime]);
+  }, [isPlaying]);
 
   // Extract vibrant colors from album artwork for ambient backdrop
   useEffect(() => {
@@ -344,10 +370,10 @@ export default function BeautifulLyrics({
   const isSynced = lyricsData?.synced !== false;
   const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
 
-  // Fine-tuned visual attack lead (+0.04s / 40ms):
-  // Studio LRC timestamps mark the precise moment vocal acoustic energy begins. An anticipatory 40ms lead
-  // ensures the glowing text illuminates exactly in lockstep as the sound wave reaches the ear.
-  const visualAttackLeadSec = 0.04;
+  // Fine-tuned visual attack lead (+0.10s / 100ms):
+  // Cancels out hardware / Web Audio / YouTube Iframe buffer output latency (typically 80-120ms).
+  // Illuminates active words and syllables exactly in lockstep as the acoustic sound wave reaches the ear.
+  const visualAttackLeadSec = 0.10;
   const effectiveTime = Math.max(0, smoothTime + visualAttackLeadSec + syncOffsetSec);
 
   // Determine active line index (only for synchronized lyrics)
@@ -420,16 +446,27 @@ export default function BeautifulLyrics({
       <div className="absolute top-4 right-4 sm:top-6 sm:right-8 z-30 flex items-center gap-2">
         {/* Real-time Lyrics Timing Calibrator (Synced) or Static Indicator */}
         {isSynced ? (
-          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg">
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg"
+          >
             <button
-              onClick={() => updateSyncOffset(-0.1)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                updateSyncOffset(-0.1);
+              }}
               className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
               title="Mundur 0.1s (perlambat lirik jika lirik mendahului lagu)"
             >
               -0.1s
             </button>
             <button
-              onClick={resetSyncOffset}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                resetSyncOffset();
+              }}
               className={`px-2 py-0.5 font-mono text-[11px] transition-colors ${
                 syncOffsetSec !== 0 ? 'text-[#00a3ff] font-bold drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]' : 'hover:text-white'
               }`}
@@ -438,7 +475,11 @@ export default function BeautifulLyrics({
               Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
             </button>
             <button
-              onClick={() => updateSyncOffset(0.1)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                updateSyncOffset(0.1);
+              }}
               className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
               title="Maju 0.1s (percepat lirik jika lirik terlambat di belakang lagu)"
             >
@@ -489,12 +530,19 @@ export default function BeautifulLyrics({
         <div className="hidden lg:flex lg:col-span-4 flex-col justify-center items-start p-8 select-none">
           <div className="relative group mb-8">
             <img
-              src={(track?.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track?.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)} 
+              src={
+                (track?.artwork && !track.artwork.includes('sqp=') && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) ||
+                (track?.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)
+              } 
               alt={track?.title} 
               onLoad={(e) => {
                 // YouTube 120x90 404 placeholder detection
                 if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
-                  e.currentTarget.src = DEFAULT_ARTWORK;
+                  if (track?.videoId) {
+                    e.currentTarget.src = `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`;
+                  } else {
+                    e.currentTarget.src = DEFAULT_ARTWORK;
+                  }
                 }
               }}
               onError={(e) => {

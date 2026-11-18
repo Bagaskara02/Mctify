@@ -48,4 +48,26 @@ class LyricLine {
     this.isInterlude = false,
     this.isBackgroundVocal = false,
   }) : endTime = endTime ?? (time + 4.0);
+
+  LyricLine copyWith({
+    double? time,
+    double? endTime,
+    String? text,
+    String? rawText,
+    List<LyricWord>? words,
+    bool? isInstrumental,
+    bool? isInterlude,
+    bool? isBackgroundVocal,
+  }) {
+    return LyricLine(
+      time: time ?? this.time,
+      endTime: endTime ?? this.endTime,
+      text: text ?? this.text,
+      rawText: rawText ?? this.rawText,
+      words: words ?? this.words,
+      isInstrumental: isInstrumental ?? this.isInstrumental,
+      isInterlude: isInterlude ?? this.isInterlude,
+      isBackgroundVocal: isBackgroundVocal ?? this.isBackgroundVocal,
+    );
+  }
 }

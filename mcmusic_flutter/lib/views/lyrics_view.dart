@@ -161,26 +161,34 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     final now = DateTime.now().millisecondsSinceEpoch;
     final playerSec = widget.player.position.inMilliseconds / 1000.0;
 
-    // Detect if player pushed a new coarse position or user sought
-    if ((playerSec - _lastKnownPlayerSec).abs() > 0.08) {
+    // Detect if user sought (> 0.75s jump) or playback paused
+    final diff = (playerSec - _lastKnownPlayerSec).abs();
+    if (diff > 0.75 || !widget.player.isPlaying) {
+      _lastKnownPlayerSec = playerSec;
+      _lastKnownTimestampMs = now;
+      if ((playerSec - _currentEffectiveSec).abs() > 0.01) {
+        setState(() {
+          _currentEffectiveSec = playerSec;
+        });
+      }
+      return;
+    }
+
+    // Continuous forward playback: update baseline without snapping backwards!
+    if (playerSec > _lastKnownPlayerSec) {
       _lastKnownPlayerSec = playerSec;
       _lastKnownTimestampMs = now;
     }
 
     if (widget.player.isPlaying) {
       final dt = (now - _lastKnownTimestampMs) / 1000.0;
-      final clampedDt = dt.clamp(0.0, 0.25);
-      final interpolated = _lastKnownPlayerSec + clampedDt;
-      if ((interpolated - _currentEffectiveSec).abs() > 0.01) {
-        setState(() {
-          _currentEffectiveSec = interpolated;
-        });
-      }
-    } else {
-      if ((playerSec - _currentEffectiveSec).abs() > 0.01) {
-        setState(() {
-          _currentEffectiveSec = playerSec;
-        });
+      if (dt >= 0.0 && dt <= 4.0) {
+        final interpolated = _lastKnownPlayerSec + dt;
+        if (interpolated > _currentEffectiveSec) {
+          setState(() {
+            _currentEffectiveSec = interpolated;
+          });
+        }
       }
     }
   }
@@ -244,8 +252,8 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    // Tight vocal lead (+0.04s / 40ms) ensures word illumination perfectly locks with acoustic sound arrival
-    const double anticipatoryLeadSec = 0.04;
+    // Tight vocal lead (+0.10s / 100ms) eliminates hardware audio output latency across all songs
+    const double anticipatoryLeadSec = 0.10;
     final effectiveSec = math.max(0.0, _currentEffectiveSec + anticipatoryLeadSec + _syncOffsetSec);
 
     // Determine current active lyric line (only if synced)
