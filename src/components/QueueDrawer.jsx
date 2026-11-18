@@ -17,7 +17,14 @@ export default function QueueDrawer({
   const upNextTracks = currentIndex !== -1 ? queue.slice(currentIndex + 1) : queue;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#121212] border-l border-[#282828] z-[90] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 select-none">
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[88] animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+
+      <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#121212] border-l border-[#282828] z-[90] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 select-none">
       {/* Header */}
       <div className="p-4 border-b border-[#242424] flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -47,6 +54,11 @@ export default function QueueDrawer({
               <img
                 src={(currentTrack.artwork && currentTrack.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (currentTrack.videoId ? `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                 alt={currentTrack.title}
+                onLoad={(e) => {
+                  if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
+                    e.currentTarget.src = DEFAULT_ARTWORK;
+                  }
+                }}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
                   if (currentTrack.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
@@ -156,5 +168,6 @@ export default function QueueDrawer({
         </div>
       </div>
     </div>
+  </>
   );
 }

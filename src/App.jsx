@@ -1862,6 +1862,7 @@ export default function App() {
           onPlayTrack={handlePlayTrack}
           onAddToNext={handleAddToNext}
           onAddToQueue={handleAddToQueue}
+          onOpenQueue={() => setIsQueueOpen(true)}
           onToggleLike={handleToggleLike}
           onAddTrackToPlaylist={handleAddTrackToPlaylist}
           onCreatePlaylistWithTrack={handleCreatePlaylistWithTrack}

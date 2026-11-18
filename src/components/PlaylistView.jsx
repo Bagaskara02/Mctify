@@ -194,6 +194,16 @@ export default function PlaylistView({
               (rawTracks[0]?.videoId ? `https://i.ytimg.com/vi/${rawTracks[0].videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)
             }
             alt={playlist.name}
+            onLoad={(e) => {
+              // YouTube 120x90 404 placeholder detection
+              if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
+                if (rawTracks[0]?.artwork && !rawTracks[0].artwork.includes('hqdefault.jpg')) {
+                  e.currentTarget.src = rawTracks[0].artwork;
+                } else {
+                  e.currentTarget.src = DEFAULT_ARTWORK;
+                }
+              }
+            }}
             onError={(e) => {
               e.currentTarget.onerror = null;
               if (rawTracks[0]?.artwork && !e.currentTarget.src.includes('hqdefault.jpg')) {
@@ -535,6 +545,12 @@ export default function PlaylistView({
                     <img
                       src={(t.artwork && t.artwork.replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg')) || (t.videoId ? `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                       alt={t.title}
+                      onLoad={(e) => {
+                        // YouTube 120x90 404 placeholder detection
+                        if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
+                          e.currentTarget.src = DEFAULT_ARTWORK;
+                        }
+                      }}
                       onError={(e) => {
                         e.currentTarget.onerror = null;
                         if (t.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {

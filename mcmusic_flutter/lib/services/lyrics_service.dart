@@ -104,14 +104,21 @@ class LyricsService {
       return netease;
     }
 
-    // TIER 2: LRCLIB (Exact & Flexible Search)
+    // TIER 2: QQ Music (High-Coverage Studio Synced LRC)
+    final qq = await _fetchQQMusic(cleanTitle, cleanArtist);
+    if (qq != null && qq.lines.isNotEmpty) {
+      _cache[cacheKey] = qq;
+      return qq;
+    }
+
+    // TIER 3: LRCLIB (Exact & Flexible Search)
     final lrclib = await _fetchLrclib(cleanTitle, cleanArtist, targetDuration);
     if (lrclib != null && lrclib.lines.isNotEmpty) {
       _cache[cacheKey] = lrclib;
       return lrclib;
     }
 
-    // TIER 3: Composite Sub-title retry (e.g. 'Television' from 'Television / So Far So Good')
+    // TIER 4: Composite Sub-title retry (e.g. 'Television' from 'Television / So Far So Good')
     if (subTitles.length > 1) {
       for (int i = 1; i < subTitles.length; i++) {
         final sub = subTitles[i];
@@ -119,6 +126,11 @@ class LyricsService {
         if (subNetEase != null && subNetEase.lines.isNotEmpty) {
           _cache[cacheKey] = subNetEase;
           return subNetEase;
+        }
+        final subQq = await _fetchQQMusic(sub, cleanArtist);
+        if (subQq != null && subQq.lines.isNotEmpty) {
+          _cache[cacheKey] = subQq;
+          return subQq;
         }
         final subLrc = await _fetchLrclib(sub, cleanArtist, targetDuration);
         if (subLrc != null && subLrc.lines.isNotEmpty) {
@@ -128,7 +140,7 @@ class LyricsService {
       }
     }
 
-    // TIER 4: Lyrist Public API Fallback
+    // TIER 5: Lyrist Public API Fallback
     try {
       final url = Uri.parse('https://lyrist.vercel.app/api/${Uri.encodeComponent(cleanTitle)}/${Uri.encodeComponent(cleanArtist)}');
       final res = await http.get(url).timeout(const Duration(seconds: 4));
@@ -206,6 +218,59 @@ class LyricsService {
                   isSynced: true,
                   source: 'NetEase LRC',
                 );
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<LyricsResult?> _fetchQQMusic(String cleanTitle, String cleanArtist) async {
+    try {
+      final q = '$cleanTitle $cleanArtist'.trim();
+      final url = Uri.parse('https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${Uri.encodeComponent(q)}&format=json&n=5');
+      final res = await http.get(url, headers: {
+        'Referer': 'https://y.qq.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      }).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final list = data['data']?['song']?['list'];
+        if (list is List && list.isNotEmpty) {
+          final targetTitleNorm = cleanTitle.toLowerCase().trim();
+          final targetArtistNorm = cleanArtist.toLowerCase().trim();
+          for (final item in list.take(3)) {
+            final songname = ((item['songname'] ?? '') as String).toLowerCase().trim();
+            final singerList = item['singer'] as List?;
+            final singerName = singerList != null && singerList.isNotEmpty
+                ? ((singerList[0]['name'] ?? '') as String).toLowerCase().trim()
+                : '';
+            final titleMatches = songname.contains(targetTitleNorm) || targetTitleNorm.contains(songname);
+            final artistMatches = targetArtistNorm.isEmpty || singerName.contains(targetArtistNorm) || targetArtistNorm.contains(singerName);
+            if (titleMatches && (artistMatches || songname == targetTitleNorm)) {
+              final songmid = item['songmid'] as String?;
+              if (songmid != null && songmid.isNotEmpty) {
+                final lrcUrl = Uri.parse('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=$songmid&format=json&nobase64=1');
+                final lrcRes = await http.get(lrcUrl, headers: {
+                  'Referer': 'https://y.qq.com',
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                }).timeout(const Duration(seconds: 4));
+                if (lrcRes.statusCode == 200) {
+                  final lrcData = jsonDecode(lrcRes.body);
+                  if (lrcData['code'] == 0 && lrcData['lyric'] != null) {
+                    final rawLrc = lrcData['lyric'] as String;
+                    final lines = parseLrc(rawLrc);
+                    if (lines.isNotEmpty) {
+                      return LyricsResult(
+                        lines: lines,
+                        isSynced: true,
+                        source: 'QQ Music (Studio Synced)',
+                      );
+                    }
+                  }
+                }
               }
             }
           }

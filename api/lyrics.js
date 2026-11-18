@@ -237,20 +237,22 @@ function parseLrc(lrcText) {
       if (next) {
         const rawGap = next.time - curr.time;
         if (rawGap <= 1.2) {
-          curr.duration = Math.max(0.6, rawGap - 0.08);
-        } else if (rawGap <= 7.0) {
-          // Natural singing phrasing: sustains ~85-90% of the bar/gap with human breathing pause
-          curr.duration = Math.max(1.2, Math.min(rawGap - 0.35, rawGap * 0.88));
+          curr.duration = Math.max(0.6, rawGap - 0.06);
         } else {
-          // Extended gap (interlude before next verse): calculate based on syllable count
-          const syllableCount = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length || (curr.text.split(/\s+/).length * 2);
-          const naturalDuration = Math.max(2.4, Math.min(5.8, syllableCount * 0.38 + 1.0));
-          curr.duration = Math.min(rawGap - 1.2, naturalDuration);
+          // Dynamic phonetic duration modeling based on words & syllable density
+          const words = curr.text.split(/\s+/).filter(Boolean);
+          const nonLatinSyllables = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
+          const approxSyllables = nonLatinSyllables > 0 ? nonLatinSyllables : (words.length * 1.5);
+          // Human singing tempo: ~0.30s per syllable + vocal onset/release
+          const naturalSingingDuration = Math.max(1.5, Math.min(6.5, approxSyllables * 0.32 + 0.5));
+          curr.duration = Math.min(rawGap - 0.15, naturalSingingDuration);
         }
         curr.endTime = curr.time + curr.duration;
       } else {
-        const syllableCount = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length || (curr.text.split(/\s+/).length * 2);
-        curr.duration = Math.max(2.5, Math.min(5.5, syllableCount * 0.38 + 1.2));
+        const words = curr.text.split(/\s+/).filter(Boolean);
+        const nonLatinSyllables = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
+        const approxSyllables = nonLatinSyllables > 0 ? nonLatinSyllables : (words.length * 1.5);
+        curr.duration = Math.max(2.0, Math.min(5.5, approxSyllables * 0.32 + 0.8));
         curr.endTime = curr.time + curr.duration;
       }
     }
@@ -547,7 +549,78 @@ async function fetchLrclib(title, artist, targetDuration) {
 }
 
 /**
- * Main Cascading Resolver: compares scored candidates from NetEase & LRCLIB in parallel
+ * Fetch from QQ Music (Tencent Music Studio-synced LRC database)
+ */
+async function fetchQQMusic(title, artist, targetDuration) {
+  try {
+    const q = `${title} ${artist}`.trim();
+    const searchRes = await fetch(
+      `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&n=5`,
+      {
+        headers: {
+          'Referer': 'https://y.qq.com',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      }
+    );
+    if (!searchRes.ok) return null;
+    const searchData = await searchRes.json();
+    const songs = searchData.data?.song?.list || [];
+    if (songs.length === 0) return null;
+
+    const ranked = songs
+      .map((s) => {
+        const candTitle = s.songname || '';
+        const candArtist = (s.singer || []).map((a) => a.name).join(', ');
+        const candDurSec = s.interval || 0;
+        const score = scoreLyricCandidate({
+          candTitle,
+          candArtist,
+          candDurationSec: candDurSec,
+          targetTitle: title,
+          targetArtist: artist,
+          targetDurationSec: targetDuration || 0,
+        });
+        return { song: s, score };
+      })
+      .filter((x) => x.score >= 580)
+      .sort((a, b) => b.score - a.score);
+
+    for (const entry of ranked.slice(0, 2)) {
+      const song = entry.song;
+      const lyricRes = await fetch(
+        `https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${song.songmid}&format=json&nobase64=1`,
+        {
+          headers: {
+            'Referer': 'https://y.qq.com',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        }
+      );
+      if (!lyricRes.ok) continue;
+      const lyricData = await lyricRes.json();
+      if (lyricData.code === 0 && lyricData.lyric) {
+        const rawLines = parseLrc(lyricData.lyric);
+        const lines = attachRomanizationToLines(rawLines, null);
+        if (lines.length > 0) {
+          return {
+            source: 'QQ Music (Studio Synced)',
+            isSyllableSynced: false,
+            synced: true,
+            matchScore: entry.score + 100,
+            lines,
+          };
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main Cascading Resolver: compares scored candidates from NetEase, QQ Music & LRCLIB in parallel
  */
 export async function getLyrics(rawTitle, rawArtist, duration) {
   const { title, artist, subTitles } = cleanTrackMetadata(rawTitle, rawArtist);
@@ -558,33 +631,32 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
     return memoryCache.get(cacheKey);
   }
 
-  // Query NetEase and LRCLIB in parallel and pick highest verified matchScore!
-  const [neRes, lrcRes] = await Promise.all([
+  // Query NetEase, QQ Music and LRCLIB in parallel and pick highest verified matchScore!
+  const [neRes, qqRes, lrcRes] = await Promise.all([
     fetchNetEase(title, artist, duration),
+    fetchQQMusic(title, artist, duration),
     fetchLrclib(title, artist, duration),
   ]);
 
-  let best = null;
-  if (neRes && lrcRes) {
-    best = (lrcRes.matchScore >= neRes.matchScore) ? lrcRes : neRes;
-  } else {
-    best = neRes || lrcRes;
-  }
+  const candidates = [neRes, qqRes, lrcRes].filter(Boolean);
+  candidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+  let best = candidates[0] || null;
 
   // Fallback to composite sub-titles (e.g. 'Television' from 'Television / So Far So Good')
   if (!best && subTitles.length > 1) {
     for (let i = 1; i < subTitles.length; i++) {
       const sub = subTitles[i];
-      const [subNe, subLrc] = await Promise.all([
+      const [subNe, subQq, subLrc] = await Promise.all([
         fetchNetEase(sub, artist, duration),
+        fetchQQMusic(sub, artist, duration),
         fetchLrclib(sub, artist, duration),
       ]);
-      if (subNe && subLrc) {
-        best = (subLrc.matchScore >= subNe.matchScore) ? subLrc : subNe;
-      } else {
-        best = subNe || subLrc;
+      const subCandidates = [subNe, subQq, subLrc].filter(Boolean);
+      subCandidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      if (subCandidates.length > 0) {
+        best = subCandidates[0];
+        break;
       }
-      if (best) break;
     }
   }
 

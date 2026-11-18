@@ -823,7 +823,10 @@ export default function SpotifyTransitionModal({
           )}
 
           {/* Outgoing Track (Track 1) */}
-          <div className="flex items-center justify-between gap-3 bg-white/[0.03] p-2.5 rounded-xl border border-white/5">
+          <div 
+            onClick={() => setPickerTarget('outgoing')}
+            className="flex items-center justify-between gap-3 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors"
+          >
             <div className="flex items-center gap-3 min-w-0">
               <img
                 src={outgoing.artwork}
@@ -980,7 +983,10 @@ export default function SpotifyTransitionModal({
           </div>
 
           {/* Incoming Track (Track 2) */}
-          <div className="flex items-center justify-between gap-3 bg-white/[0.03] p-2.5 rounded-xl border border-white/5">
+          <div 
+            onClick={() => setPickerTarget('incoming')}
+            className="flex items-center justify-between gap-3 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors"
+          >
             <div className="flex items-center gap-3 min-w-0">
               <img
                 src={incoming.artwork}

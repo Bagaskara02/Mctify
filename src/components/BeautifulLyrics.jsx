@@ -343,11 +343,11 @@ export default function BeautifulLyrics({
   const lines = lyricsData?.lines || [];
   const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
 
-  // Acoustic output latency calibration for Web HTML5/YouTube audio:
-  // Studio LRC timestamps run ~0.48s ahead of YouTube audio stream packaging.
-  // Standard Western studio tracks require ~0.20s acoustic pipeline offset.
-  const baseAcousticLatency = hasNonLatinLyrics ? 0.48 : 0.20;
-  const effectiveTime = Math.max(0, smoothTime - baseAcousticLatency + syncOffsetSec);
+  // Fine-tuned visual attack lead (+0.04s / 40ms):
+  // Studio LRC timestamps mark the precise moment vocal acoustic energy begins. An anticipatory 40ms lead
+  // ensures the glowing text illuminates exactly in lockstep as the sound wave reaches the ear.
+  const visualAttackLeadSec = 0.04;
+  const effectiveTime = Math.max(0, smoothTime + visualAttackLeadSec + syncOffsetSec);
 
   // Determine active line index
   let activeIndex = -1;
@@ -392,7 +392,7 @@ export default function BeautifulLyrics({
   return (
     <div 
       className={`fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#06080e] select-none transition-all duration-500 ${
-        isFullscreen ? 'p-0' : 'p-4 sm:p-8'
+        isFullscreen ? 'p-0 pb-0' : 'p-4 sm:p-8 pb-24'
       }`}
     >
       {/* Dynamic Ambient Background - Fluid Blurred Album Glow (Apple Music / Spicy Lyrics) */}
@@ -420,7 +420,7 @@ export default function BeautifulLyrics({
           <button
             onClick={() => updateSyncOffset(-0.1)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Percepat lirik 0.1s (jika lirik terlambat)"
+            title="Mundur 0.1s (perlambat lirik jika lirik mendahului lagu)"
           >
             -0.1s
           </button>
@@ -429,14 +429,14 @@ export default function BeautifulLyrics({
             className={`px-2 py-0.5 font-mono text-[11px] transition-colors ${
               syncOffsetSec !== 0 ? 'text-[#00a3ff] font-bold drop-shadow-[0_0_8px_rgba(0,163,255,0.6)]' : 'hover:text-white'
             }`}
-            title="Klik untuk reset sinkronisasi lirik ke pas / standar"
+            title="Klik untuk reset sinkronisasi lirik ke normal (0.0s)"
           >
             Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
           </button>
           <button
             onClick={() => updateSyncOffset(0.1)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Perlambat lirik 0.1s (jika lirik terlalu cepat)"
+            title="Maju 0.1s (percepat lirik jika lirik terlambat di belakang lagu)"
           >
             +0.1s
           </button>
@@ -482,6 +482,12 @@ export default function BeautifulLyrics({
             <img
               src={(track?.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track?.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)} 
               alt={track?.title} 
+              onLoad={(e) => {
+                // YouTube 120x90 404 placeholder detection
+                if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
+                  e.currentTarget.src = DEFAULT_ARTWORK;
+                }
+              }}
               onError={(e) => {
                 e.currentTarget.onerror = null;
                 if (track?.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {

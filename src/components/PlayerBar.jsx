@@ -183,7 +183,7 @@ export default function PlayerBar({
   const isYtThumbnail = (currentTrack?.artwork || '').includes('ytimg.com') || (currentTrack?.artwork || '').includes('youtube.com');
 
   return (
-    <footer className="h-20 bg-[#0c0d10]/95 backdrop-blur-xl border-t border-white/[0.08] px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
+    <footer className="h-20 bg-[#0c0d10]/95 backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-4 md:px-6 flex items-center justify-between select-none z-40 relative text-white shadow-[0_-8px_30px_rgba(0,0,0,0.6)]">
       {/* Dynamic Artwork-Matched Ambient Glow */}
       {currentTrack && (
         <div
@@ -194,7 +194,7 @@ export default function PlayerBar({
         />
       )}
       {/* Left Column: Track Info */}
-      <div className="flex items-center gap-2.5 sm:gap-3.5 w-1/4 min-w-[140px] sm:min-w-[180px] max-w-[260px] lg:max-w-[320px] shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 w-[28%] sm:w-[30%] min-w-0 max-w-[260px] lg:max-w-[320px] shrink-0">
         {currentTrack ? (
           <>
             <div 
@@ -205,6 +205,12 @@ export default function PlayerBar({
               <img
                 src={(currentTrack.artwork && currentTrack.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (currentTrack.videoId ? `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                 alt={currentTrack.title}
+                onLoad={(e) => {
+                  // YouTube 120x90 404 placeholder detection
+                  if (e.currentTarget.naturalWidth === 120 && e.currentTarget.naturalHeight === 90) {
+                    e.currentTarget.src = DEFAULT_ARTWORK;
+                  }
+                }}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
                   if (currentTrack.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
@@ -276,7 +282,7 @@ export default function PlayerBar({
       </div>
 
       {/* Center Column: Controls & Timeline */}
-      <div className="flex flex-col items-center gap-1.5 w-2/4 max-w-xl select-none">
+      <div className="flex flex-col items-center gap-1 sm:gap-1.5 flex-1 max-w-xl min-w-0 px-2 sm:px-4 select-none">
         {/* Playback Buttons */}
         <div className="flex items-center gap-4 sm:gap-6">
           <button
@@ -409,7 +415,7 @@ export default function PlayerBar({
       </div>
 
       {/* Right Column: Tools & Volume */}
-      <div className="flex items-center justify-end gap-1.5 sm:gap-2 lg:gap-2.5 flex-1 min-w-0 shrink-0">
+      <div className="flex items-center justify-end gap-1 sm:gap-1.5 md:gap-2 w-[28%] sm:w-[30%] min-w-0 shrink-0">
         {/* Playback Speed Cycle Button */}
         <button
           onClick={() => {
@@ -564,7 +570,7 @@ export default function PlayerBar({
             onPointerUp={handleVolumePointerUp}
             onMouseEnter={() => setIsVolumeHovered(true)}
             onMouseLeave={() => setIsVolumeHovered(false)}
-            className="w-16 sm:w-20 md:w-24 h-4 flex items-center cursor-pointer group select-none touch-none"
+            className="w-14 sm:w-18 md:w-24 h-4 flex items-center cursor-pointer group select-none touch-none"
             title={`Volume ${currentVolumePercent}%`}
           >
             <div className="w-full h-1 group-hover:h-1.5 bg-[#4d4d4d] rounded-full transition-all relative">

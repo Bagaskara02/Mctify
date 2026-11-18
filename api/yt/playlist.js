@@ -22,6 +22,10 @@ const toHighResUrl = (url) => {
     }
   }
   if (url.includes('ytimg.com')) {
+    // If it has signed params from Innertube (sqp= or rs=), keep them intact to avoid 404
+    if (url.includes('sqp=') || url.includes('&rs=') || url.includes('?rs=')) {
+      return url;
+    }
     const viMatch = url.match(/\/vi\/([a-zA-Z0-9_-]+)\//);
     if (viMatch) {
       return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;

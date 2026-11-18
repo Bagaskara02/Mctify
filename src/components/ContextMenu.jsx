@@ -27,6 +27,7 @@ export default function ContextMenu({
   onPlayTrack,
   onAddToNext,
   onAddToQueue,
+  onOpenQueue,
   onToggleLike,
   onAddTrackToPlaylist,
   onCreatePlaylistWithTrack,
@@ -216,6 +217,20 @@ export default function ContextMenu({
             <ListPlus className="w-4 h-4 text-[#b3b3b3] group-hover:text-white" />
             <span>Tambahkan ke antrean</span>
           </button>
+
+          {/* 5. Lihat Antrean */}
+          {onOpenQueue && (
+            <button
+              onClick={() => {
+                onOpenQueue();
+                onClose();
+              }}
+              className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-[4px] hover:bg-white/10 transition-colors group"
+            >
+              <ListMusic className="w-4 h-4 text-[#b3b3b3] group-hover:text-white" />
+              <span>Lihat antrean</span>
+            </button>
+          )}
 
           {/* 4. Ke radio lagu */}
           <button
