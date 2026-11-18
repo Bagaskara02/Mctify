@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_quality.dart';
 import '../models/lyric_line.dart';
 import '../models/track.dart';
@@ -97,6 +98,26 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
     _ticker = createTicker(_onTick);
     _ticker.start();
+    _loadSavedSyncOffset();
+  }
+
+  Future<void> _loadSavedSyncOffset() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'lyrics_sync_${_currentTrack.title.toLowerCase().trim()}_${_currentTrack.artist.toLowerCase().trim()}';
+      final saved = prefs.getDouble(key);
+      if (saved != null && mounted) {
+        setState(() => _syncOffsetSec = saved);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveSyncOffset(double offset) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'lyrics_sync_${_currentTrack.title.toLowerCase().trim()}_${_currentTrack.artist.toLowerCase().trim()}';
+      await prefs.setDouble(key, offset);
+    } catch (_) {}
   }
 
   void _syncPalette(String url, String title) {
@@ -126,6 +147,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
         _lineKeys.clear();
       });
       _loadLyrics();
+      _loadSavedSyncOffset();
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0.0);
       }
@@ -223,7 +245,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     // Acoustic output calibration: Physical speaker/earphone audio lags behind internal player timestamp by ~450ms.
     // Calibrating by -0.45s keeps the visual sweep and active line in 100% lockstep with the vocals heard by the user.
     const double audioLatencyOffsetSec = 0.45;
-    final effectiveSec = math.max(0.0, _currentEffectiveSec - (audioLatencyOffsetSec + _syncOffsetSec));
+    final effectiveSec = math.max(0.0, _currentEffectiveSec - audioLatencyOffsetSec + _syncOffsetSec);
 
     // Determine current active lyric line
     int currentActive = -1;
@@ -397,14 +419,23 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       GestureDetector(
-                        onTap: () => setState(() => _syncOffsetSec = ((_syncOffsetSec - 0.2) * 10).round() / 10),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          final next = ((_syncOffsetSec - 0.2) * 10).round() / 10;
+                          setState(() => _syncOffsetSec = next);
+                          _saveSyncOffset(next);
+                        },
                         child: const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           child: Text('-0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
                         ),
                       ),
                       GestureDetector(
-                        onTap: () => setState(() => _syncOffsetSec = 0.0),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _syncOffsetSec = 0.0);
+                          _saveSyncOffset(0.0);
+                        },
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           child: Text(
@@ -414,7 +445,12 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                         ),
                       ),
                       GestureDetector(
-                        onTap: () => setState(() => _syncOffsetSec = ((_syncOffsetSec + 0.2) * 10).round() / 10),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          final next = ((_syncOffsetSec + 0.2) * 10).round() / 10;
+                          setState(() => _syncOffsetSec = next);
+                          _saveSyncOffset(next);
+                        },
                         child: const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           child: Text('+0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),

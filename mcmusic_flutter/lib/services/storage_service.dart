@@ -160,6 +160,25 @@ class StorageService {
     playlistRevision.value++;
   }
 
+  Future<Playlist?> updatePlaylistDetails(String playlistId, {String? name, String? cover, String? description}) async {
+    final all = await getPlaylists();
+    final idx = all.indexWhere((p) => p.id == playlistId);
+    if (idx != -1) {
+      final old = all[idx];
+      final updated = Playlist(
+        id: old.id,
+        name: (name != null && name.trim().isNotEmpty) ? name.trim() : old.name,
+        cover: (cover != null && cover.trim().isNotEmpty) ? cover.trim() : old.cover,
+        description: description ?? old.description,
+        tracks: old.tracks,
+      );
+      all[idx] = updated;
+      await savePlaylists(all);
+      return updated;
+    }
+    return null;
+  }
+
   Future<void> addTrackToPlaylist(String playlistId, Track track) async {
     final all = await getPlaylists();
     final idx = all.indexWhere((p) => p.id == playlistId);

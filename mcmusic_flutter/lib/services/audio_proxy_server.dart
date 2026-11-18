@@ -93,6 +93,26 @@ class AudioProxyServer {
     }
   }
 
+  /// Verifies that the loopback socket is actually responding to HTTP requests.
+  /// On iOS, the OS suspends and tears down background sockets when the device sleeps.
+  /// If the ping fails or times out, this force-restarts the loopback server.
+  Future<int> verifyOrRestartServer() async {
+    if (_port != null && _server != null) {
+      try {
+        final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 200);
+        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_port/ping')).timeout(const Duration(milliseconds: 250));
+        final res = await req.close().timeout(const Duration(milliseconds: 250));
+        client.close(force: true);
+        if (res.statusCode == HttpStatus.ok) {
+          return _port!;
+        }
+      } catch (e) {
+        debugPrint('[AudioProxyServer] Socket health check failed ($e). Force-restarting loopback server...');
+      }
+    }
+    return ensureStarted(forceRestartIfBroken: true);
+  }
+
   /// Registers or updates a stream and returns its local proxy URL (`http://127.0.0.1:<port>/stream?id=...`).
   Future<String> registerStream({
     required String key,
@@ -101,7 +121,7 @@ class AudioProxyServer {
     String contentType = 'audio/mp4',
     Future<String?> Function()? refreshUrl,
   }) async {
-    final port = await ensureStarted();
+    final port = await verifyOrRestartServer();
     final existing = _entries[key];
     if (existing != null) {
       existing.upstreamUrl = upstreamUrl;
@@ -157,6 +177,14 @@ class AudioProxyServer {
 
   Future<void> _handleRequest(HttpRequest req) async {
     try {
+      if (req.uri.path == '/ping') {
+        req.response.statusCode = HttpStatus.ok;
+        req.response.headers.set(HttpHeaders.contentTypeHeader, 'text/plain');
+        req.response.write('pong');
+        await req.response.close();
+        return;
+      }
+
       if (req.uri.path != '/stream' && !req.uri.path.startsWith('/stream.')) {
         req.response.statusCode = HttpStatus.notFound;
         await req.response.close();

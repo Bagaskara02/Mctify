@@ -328,6 +328,127 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     );
   }
 
+  void _openEditPlaylistDialog() {
+    final nameCtrl = TextEditingController(text: _currentPlaylist.name);
+    final coverCtrl = TextEditingController(text: _currentPlaylist.cover);
+    String previewCover = _currentPlaylist.cover;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF141923),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white12)),
+              title: Row(
+                children: const [
+                  Icon(Icons.edit_note_rounded, color: AppTheme.primaryAzure, size: 24),
+                  SizedBox(width: 8),
+                  Text('Edit Playlist', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: OptimizedImage(
+                          imageUrl: previewCover,
+                          width: 100,
+                          height: 100,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: nameCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Nama Playlist',
+                        labelStyle: const TextStyle(color: Colors.white60, fontSize: 12),
+                        filled: true,
+                        fillColor: const Color(0xFF1B2232),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: coverCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'URL Foto Sampul',
+                        labelStyle: const TextStyle(color: Colors.white60, fontSize: 12),
+                        filled: true,
+                        fillColor: const Color(0xFF1B2232),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.refresh, color: AppTheme.primaryAzure, size: 20),
+                          tooltip: 'Pratinjau Foto',
+                          onPressed: () {
+                            setDialogState(() {
+                              previewCover = coverCtrl.text.trim();
+                            });
+                          },
+                        ),
+                      ),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          previewCover = val.trim();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Batal', style: TextStyle(color: Colors.white60)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryAzure,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () async {
+                    final newName = nameCtrl.text.trim();
+                    final newCover = coverCtrl.text.trim();
+                    if (newName.isEmpty) return;
+
+                    final updated = await _storage.updatePlaylistDetails(
+                      _currentPlaylist.id,
+                      name: newName,
+                      cover: newCover.isNotEmpty ? newCover : _currentPlaylist.cover,
+                    );
+
+                    if (updated != null && mounted) {
+                      setState(() {
+                        _currentPlaylist = updated;
+                      });
+                      ArtworkPalette.extract(updated.cover, seed: updated.name).then((pal) {
+                        if (mounted) setState(() => _headerPalette = pal);
+                      });
+                      widget.onPlaylistChanged?.call();
+                    }
+                    if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                  },
+                  child: const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showTrackMenu(Track track) {
     showModalBottomSheet(
       context: context,
@@ -437,6 +558,11 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
             ),
             actions: [
               IconButton(
+                icon: const Icon(Icons.edit_note_rounded, color: Colors.white70, size: 24),
+                tooltip: 'Edit Playlist',
+                onPressed: _openEditPlaylistDialog,
+              ),
+              IconButton(
                 icon: const Icon(Icons.share, color: Colors.white70),
                 tooltip: 'Salin JSON',
                 onPressed: () async {
@@ -472,35 +598,67 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const SizedBox(height: 20),
-                      // Artwork with ambient glow
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryAzure.withAlpha(50),
-                              blurRadius: 30,
-                              offset: const Offset(0, 8),
+                      // Artwork with ambient glow & tap to edit
+                      GestureDetector(
+                        onTap: _openEditPlaylistDialog,
+                        child: Stack(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.primaryAzure.withAlpha(50),
+                                    blurRadius: 30,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
+                              ),
+                              child: OptimizedImage(
+                                imageUrl: _currentPlaylist.cover,
+                                width: 140,
+                                height: 140,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 6,
+                              right: 6,
+                              child: Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.65),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white24),
+                                ),
+                                child: const Icon(Icons.edit, size: 14, color: Colors.white),
+                              ),
                             ),
                           ],
                         ),
-                        child: OptimizedImage(
-                          imageUrl: _currentPlaylist.cover,
-                          width: 140,
-                          height: 140,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
                       ),
                       const SizedBox(height: 14),
-                      Text(
-                        _currentPlaylist.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.5,
+                      GestureDetector(
+                        onTap: _openEditPlaylistDialog,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _currentPlaylist.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.edit, size: 16, color: Colors.white54),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 4),

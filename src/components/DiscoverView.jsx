@@ -307,10 +307,22 @@ export default function DiscoverView({
                     onClick={() => {
                       if (isCurrent) {
                         onTogglePlayPause();
-                      } else if (onPlayTrackWithRadio) {
-                        onPlayTrackWithRadio(t);
                       } else {
-                        onPlayTrack(t, quickCards);
+                        // Build a rich randomized queue from candidatePool and trendingTracks
+                        const seen = new Set([t.id]);
+                        const pool = [];
+                        for (const item of [...quickCards, ...candidatePool, ...trendingTracks]) {
+                          if (item && item.id && !seen.has(item.id)) {
+                            seen.add(item.id);
+                            pool.push(item);
+                          }
+                        }
+                        for (let i = pool.length - 1; i > 0; i--) {
+                          const j = Math.floor(Math.random() * (i + 1));
+                          [pool[i], pool[j]] = [pool[j], pool[i]];
+                        }
+                        const richQueue = [t, ...pool.slice(0, 35)];
+                        onPlayTrack(t, richQueue);
                       }
                     }}
                     onContextMenu={(e) => {

@@ -927,6 +927,32 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
+  void _playQuickCard(Track t) {
+    // Build a rich, randomized queue from all available tracks in the home feed
+    final pool = <Track>[];
+    final seenIds = <String>{t.id};
+
+    final candidates = [
+      ..._quickCards,
+      ..._startListening,
+      ..._trendingHits,
+      ..._recentRotation,
+      ..._likedTracks,
+    ];
+
+    for (final cand in candidates) {
+      if (!seenIds.contains(cand.id)) {
+        seenIds.add(cand.id);
+        pool.add(cand);
+      }
+    }
+
+    pool.shuffle();
+    // Tapped song is anchored at index 0, followed by a randomized 35-song queue
+    final richQueue = [t, ...pool.take(35)];
+    widget.player.playTrack(t, richQueue);
+  }
+
   Widget _buildQuickCard(Track t) {
     final isCurrent = widget.player.currentTrack?.id == t.id;
     final isPlaying = isCurrent && widget.player.isPlaying;
@@ -937,8 +963,12 @@ class _HomeViewState extends State<HomeView> {
         if (isCurrent) {
           widget.player.togglePlayPause();
         } else {
-          widget.player.playTrack(t, _quickCards);
+          _playQuickCard(t);
         }
+      },
+      onLongPress: () {
+        HapticFeedback.heavyImpact();
+        _showTrackMenu(t);
       },
       borderRadius: BorderRadius.circular(8),
       child: Container(

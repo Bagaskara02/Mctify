@@ -112,18 +112,27 @@ export const playlistImporter = {
       description: `Diimpor dari YouTube Playlist (${data.tracks.length} lagu)`,
       cover: playlistCover,
       source: 'youtube',
-      tracks: data.tracks.map((t, idx) => ({
-        id: t.id || `yt-${t.videoId || idx}`,
-        videoId: t.videoId,
-        title: t.title,
-        artist: t.artist,
-        album: t.album || playlistTitle,
-        duration: t.duration || 180,
-        artwork: t.artwork || playlistCover,
-        audioUrl: '',
-        genre: 'Music',
-        releaseYear: '2024',
-      })),
+      tracks: data.tracks.map((t, idx) => {
+        let art = t.artwork || playlistCover;
+        if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
+          art = art.replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg');
+        }
+        if ((!art || art === DEFAULT_ARTWORK) && t.videoId) {
+          art = `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`;
+        }
+        return {
+          id: t.id || `yt-${t.videoId || idx}`,
+          videoId: t.videoId,
+          title: t.title,
+          artist: t.artist,
+          album: t.album || playlistTitle,
+          duration: t.duration || 180,
+          artwork: art || DEFAULT_ARTWORK,
+          audioUrl: '',
+          genre: 'Music',
+          releaseYear: '2024',
+        };
+      }),
       createdAt: Date.now(),
     };
   },

@@ -268,13 +268,20 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             }
           }
         } else {
-          // Native ExoPlayer check: ONLY auto-resume when engine is truly READY (never while loading/buffering!)
+          // Native ExoPlayer/AVPlayer check: stuck at 0s detector & recovery
           if (!_player.playing &&
               !_userRequestedPause &&
               _player.processingState == ja.ProcessingState.ready) {
             debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly while ready, auto-resuming...');
             _acquireNativeLocks();
             _player.play();
+          } else if (_isPlaying && !_userRequestedPause && _position == Duration.zero && !_isPreparingTrack) {
+            final now = DateTime.now();
+            final elapsed = now.difference(_trackStartTime ?? now);
+            if (elapsed.inSeconds >= 4 && _networkRetryCount < 2) {
+              debugPrint('[AudioPlayerManager] Watchdog: stuck at 0:00 for ${elapsed.inSeconds}s, auto-recovering...');
+              _handlePlaybackNetworkError(_currentTrack, 'Stuck at 0:00', _playGeneration);
+            }
           } else if (_duration > Duration.zero && _duration.inSeconds > 10) {
             final now = DateTime.now();
             final elapsed = now.difference(_trackStartTime ?? now);
@@ -321,8 +328,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       _isAppBackgrounded = false;
       if (Platform.isIOS) {
-        unawaited(AudioSession.instance.then((s) => s.setActive(true)).catchError((_) {}));
-        unawaited(AudioProxyServer.instance.ensureStarted().catchError((_) {}));
+        unawaited(AudioSession.instance.then((s) => s.setActive(true)).catchError((_) => false));
+        unawaited(AudioProxyServer.instance.verifyOrRestartServer().catchError((_) => 0));
       }
       if (!_userRequestedPause && _isPlaying) {
         _acquireNativeLocks();
@@ -1188,18 +1195,19 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             !MusicApiService.isPreviewUrl(directStreamUrl)) {
           debugPrint('[AudioPlayerManager] Playing full song via Native ExoPlayer: "${track.title}" (gen=$gen)');
           _isUsingYoutubeIframe = false;
+          if (Platform.isIOS) {
+            try {
+              final session = await AudioSession.instance;
+              await session.setActive(true);
+            } catch (_) {}
+            await AudioProxyServer.instance.verifyOrRestartServer();
+          }
           final audioSource = ja.AudioSource.uri(
             Uri.parse(directStreamUrl),
             headers: const {'Accept': '*/*'},
           );
           await _player.setAudioSource(audioSource);
           if (gen != _playGeneration) return;
-          if (Platform.isIOS) {
-            try {
-              final session = await AudioSession.instance;
-              await session.setActive(true);
-            } catch (_) {}
-          }
           await _player.play();
           if (gen != _playGeneration) return;
           if (_playbackSpeed != 1.0) {

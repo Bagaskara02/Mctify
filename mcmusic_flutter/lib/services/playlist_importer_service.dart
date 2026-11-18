@@ -180,13 +180,19 @@ class PlaylistImporterService {
         if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {
           playlistName = data['name']?.toString() ?? playlistName;
           cover = data['cover']?.toString() ?? cover;
+          if (cover.contains('hqhq720.jpg')) {
+            cover = cover.replaceAll('hqhq720.jpg', 'hqdefault.jpg');
+          }
           final rawTracks = data['tracks'] as List;
           for (final t in rawTracks) {
             if (t is Map) {
               final vId = t['videoId']?.toString() ?? '';
               final title = t['title']?.toString() ?? 'Lagu';
               final artist = t['artist']?.toString() ?? 'Artis';
-              final art = t['artwork']?.toString() ?? cover;
+              var art = t['artwork']?.toString() ?? cover;
+              if (art.contains('hqhq720.jpg') || art.contains('hq720.jpg') || (art.isEmpty && vId.isNotEmpty)) {
+                art = 'https://i.ytimg.com/vi/$vId/hqdefault.jpg';
+              }
               final dur = int.tryParse(t['duration']?.toString() ?? '180') ?? 180;
               resolvedTracks.add(Track(
                 id: vId.isNotEmpty ? vId : 'yt-${DateTime.now().millisecondsSinceEpoch}-${resolvedTracks.length}',
@@ -244,6 +250,7 @@ class PlaylistImporterService {
           'artist': artist,
           'videoId': video.id.value,
           'duration': (video.duration?.inSeconds ?? 200).toString(),
+          'artwork': 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg',
         });
 
         if (rawTracks.length >= 100) break; // Limit to 100 tracks max for performance

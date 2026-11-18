@@ -347,7 +347,7 @@ export default function BeautifulLyrics({
   // Studio LRC timestamps run ~0.48s ahead of YouTube audio stream packaging.
   // Standard Western studio tracks require ~0.20s acoustic pipeline offset.
   const baseAcousticLatency = hasNonLatinLyrics ? 0.48 : 0.20;
-  const effectiveTime = Math.max(0, smoothTime - (baseAcousticLatency + syncOffsetSec));
+  const effectiveTime = Math.max(0, smoothTime - baseAcousticLatency + syncOffsetSec);
 
   // Determine active line index
   let activeIndex = -1;

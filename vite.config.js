@@ -14,19 +14,21 @@ function musicBackendPlugin() {
         if (!url || typeof url !== 'string') return '';
         if (url.includes('googleusercontent.com')) {
           if (/=w\d+-h\d+/i.test(url)) {
-            return url.replace(/=w\d+-h\d+[^?#]*/i, '=w800-h800-l90-rj');
+            return url.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj');
           }
           if (/=s\d+/i.test(url)) {
-            return url.replace(/=s\d+[^?#]*/i, '=w800-h800-l90-rj');
+            return url.replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
           }
           if (!url.includes('=')) {
-            return `${url}=w800-h800-l90-rj`;
+            return `${url}=w544-h544-l90-rj`;
           }
         }
         if (url.includes('ytimg.com')) {
-          if (/default\.jpg/i.test(url)) {
-            return url.replace(/(default|mqdefault|sddefault)\.jpg/i, 'hq720.jpg').split('?')[0];
+          const viMatch = url.match(/\/vi\/([a-zA-Z0-9_-]+)\//);
+          if (viMatch) {
+            return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
           }
+          return url.replace(/(hqdefault|mqdefault|sddefault|maxresdefault|default)\.jpg/i, 'hqdefault.jpg').split('?')[0];
         }
         if (url.includes('mzstatic.com')) {
           return url.replace(/\/\d+x\d+bb\./i, '/1000x1000bb.');

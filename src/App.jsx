@@ -1193,6 +1193,14 @@ export default function App() {
     }
   };
 
+  // Update Playlist Details (Name, Description, Cover Photo)
+  const handleUpdatePlaylist = (updatedPlaylist) => {
+    const updated = storageService.updatePlaylist(updatedPlaylist.id, updatedPlaylist);
+    setPlaylists(updated);
+    setSmartToast(`Playlist "${updatedPlaylist.name}" berhasil diperbarui!`);
+    setTimeout(() => setSmartToast(null), 3000);
+  };
+
   // Callback when user imports new playlist from Modal
   const handlePlaylistImported = (newPlaylist) => {
     const saved = storageService.addPlaylist(newPlaylist);
@@ -1608,6 +1616,7 @@ export default function App() {
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onRemoveTrack={handleRemoveTrackFromPlaylist}
               onDeletePlaylist={handleDeletePlaylist}
+              onUpdatePlaylist={handleUpdatePlaylist}
               onTrackContextMenu={handleTrackContextMenu}
             />
           )}
@@ -1640,26 +1649,27 @@ export default function App() {
         />
       )}
 
-      {/* --- DESKTOP & TABLET PLAYER BAR (DENGAN AUTO-HIDE SAAT DI DALAM PLAYER LIRIK) --- */}
+      {/* --- BEAUTIFUL LYRICS OVERLAY --- */}
+      {isLyricsOpen && (
+        <BeautifulLyrics
+          track={currentTrack}
+          currentTime={currentTime}
+          duration={duration}
+          lyricsData={lyricsData}
+          isLoadingLyrics={isLoadingLyrics}
+          isPlaying={isPlaying}
+          onSeek={handleSeek}
+          onClose={() => setIsLyricsOpen(false)}
+        />
+      )}
+
+      {/* --- DESKTOP & TABLET PLAYER BAR (DOCK PERMANENT DI BAWAH & SELALU BISA DIKLIK) --- */}
       <div 
-        className={`hidden md:block transition-all duration-300 ease-out ${
+        className={`hidden md:block ${
           isLyricsOpen 
-            ? `fixed bottom-0 left-0 right-0 z-[60] shadow-2xl ${
-                isLyricsBarVisible 
-                  ? 'translate-y-0 opacity-100 pointer-events-auto' 
-                  : 'translate-y-full opacity-0 pointer-events-none'
-              }` 
+            ? 'fixed bottom-0 left-0 right-0 z-[75] shadow-[0_-8px_32px_rgba(0,0,0,0.85)] bg-[#07090e]/95 backdrop-blur-2xl border-t border-white/10 pointer-events-auto' 
             : 'relative z-40'
         }`}
-        onMouseEnter={() => {
-          setIsLyricsBarVisible(true);
-          if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
-        }}
-        onMouseLeave={() => {
-          if (isLyricsOpen) {
-            hideLyricsBarTimerRef.current = setTimeout(() => setIsLyricsBarVisible(false), 1800);
-          }
-        }}
       >
         <PlayerBar
           currentTrack={currentTrack}
@@ -1701,87 +1711,6 @@ export default function App() {
           onShareTrack={() => currentTrack && handleCopyShare(currentTrack)}
         />
       </div>
-
-      {/* --- MOBILE FLOATING MINI-PLAYER (ViMusic/RiMusic Swipe Support) --- */}
-      <MobileMiniPlayer
-        currentTrack={currentTrack}
-        isPlaying={isPlaying}
-        currentTime={currentTime}
-        duration={duration}
-        isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
-        onPlayPause={handlePlayPause}
-        onToggleLike={handleToggleLike}
-        onOpenFullscreen={() => setIsMobileFullscreenOpen(true)}
-        onNext={handleNext}
-        onPrev={handlePrev}
-      />
-
-      {/* --- MOBILE BOTTOM NAVIGATION BAR --- */}
-      <MobileBottomNav
-        currentView={currentView}
-        setCurrentView={(view) => {
-          setCurrentView(view);
-          setSelectedPlaylistId(null);
-        }}
-        selectedPlaylistId={selectedPlaylistId}
-        setSelectedPlaylistId={setSelectedPlaylistId}
-        onOpenImportModal={() => setIsImportModalOpen(true)}
-      />
-
-      {/* --- MOBILE FULLSCREEN NOW PLAYING MODAL --- */}
-      <MobileFullscreenPlayer
-        isOpen={isMobileFullscreenOpen}
-        onClose={() => setIsMobileFullscreenOpen(false)}
-        currentTrack={currentTrack}
-        isPlaying={isPlaying}
-        currentTime={currentTime}
-        duration={duration}
-        isShuffle={isShuffle}
-        isRepeat={isRepeat}
-        repeatMode={repeatMode}
-        isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
-        lyricsData={lyricsData}
-        playbackRate={playbackRate}
-        onPlaybackRateChange={setPlaybackRate}
-        isSleepTimerActive={sleepTimerSeconds !== null}
-        onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
-        onPlayPause={handlePlayPause}
-        onPrev={handlePrev}
-        onNext={() => handleNext(false)}
-        onSeek={handleSeek}
-        onToggleShuffle={handleToggleShuffle}
-        onToggleRepeat={handleToggleRepeat}
-        onToggleLike={handleToggleLike}
-        onOpenLyrics={() => setIsLyricsOpen(true)}
-        onOpenQueue={() => setIsQueueOpen(true)}
-        onOpenEqualizer={() => setIsEqualizerOpen(true)}
-        onOpenAudioQuality={() => setIsAudioQualityOpen(true)}
-      />
-
-      {/* --- QUEUE DRAWER PANEL --- */}
-      <QueueDrawer
-        isOpen={isQueueOpen}
-        onClose={() => setIsQueueOpen(false)}
-        currentTrack={currentTrack}
-        queue={queue}
-        isPlaying={isPlaying}
-        onPlayTrack={handlePlayTrack}
-        onClearQueue={() => setQueue(currentTrack ? [currentTrack] : [])}
-      />
-
-      {/* --- BEAUTIFUL LYRICS OVERLAY --- */}
-      {isLyricsOpen && (
-        <BeautifulLyrics
-          track={currentTrack}
-          currentTime={currentTime}
-          duration={duration}
-          lyricsData={lyricsData}
-          isLoadingLyrics={isLoadingLyrics}
-          isPlaying={isPlaying}
-          onSeek={handleSeek}
-          onClose={() => setIsLyricsOpen(false)}
-        />
-      )}
 
       {/* --- IMPORT PLAYLIST MODAL --- */}
       <ImportPlaylistModal
