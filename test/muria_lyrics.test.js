@@ -14,23 +14,23 @@ describe('Studio Synced Lyrics: Muria - Brangkat Tests', () => {
     const intro = res.lines[0];
     assert.strictEqual(intro.isInstrumental, true);
     assert.ok(intro.time <= 1.0, `Intro start should be <= 1.0s, got ${intro.time}`);
-    assert.ok(intro.endTime >= 10.0, `Intro end should be >= 10.0s, got ${intro.endTime}`);
+    assert.ok(intro.endTime >= 20.0, `Intro end should be >= 20.0s, got ${intro.endTime}`);
 
-    // Check first vocal line starts at ~00:10.7
+    // Check first vocal line starts at ~00:20.8
     const line1 = res.lines[1];
     assert.strictEqual(line1.text, 'Mungkin esok atau lusa');
-    assert.strictEqual(line1.time, 10.7);
-    assert.ok(line1.endTime > 12.5, `Line 1 end should be > 12.5s, got ${line1.endTime}`);
+    assert.strictEqual(line1.time, 20.8);
+    assert.ok(line1.endTime > 22.5, `Line 1 end should be > 22.5s, got ${line1.endTime}`);
 
     // Check second vocal line
     const line2 = res.lines[2];
     assert.strictEqual(line2.text, 'Ku tak lagi di sini');
-    assert.strictEqual(line2.time, 13.2);
+    assert.strictEqual(line2.time, 23.4);
 
     // Check verse 1 line
     const verse1 = res.lines.find(l => l.text === "I'm going out from the block");
     assert.ok(verse1, 'Expected verse 1 line to exist');
-    assert.strictEqual(verse1.time, 31.8);
+    assert.strictEqual(verse1.time, 42.2);
   });
 
   it('matches across various dirty streaming titles (Topic, Lirik, composite, etc.) in client lyricsService', async () => {
@@ -46,7 +46,7 @@ describe('Studio Synced Lyrics: Muria - Brangkat Tests', () => {
       assert.ok(res, `Expected lyrics for ${title} - ${artist}`);
       assert.strictEqual(res.synced, true);
       assert.strictEqual(res.lines[1].text, 'Mungkin esok atau lusa');
-      assert.strictEqual(res.lines[1].time, 10.7);
+      assert.strictEqual(res.lines[1].time, 20.8);
     }
   });
 });

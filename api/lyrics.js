@@ -14,80 +14,80 @@ import { attachRomanizationToLines } from '../src/utils/romanizer.js';
 const memoryCache = new Map();
 
 export const VERIFIED_STUDIO_LRC = {
-  'muria:::brangkat': `[00:10.70]Mungkin esok atau lusa
-[00:13.20]Ku tak lagi di sini
-[00:15.80]Bila kepalang rindu kita jumpa
-[00:18.50]Pada waktu lebih baik
-[00:21.10]Kau tau aku ni Molukkan
-[00:23.60]Laki-laki kuat dengan ribuan berkat, yeah
-[00:26.30]Trust me then we go high, yeah
-[00:28.80]We go high, yeah, we go high, yeah-yeah
-[00:31.80]I'm going out from the block
-[00:33.90]So kalo soal mental jangan test lah, ay, clean atas bawah
-[00:36.90]Still mati gaya dorang jangan datang
-[00:39.50]Bawa modal tampang nyong balik kandang
-[00:42.10]Kita fokus tuk kejar mimpi
-[00:44.60]Alasan kenapa nonaktif comment di IG
-[00:47.20]Ceh dunya brother
-[00:49.40]Dunya jangan jadikan tujuan hidup bila masih takut mati
-[00:52.60]Kita? No!
-[00:54.50]Brangkat bawa isi saldo nol but still roll up
-[00:57.60]Doa lipat di celana
-[00:59.80]Tidak takut apa, tidak takut siapa
-[01:02.40]They don't do it like me
-[01:04.80]They ain't deep like me
-[01:07.40]You see I'm like meekz, always di playlist
-[01:11.20]Don't be mad (don't be) fakta dibalik
-[01:13.80]Bila ku datang semua bersunyi
-[01:16.80]Mungkin esok atau lusa
-[01:19.20]Ku tak lagi di sini
-[01:21.80]Bila kepalang rindu kita jumpa
-[01:24.40]Pada waktu lebih baik
-[01:27.00]Kau tau aku ni Molukkan
-[01:29.50]Laki-laki kuat dengan ribuan berkat, yeah
-[01:32.10]Trust me then we go high, yeah
-[01:34.70]We go high, yeah, we go high, yeah-yeah
-[01:37.40]I don't feel any pain no more
-[01:40.00]They won't try to lie to me no more
-[01:42.60]No rest always be an hustler
-[01:45.20]Dari dulu terbiasa
-[01:47.80]Isi perut lapar, kenyang dibagi rata
-[01:50.50]I stand out like Molukkan di Belanda
-[01:53.10]Jauh dari kampung tapi tidak lupa bangsa
-[01:55.80]Tidak lupa gandong, tidak buang pela
-[01:58.40]Masih suka diam putar hena masa waiya
-[02:01.10]Nona look how I bring the vibe
-[02:03.60]Ey, bring the vibe (bikin orang putar badan)
-[02:06.30]Nona I'm proud to be this tribe
-[02:08.80]Ay, be this tribe (jadi anak kulit hitam)
-[02:11.60]Yang dulu boleh diabai sekarang hendak dicinta
-[02:14.20]Menyepi di tengah ramai dicari tanpa ku minta
-[02:16.80]Bersoal ber-style kita punya taste
-[02:19.40]Perihal bersaing, baby jang ko test
-[02:22.20]Ada masa ku di atas, ku di bawah
-[02:24.80]Di sini atau ku pergi jauh
-[02:27.50]Kadang mula jumpa benci, kadang suka
-[02:30.10]Macam hidupku dorang yang tau
-[02:32.80]Satu hal yang ku percaya
-[02:35.30]Krazy Brazy yang terbang lewati langitmu
-[02:38.40]So we go high, yeah, we go high, yeah
-[02:41.20]We go high, yeah-yeah
-[02:44.00]Mungkin esok atau lusa
-[02:46.40]Ku tak lagi di sini
-[02:49.00]Bila kepalang rindu kita jumpa
-[02:51.60]Pada waktu lebih baik
-[02:54.20]Kau tau aku ni Molukkan
-[02:56.80]Laki-laki kuat dengan ribuan berkat, yeah
-[02:59.60]Trust me then we go high, yeah
-[03:02.20]We go high, yeah, we go high, yeah-yeah
-[03:05.20]Mungkin esok atau lusa
-[03:07.60]Ku tak lagi di sini
-[03:10.20]Bila kepalang rindu kita jumpa
-[03:12.80]Pada waktu lebih baik
-[03:15.40]Kau tau aku ni Molukkan
-[03:18.00]Laki-laki kuat dengan ribuan berkat, yeah
-[03:20.70]Trust me then we go high, yeah
-[03:23.20]We go high, yeah, we go high, yeah-yeah`,
+  'muria:::brangkat': `[00:20.80]Mungkin esok atau lusa
+[00:23.40]Ku tak lagi di sini
+[00:25.90]Bila kepalang rindu kita jumpa
+[00:28.50]Pada waktu lebih baik
+[00:31.10]Kau tau aku ni Molukkan
+[00:33.60]Laki-laki kuat dengan ribuan berkat, yeah
+[00:36.40]Trust me then we go high, yeah
+[00:38.90]We go high, yeah, we go high, yeah-yeah
+[00:42.20]I'm going out from the block
+[00:44.80]So kalo soal mental jangan test lah, ay, clean atas bawah
+[00:47.40]Still mati gaya dorang jangan datang
+[00:50.00]Bawa modal tampang nyong balik kandang
+[00:52.60]Kita fokus tuk kejar mimpi
+[00:55.20]Alasan kenapa nonaktif comment di IG
+[00:57.80]Ceh dunya brother
+[01:00.40]Dunya jangan jadikan tujuan hidup bila masih takut mati
+[01:03.00]Kita? No!
+[01:05.60]Brangkat bawa isi saldo nol but still roll up
+[01:08.20]Doa lipat di celana
+[01:10.80]Tidak takut apa, tidak takut siapa
+[01:13.40]They don't do it like me
+[01:16.00]They ain't deep like me
+[01:18.60]You see I'm like meekz, always di playlist
+[01:21.80]Don't be mad (don't be) fakta dibalik
+[01:24.40]Bila ku datang semua bersunyi
+[01:27.00]Mungkin esok atau lusa
+[01:29.60]Ku tak lagi di sini
+[01:32.20]Bila kepalang rindu kita jumpa
+[01:34.80]Pada waktu lebih baik
+[01:37.40]Kau tau aku ni Molukkan
+[01:40.00]Laki-laki kuat dengan ribuan berkat, yeah
+[01:42.60]Trust me then we go high, yeah
+[01:45.20]We go high, yeah, we go high, yeah-yeah
+[01:47.80]I don't feel any pain no more
+[01:50.40]They won't try to lie to me no more
+[01:53.00]No rest always be an hustler
+[01:55.60]Dari dulu terbiasa
+[01:58.20]Isi perut lapar, kenyang dibagi rata
+[02:00.80]I stand out like Molukkan di Belanda
+[02:03.40]Jauh dari kampung tapi tidak lupa bangsa
+[02:06.00]Tidak lupa gandong, tidak buang pela
+[02:08.60]Masih suka diam putar hena masa waiya
+[02:11.20]Nona look how I bring the vibe
+[02:13.80]Ey, bring the vibe (bikin orang putar badan)
+[02:16.40]Nona I'm proud to be this tribe
+[02:19.00]Ay, be this tribe (jadi anak kulit hitam)
+[02:21.60]Yang dulu boleh diabai sekarang hendak dicinta
+[02:24.20]Menyepi di tengah ramai dicari tanpa ku minta
+[02:26.80]Bersoal ber-style kita punya taste
+[02:29.40]Perihal bersaing, baby jang ko test
+[02:32.00]Ada masa ku di atas, ku di bawah
+[02:34.60]Di sini atau ku pergi jauh
+[02:37.20]Kadang mula jumpa benci, kadang suka
+[02:39.80]Macam hidupku dorang yang tau
+[02:42.40]Satu hal yang ku percaya
+[02:45.00]Krazy Brazy yang terbang lewati langitmu
+[02:47.60]So we go high, yeah, we go high, yeah
+[02:50.20]We go high, yeah-yeah
+[02:52.80]Mungkin esok atau lusa
+[02:55.40]Ku tak lagi di sini
+[02:58.00]Bila kepalang rindu kita jumpa
+[03:00.60]Pada waktu lebih baik
+[03:03.20]Kau tau aku ni Molukkan
+[03:05.80]Laki-laki kuat dengan ribuan berkat, yeah
+[03:08.40]Trust me then we go high, yeah
+[03:11.00]We go high, yeah, we go high, yeah-yeah
+[03:13.60]Mungkin esok atau lusa
+[03:16.20]Ku tak lagi di sini
+[03:18.80]Bila kepalang rindu kita jumpa
+[03:21.40]Pada waktu lebih baik
+[03:24.00]Kau tau aku ni Molukkan
+[03:26.60]Laki-laki kuat dengan ribuan berkat, yeah
+[03:29.20]Trust me then we go high, yeah
+[03:31.80]We go high, yeah, we go high, yeah-yeah`,
 };
 
 export function findVerifiedStudioLrc(cleanTitle, cleanArtist) {
