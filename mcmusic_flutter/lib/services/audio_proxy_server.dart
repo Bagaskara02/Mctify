@@ -55,6 +55,9 @@ class AudioProxyServer {
   int? _port;
   Future<int>? _startingFuture;
 
+  int? get port => _port;
+  bool hasEntry(String key) => _entries.containsKey(key);
+
   Future<int> ensureStarted({bool forceRestartIfBroken = false}) async {
     if (!forceRestartIfBroken && _port != null && _server != null) return _port!;
     if (_startingFuture != null) return _startingFuture!;

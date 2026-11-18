@@ -421,13 +421,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          final next = ((_syncOffsetSec - 0.2) * 10).round() / 10;
+                          final next = ((_syncOffsetSec - 0.1) * 10).round() / 10;
                           setState(() => _syncOffsetSec = next);
                           _saveSyncOffset(next);
                         },
                         child: const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text('-0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                          child: Text('-0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
                         ),
                       ),
                       GestureDetector(
@@ -447,13 +447,13 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          final next = ((_syncOffsetSec + 0.2) * 10).round() / 10;
+                          final next = ((_syncOffsetSec + 0.1) * 10).round() / 10;
                           setState(() => _syncOffsetSec = next);
                           _saveSyncOffset(next);
                         },
                         child: const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          child: Text('+0.2s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
+                          child: Text('+0.1s', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
                         ),
                       ),
                     ],

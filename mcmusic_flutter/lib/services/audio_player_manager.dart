@@ -275,11 +275,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             debugPrint('[AudioPlayerManager] Watchdog: native player paused unexpectedly while ready, auto-resuming...');
             _acquireNativeLocks();
             _player.play();
-          } else if (_isPlaying && !_userRequestedPause && _position == Duration.zero && !_isPreparingTrack) {
+          } else if (_isPlaying && !_userRequestedPause && _position == Duration.zero) {
             final now = DateTime.now();
             final elapsed = now.difference(_trackStartTime ?? now);
             if (elapsed.inSeconds >= 4 && _networkRetryCount < 2) {
               debugPrint('[AudioPlayerManager] Watchdog: stuck at 0:00 for ${elapsed.inSeconds}s, auto-recovering...');
+              _isPreparingTrack = false;
               _handlePlaybackNetworkError(_currentTrack, 'Stuck at 0:00', _playGeneration);
             }
           } else if (_duration > Duration.zero && _duration.inSeconds > 10) {
@@ -328,7 +329,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       _isAppBackgrounded = false;
       if (Platform.isIOS) {
-        unawaited(AudioSession.instance.then((s) => s.setActive(true)).catchError((_) => false));
+        unawaited(AudioSession.instance.then((s) async {
+          await s.configure(const AudioSessionConfiguration.music());
+          return s.setActive(true);
+        }).catchError((_) => false));
         unawaited(AudioProxyServer.instance.verifyOrRestartServer().catchError((_) => 0));
       }
       if (!_userRequestedPause && _isPlaying) {
@@ -651,7 +655,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           Uri.parse(altStream),
           headers: const {'Accept': '*/*'},
         );
-        await _player.setAudioSource(audioSource);
+        await _player.setAudioSource(audioSource).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException('[AudioPlayerManager] setAudioSource recovery timed out'),
+        );
         if (gen != _playGeneration) {
           _isRecovering = false;
           return;
@@ -1161,7 +1168,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           Uri.parse(track.audioUrl),
           headers: const {'Accept': '*/*'},
         );
-        await _player.setAudioSource(audioSource);
+        await _player.setAudioSource(audioSource).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException('[AudioPlayerManager] setAudioSource direct timed out'),
+        );
         if (gen != _playGeneration) return;
         await _player.play();
         if (gen != _playGeneration) return;
@@ -1198,6 +1208,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           if (Platform.isIOS) {
             try {
               final session = await AudioSession.instance;
+              await session.configure(const AudioSessionConfiguration.music());
               await session.setActive(true);
             } catch (_) {}
             await AudioProxyServer.instance.verifyOrRestartServer();
@@ -1206,7 +1217,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             Uri.parse(directStreamUrl),
             headers: const {'Accept': '*/*'},
           );
-          await _player.setAudioSource(audioSource);
+          await _player.setAudioSource(audioSource).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException('[AudioPlayerManager] setAudioSource native timed out'),
+          );
           if (gen != _playGeneration) return;
           await _player.play();
           if (gen != _playGeneration) return;

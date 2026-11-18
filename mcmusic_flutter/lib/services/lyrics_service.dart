@@ -254,7 +254,21 @@ class LyricsService {
       if (res.statusCode == 200) {
         final list = jsonDecode(res.body);
         if (list is List && list.isNotEmpty) {
-          final best = list.firstWhere((i) => i['syncedLyrics'] != null, orElse: () => list[0]);
+          final targetTitleNorm = cleanTitle.toLowerCase().trim();
+          final targetArtistNorm = cleanArtist.toLowerCase().trim();
+
+          // Filter candidates to strictly match song title and artist
+          final matchingCandidates = list.where((item) {
+            final candTitle = ((item['trackName'] ?? '') as String).toLowerCase().trim();
+            final candArtist = ((item['artistName'] ?? '') as String).toLowerCase().trim();
+            final titleMatches = candTitle.contains(targetTitleNorm) || targetTitleNorm.contains(candTitle);
+            final artistMatches = targetArtistNorm.isEmpty || candArtist.contains(targetArtistNorm) || targetArtistNorm.contains(candArtist);
+            return titleMatches && (artistMatches || candTitle == targetTitleNorm);
+          }).toList();
+
+          final pool = matchingCandidates.isNotEmpty ? matchingCandidates : list;
+          // Prefer synced lyrics within the valid matched pool
+          final best = pool.firstWhere((i) => i['syncedLyrics'] != null, orElse: () => pool[0]);
           final synced = best['syncedLyrics'] as String?;
           final plain = best['plainLyrics'] as String?;
           if (synced != null && synced.isNotEmpty) {

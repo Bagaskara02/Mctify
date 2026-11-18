@@ -1637,18 +1637,6 @@ export default function App() {
         />
       </div>
 
-      {/* Hover detection strip at the bottom of the screen to reveal player bar when cursor moves to the bottom in lyrics mode */}
-      {isLyricsOpen && !isLyricsBarVisible && (
-        <div 
-          className="fixed bottom-0 left-0 right-0 h-10 z-[59] hidden md:block cursor-pointer"
-          onMouseEnter={() => {
-            setIsLyricsBarVisible(true);
-            if (hideLyricsBarTimerRef.current) clearTimeout(hideLyricsBarTimerRef.current);
-            hideLyricsBarTimerRef.current = setTimeout(() => setIsLyricsBarVisible(false), 2800);
-          }}
-        />
-      )}
-
       {/* --- BEAUTIFUL LYRICS OVERLAY --- */}
       {isLyricsOpen && (
         <BeautifulLyrics
@@ -1711,6 +1699,73 @@ export default function App() {
           onShareTrack={() => currentTrack && handleCopyShare(currentTrack)}
         />
       </div>
+
+      {/* --- MOBILE FLOATING MINI-PLAYER (ViMusic/RiMusic Swipe Support) --- */}
+      <MobileMiniPlayer
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={duration}
+        isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
+        onPlayPause={handlePlayPause}
+        onToggleLike={handleToggleLike}
+        onOpenFullscreen={() => setIsMobileFullscreenOpen(true)}
+        onNext={handleNext}
+        onPrev={handlePrev}
+      />
+
+      {/* --- MOBILE BOTTOM NAVIGATION BAR --- */}
+      <MobileBottomNav
+        currentView={currentView}
+        setCurrentView={(view) => {
+          setCurrentView(view);
+          setSelectedPlaylistId(null);
+        }}
+        selectedPlaylistId={selectedPlaylistId}
+        setSelectedPlaylistId={setSelectedPlaylistId}
+        onOpenImportModal={() => setIsImportModalOpen(true)}
+      />
+
+      {/* --- MOBILE FULLSCREEN NOW PLAYING MODAL --- */}
+      <MobileFullscreenPlayer
+        isOpen={isMobileFullscreenOpen}
+        onClose={() => setIsMobileFullscreenOpen(false)}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={duration}
+        isShuffle={isShuffle}
+        isRepeat={isRepeat}
+        repeatMode={repeatMode}
+        isLiked={currentTrack ? likedTrackIds.has(currentTrack.id) : false}
+        lyricsData={lyricsData}
+        playbackRate={playbackRate}
+        onPlaybackRateChange={setPlaybackRate}
+        isSleepTimerActive={sleepTimerSeconds !== null}
+        onOpenSleepTimer={() => setIsSleepTimerModalOpen(true)}
+        onPlayPause={handlePlayPause}
+        onPrev={handlePrev}
+        onNext={() => handleNext(false)}
+        onSeek={handleSeek}
+        onToggleShuffle={handleToggleShuffle}
+        onToggleRepeat={handleToggleRepeat}
+        onToggleLike={handleToggleLike}
+        onOpenLyrics={() => setIsLyricsOpen(true)}
+        onOpenQueue={() => setIsQueueOpen(true)}
+        onOpenEqualizer={() => setIsEqualizerOpen(true)}
+        onOpenAudioQuality={() => setIsAudioQualityOpen(true)}
+      />
+
+      {/* --- QUEUE DRAWER PANEL (ANTREAN LAGU) --- */}
+      <QueueDrawer
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+        currentTrack={currentTrack}
+        queue={queue}
+        isPlaying={isPlaying}
+        onPlayTrack={handlePlayTrack}
+        onClearQueue={() => setQueue(currentTrack ? [currentTrack] : [])}
+      />
 
       {/* --- IMPORT PLAYLIST MODAL --- */}
       <ImportPlaylistModal

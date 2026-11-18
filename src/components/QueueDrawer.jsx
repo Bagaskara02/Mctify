@@ -17,7 +17,7 @@ export default function QueueDrawer({
   const upNextTracks = currentIndex !== -1 ? queue.slice(currentIndex + 1) : queue;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#121212] border-l border-[#282828] z-50 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 select-none">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-[#121212] border-l border-[#282828] z-[90] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 select-none">
       {/* Header */}
       <div className="p-4 border-b border-[#242424] flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -45,11 +45,15 @@ export default function QueueDrawer({
             </p>
             <div className="flex items-center gap-3 p-2.5 rounded-lg bg-[#242424] border border-white/5">
               <img
-                src={currentTrack.artwork || DEFAULT_ARTWORK}
+                src={(currentTrack.artwork && currentTrack.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (currentTrack.videoId ? `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                 alt={currentTrack.title}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src = DEFAULT_ARTWORK;
+                  if (currentTrack.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                    e.currentTarget.src = `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg`;
+                  } else {
+                    e.currentTarget.src = DEFAULT_ARTWORK;
+                  }
                 }}
                 className="w-12 h-12 rounded-md object-cover flex-shrink-0"
               />
@@ -124,11 +128,15 @@ export default function QueueDrawer({
                   </button>
 
                   <img
-                    src={track.artwork || DEFAULT_ARTWORK}
+                    src={(track.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                     alt={track.title}
                     onError={(e) => {
                       e.currentTarget.onerror = null;
-                      e.currentTarget.src = DEFAULT_ARTWORK;
+                      if (track.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                        e.currentTarget.src = `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`;
+                      } else {
+                        e.currentTarget.src = DEFAULT_ARTWORK;
+                      }
                     }}
                     className="w-10 h-10 rounded object-cover flex-shrink-0"
                   />

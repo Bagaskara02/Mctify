@@ -418,11 +418,11 @@ export default function BeautifulLyrics({
         {/* Real-time Lyrics Timing Calibrator */}
         <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/80 shadow-lg">
           <button
-            onClick={() => updateSyncOffset(-0.2)}
+            onClick={() => updateSyncOffset(-0.1)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Percepat lirik 0.2s (jika lirik terlambat)"
+            title="Percepat lirik 0.1s (jika lirik terlambat)"
           >
-            -0.2s
+            -0.1s
           </button>
           <button
             onClick={resetSyncOffset}
@@ -434,11 +434,11 @@ export default function BeautifulLyrics({
             Sync {syncOffsetSec >= 0 ? `+${syncOffsetSec.toFixed(1)}s` : `${syncOffsetSec.toFixed(1)}s`}
           </button>
           <button
-            onClick={() => updateSyncOffset(0.2)}
+            onClick={() => updateSyncOffset(0.1)}
             className="px-1.5 py-0.5 rounded hover:bg-white/20 text-white font-mono transition-colors active:scale-90"
-            title="Perlambat lirik 0.2s (jika lirik terlalu cepat)"
+            title="Perlambat lirik 0.1s (jika lirik terlalu cepat)"
           >
-            +0.2s
+            +0.1s
           </button>
         </div>
 
@@ -480,11 +480,15 @@ export default function BeautifulLyrics({
         <div className="hidden lg:flex lg:col-span-4 flex-col justify-center items-start p-8 select-none">
           <div className="relative group mb-8">
             <img
-              src={getHighResArtworkUrl(track?.artwork)} 
+              src={(track?.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track?.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)} 
               alt={track?.title} 
               onError={(e) => {
                 e.currentTarget.onerror = null;
-                e.currentTarget.src = DEFAULT_ARTWORK;
+                if (track?.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                  e.currentTarget.src = `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`;
+                } else {
+                  e.currentTarget.src = DEFAULT_ARTWORK;
+                }
               }}
               className="w-72 h-72 xl:w-84 xl:h-84 rounded-3xl object-cover shadow-2xl border border-white/10 bg-neutral-900 transition-transform duration-700 group-hover:scale-105"
               style={{

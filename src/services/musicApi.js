@@ -25,9 +25,11 @@ export function getHighResArtworkUrl(url) {
 
   // 2. YouTube Video Thumbnails (i.ytimg.com)
   if (clean.includes('ytimg.com')) {
-    if (/default\.jpg/i.test(clean)) {
-      return clean.replace(/(default|mqdefault|sddefault)\.jpg/i, 'hq720.jpg').split('?')[0];
+    const viMatch = clean.match(/\/vi\/([a-zA-Z0-9_-]+)\//);
+    if (viMatch) {
+      return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
     }
+    return clean.replace(/(hqdefault|mqdefault|sddefault|maxresdefault|default)\.jpg/i, 'hqdefault.jpg').split('?')[0];
   }
 
   // 3. Apple Music / iTunes (mzstatic.com)
@@ -1126,7 +1128,7 @@ export const musicApi = {
             title,
             artist,
             album: 'YouTube Import',
-            artwork: getHighResArtworkUrl(`https://i.ytimg.com/vi/${videoId}/hq720.jpg`),
+            artwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
             originalArtwork: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
             audioUrl: '',
             videoId: videoId,

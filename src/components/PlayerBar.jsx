@@ -194,20 +194,24 @@ export default function PlayerBar({
         />
       )}
       {/* Left Column: Track Info */}
-      <div className="flex items-center gap-3.5 w-1/4 min-w-[180px] max-w-[320px]">
+      <div className="flex items-center gap-2.5 sm:gap-3.5 w-1/4 min-w-[140px] sm:min-w-[180px] max-w-[260px] lg:max-w-[320px] shrink-0">
         {currentTrack ? (
           <>
             <div 
-              className="relative group cursor-pointer flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-[#242424] shadow-md" 
+              className="relative group cursor-pointer flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-md overflow-hidden bg-[#242424] shadow-md" 
               onClick={onToggleLyrics}
               title="Buka Lirik Karaoke"
             >
               <img
-                src={currentTrack.artwork || DEFAULT_ARTWORK}
+                src={(currentTrack.artwork && currentTrack.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (currentTrack.videoId ? `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
                 alt={currentTrack.title}
                 onError={(e) => {
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src = DEFAULT_ARTWORK;
+                  if (currentTrack.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                    e.currentTarget.src = `https://i.ytimg.com/vi/${currentTrack.videoId}/hqdefault.jpg`;
+                  } else {
+                    e.currentTarget.src = DEFAULT_ARTWORK;
+                  }
                 }}
                 className={`w-full h-full object-cover transition-transform duration-300 ${
                   isYtThumbnail ? 'scale-[1.35]' : ''
@@ -405,7 +409,7 @@ export default function PlayerBar({
       </div>
 
       {/* Right Column: Tools & Volume */}
-      <div className="flex items-center justify-end gap-2.5 sm:gap-3 w-1/4 min-w-[180px] max-w-[340px]">
+      <div className="flex items-center justify-end gap-1.5 sm:gap-2 lg:gap-2.5 flex-1 min-w-0 shrink-0">
         {/* Playback Speed Cycle Button */}
         <button
           onClick={() => {
@@ -414,7 +418,7 @@ export default function PlayerBar({
             const nextIdx = (curIdx === -1 ? 1 : curIdx + 1) % speeds.length;
             onPlaybackRateChange?.(speeds[nextIdx]);
           }}
-          className={`px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase border transition-all active:scale-95 ${
+          className={`hidden 2xl:block px-2 py-0.5 rounded-md text-[10px] font-black tracking-wider uppercase border transition-all active:scale-95 ${
             playbackRate !== 1.0
               ? 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/40 shadow-sm'
               : 'text-[#b3b3b3] hover:text-white border-white/10 hover:border-white/20'
@@ -427,7 +431,7 @@ export default function PlayerBar({
         {/* Sleep Timer Trigger */}
         <button
           onClick={onOpenSleepTimer}
-          className={`relative p-2 rounded-full transition-all active:scale-95 ${
+          className={`hidden xl:block relative p-2 rounded-full transition-all active:scale-95 ${
             isSleepTimerActive
               ? 'text-[#3B82F6]'
               : 'text-[#b3b3b3] hover:text-white'
@@ -443,7 +447,7 @@ export default function PlayerBar({
         {/* Beautiful Lyrics Trigger */}
         <button
           onClick={onToggleLyrics}
-          className={`p-2 rounded-full transition-all active:scale-95 ${
+          className={`p-1.5 sm:p-2 rounded-full transition-all active:scale-95 shrink-0 ${
             isLyricsOpen
               ? 'text-[#3B82F6]'
               : 'text-[#b3b3b3] hover:text-white'
@@ -456,7 +460,7 @@ export default function PlayerBar({
         {/* Audio Quality Trigger */}
         <button
           onClick={onToggleAudioQuality}
-          className={`p-2 rounded-full transition-all active:scale-95 flex items-center gap-1 ${
+          className={`hidden sm:flex p-1.5 sm:p-2 rounded-full transition-all active:scale-95 items-center gap-1 shrink-0 ${
             isAudioQualityOpen
               ? 'text-[#3B82F6]'
               : currentQuality === 'lossless'
@@ -476,7 +480,7 @@ export default function PlayerBar({
         {/* Equalizer Trigger */}
         <button
           onClick={onToggleEqualizer}
-          className={`p-2 rounded-full transition-all active:scale-95 ${
+          className={`hidden sm:block p-1.5 sm:p-2 rounded-full transition-all active:scale-95 shrink-0 ${
             isEqualizerOpen
               ? 'text-[#3B82F6]'
               : 'text-[#b3b3b3] hover:text-white'
@@ -489,7 +493,7 @@ export default function PlayerBar({
         {/* Spotify Transition Songs Trigger (Edit transition Beta) */}
         <button
           onClick={onOpenTransitionModal}
-          className={`p-2 rounded-full transition-all active:scale-95 relative ${
+          className={`hidden 2xl:block p-2 rounded-full transition-all active:scale-95 relative ${
             isTransitionModalOpen
               ? 'text-emerald-400'
               : 'text-[#b3b3b3] hover:text-emerald-400'
@@ -504,7 +508,7 @@ export default function PlayerBar({
         <button
           onClick={onShareTrack}
           disabled={!currentTrack}
-          className="p-2 rounded-full transition-all active:scale-95 text-[#b3b3b3] hover:text-[#3B82F6] disabled:opacity-30 disabled:pointer-events-none"
+          className="hidden lg:block p-2 rounded-full transition-all active:scale-95 text-[#b3b3b3] hover:text-[#3B82F6] disabled:opacity-30 disabled:pointer-events-none"
           title="Dengarkan Bareng (Salin Tautan Musik Live)"
         >
           <Share2 className="w-4 h-4" />
@@ -513,7 +517,7 @@ export default function PlayerBar({
         {/* Queue Drawer Trigger */}
         <button
           onClick={onToggleQueue}
-          className={`p-2 rounded-full transition-all active:scale-95 ${
+          className={`p-1.5 sm:p-2 rounded-full transition-all active:scale-95 shrink-0 ${
             isQueueOpen
               ? 'text-[#3B82F6]'
               : 'text-[#b3b3b3] hover:text-white'
@@ -537,7 +541,7 @@ export default function PlayerBar({
         </button>
 
         {/* Spotify Native Custom Volume Control */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             onClick={onToggleMute}
             className="text-[#b3b3b3] hover:text-white transition-colors p-1"
@@ -560,7 +564,7 @@ export default function PlayerBar({
             onPointerUp={handleVolumePointerUp}
             onMouseEnter={() => setIsVolumeHovered(true)}
             onMouseLeave={() => setIsVolumeHovered(false)}
-            className="w-24 h-4 flex items-center cursor-pointer group select-none touch-none"
+            className="w-16 sm:w-20 md:w-24 h-4 flex items-center cursor-pointer group select-none touch-none"
             title={`Volume ${currentVolumePercent}%`}
           >
             <div className="w-full h-1 group-hover:h-1.5 bg-[#4d4d4d] rounded-full transition-all relative">

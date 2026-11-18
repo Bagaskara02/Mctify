@@ -32,7 +32,31 @@ export const storageService = {
   getPlaylists() {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PLAYLISTS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((pl) => {
+            let cover = pl.cover || '';
+            if (cover && (cover.includes('hqhq720.jpg') || cover.includes('hq720.jpg'))) {
+              cover = cover.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
+            }
+            const tracks = Array.isArray(pl.tracks) ? pl.tracks.map((t) => {
+              let art = t.artwork || '';
+              if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
+                art = art.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
+              } else if (!art && t.videoId) {
+                art = `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`;
+              }
+              return { ...t, artwork: art };
+            }) : [];
+            if ((!cover || cover.includes('hq720.jpg')) && tracks.length > 0 && tracks[0].artwork) {
+              cover = tracks[0].artwork;
+            }
+            return { ...pl, cover, tracks };
+          });
+        }
+        return parsed;
+      }
       this.savePlaylists(DEFAULT_PLAYLISTS);
       return DEFAULT_PLAYLISTS;
     } catch {
@@ -106,7 +130,20 @@ export const storageService = {
   getLikedTracks() {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.LIKED_TRACKS);
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.map((t) => {
+          let art = t.artwork || '';
+          if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
+            art = art.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
+          } else if (!art && t.videoId) {
+            art = `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`;
+          }
+          return { ...t, artwork: art };
+        });
+      }
+      return [];
     } catch {
       return [];
     }

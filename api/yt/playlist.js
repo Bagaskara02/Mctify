@@ -62,8 +62,10 @@ export default async function handler(req, res) {
 
     const playlistTitle = pl.info?.title || 'YouTube Playlist';
     const playlistAuthor = pl.info?.author?.name || 'YouTube';
-    const rawThumb = pl.info?.thumbnails?.[0]?.url || '';
-    const playlistCover = toHighResUrl(rawThumb);
+    const rawThumb = (pl.info?.thumbnails && pl.info.thumbnails.length > 0)
+      ? pl.info.thumbnails[pl.info.thumbnails.length - 1]?.url || pl.info.thumbnails[0]?.url
+      : '';
+    let playlistCover = toHighResUrl(rawThumb);
 
     const rawVideos = pl.videos || [];
     const tracks = rawVideos.map((v, idx) => {
@@ -104,6 +106,10 @@ export default async function handler(req, res) {
         artwork: toHighResUrl(thumbUrl),
       };
     }).filter(t => t.title && t.videoId);
+
+    if (!playlistCover && tracks.length > 0) {
+      playlistCover = tracks[0].artwork || (tracks[0].videoId ? `https://i.ytimg.com/vi/${tracks[0].videoId}/hqdefault.jpg` : '');
+    }
 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=43200');

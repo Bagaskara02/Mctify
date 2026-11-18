@@ -187,13 +187,41 @@ class MusicApiService {
     if (track.audioUrl.isNotEmpty && !isPreviewUrl(track.audioUrl)) {
       return track.audioUrl;
     }
+    String? rawUrl;
+    String? matchedKey;
     if (track.videoId != null && track.videoId!.isNotEmpty) {
       final key = 'stream_${track.videoId}_${quality.name}';
-      if (_streamCache.containsKey(key)) return _streamCache[key];
+      if (_streamCache.containsKey(key)) {
+        rawUrl = _streamCache[key];
+        matchedKey = key;
+      }
     }
-    final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
-    if (_streamCache.containsKey(cleanKey)) return _streamCache[cleanKey];
-    return null;
+    if (rawUrl == null) {
+      final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
+      if (_streamCache.containsKey(cleanKey)) {
+        rawUrl = _streamCache[cleanKey];
+        matchedKey = cleanKey;
+      }
+    }
+    if (rawUrl == null) return null;
+
+    // Validate loopback proxy URLs against active server port & entries
+    if (rawUrl.contains('127.0.0.1:')) {
+      final currentPort = AudioProxyServer.instance.port;
+      final uri = Uri.tryParse(rawUrl);
+      final id = uri?.queryParameters['id'];
+      if (currentPort == null || id == null || !AudioProxyServer.instance.hasEntry(id)) {
+        // Stale or dead entry — evict from cache so fresh stream resolves reliably!
+        if (matchedKey != null) _streamCache.remove(matchedKey);
+        return null;
+      }
+      if (uri != null && uri.port != currentPort) {
+        final correctedUrl = rawUrl.replaceFirst('127.0.0.1:${uri.port}', '127.0.0.1:$currentPort');
+        if (matchedKey != null) _streamCache[matchedKey] = correctedUrl;
+        return correctedUrl;
+      }
+    }
+    return rawUrl;
   }
 
   /// Pre-warms top Quick Card / top tracks silently on startup so first Play is instant

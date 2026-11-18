@@ -188,11 +188,21 @@ export default function PlaylistView({
           className={`relative group/cover ${isEditable ? 'cursor-pointer' : ''}`}
         >
           <img
-            src={playlist.cover || DEFAULT_ARTWORK}
+            src={
+              (playlist.cover && playlist.cover.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) ||
+              (rawTracks[0]?.artwork && rawTracks[0].artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) ||
+              (rawTracks[0]?.videoId ? `https://i.ytimg.com/vi/${rawTracks[0].videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)
+            }
             alt={playlist.name}
             onError={(e) => {
               e.currentTarget.onerror = null;
-              e.currentTarget.src = DEFAULT_ARTWORK;
+              if (rawTracks[0]?.artwork && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                e.currentTarget.src = rawTracks[0].artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
+              } else if (rawTracks[0]?.videoId) {
+                e.currentTarget.src = `https://i.ytimg.com/vi/${rawTracks[0].videoId}/hqdefault.jpg`;
+              } else {
+                e.currentTarget.src = DEFAULT_ARTWORK;
+              }
             }}
             className="w-40 h-40 sm:w-52 sm:h-52 rounded-md object-cover shadow-2xl flex-shrink-0 bg-[#282828]"
           />

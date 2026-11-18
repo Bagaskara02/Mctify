@@ -73,7 +73,7 @@ describe('Music API Artwork & Filter Tests', () => {
     assert.equal(getHighResArtworkUrl(googleLow), 'https://lh3.googleusercontent.com/abc=w800-h800-l90-rj');
 
     const ytLow = 'https://i.ytimg.com/vi/123/default.jpg?sqp=abc';
-    assert.equal(getHighResArtworkUrl(ytLow), 'https://i.ytimg.com/vi/123/hq720.jpg');
+    assert.equal(getHighResArtworkUrl(ytLow), 'https://i.ytimg.com/vi/123/hqdefault.jpg');
 
     const appleLow = 'https://is1-ssl.mzstatic.com/image/thumb/123/100x100bb.jpg';
     assert.equal(getHighResArtworkUrl(appleLow), 'https://is1-ssl.mzstatic.com/image/thumb/123/1000x1000bb.jpg');

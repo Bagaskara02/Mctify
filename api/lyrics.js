@@ -154,6 +154,24 @@ function parseYrc(yrcText) {
   return finalizeLinesWithInterludes(parsed);
 }
 
+function parsePlainLyrics(plainText) {
+  if (!plainText) return [];
+  return plainText.split('\n').map((line, idx) => {
+    const time = idx * 4.0;
+    const dur = 3.8;
+    const trimmed = line.trim();
+    return {
+      id: `plain-${idx}`,
+      time,
+      endTime: time + dur,
+      text: trimmed,
+      duration: dur,
+      words: computeLrcWords(trimmed, time, dur),
+      isPlain: true,
+    };
+  }).filter((l) => l.text.length > 0);
+}
+
 /**
  * Parse Standard or Enhanced LRC (<mm:ss.xx>word)
  */
@@ -456,7 +474,7 @@ async function fetchLrclib(title, artist, targetDuration) {
       const data = await exactRes.json();
       if (data?.syncedLyrics || data?.plainLyrics) {
         const isEnhanced = /<\d{1,3}:\d{2}/.test(data.syncedLyrics || '');
-        const rawLines = data.syncedLyrics ? parseLrc(data.syncedLyrics) : parseLrc(data.plainLyrics);
+        const rawLines = data.syncedLyrics ? parseLrc(data.syncedLyrics) : parsePlainLyrics(data.plainLyrics);
         const lines = attachRomanizationToLines(rawLines, null);
         const matchScore = scoreLyricCandidate({
           candTitle: data.trackName || title,
@@ -508,7 +526,7 @@ async function fetchLrclib(title, artist, targetDuration) {
           const best = scored[0];
           const rawLines = best.item.syncedLyrics
             ? parseLrc(best.item.syncedLyrics)
-            : parseLrc(best.item.plainLyrics);
+            : parsePlainLyrics(best.item.plainLyrics);
           const lines = attachRomanizationToLines(rawLines, null);
           if (lines.length > 0) {
             return {
