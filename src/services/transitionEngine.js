@@ -713,7 +713,128 @@ export function generateMusicalWaveformBars(count = 60, track = null, isOutro = 
 }
 
 /**
- * Decode real audio segment and extract normalized bar heights (14..94) + energy cue point
+ * Analyze raw PCM Float32Array samples to detect:
+ * 1. Exact first beat/kick onset (introDropSec) so Track B skips silent/ambient intros
+ * 2. Real BPM via autocorrelation on low-frequency onset flux (70..180 BPM)
+ * 3. Beat phase offset (firstBeatPhaseSec) for Beat-Locked alignment between Track A & Track B
+ */
+export function analyzePcmBeatGrid(channelData, sampleRate = 44100, isOutro = false) {
+  if (!channelData || channelData.length < sampleRate) {
+    return {
+      detectedBpm: null,
+      firstBeatSec: 0,
+      introDropSec: 0,
+      outroEnergyDropSec: 0,
+      beatGridConfidence: 0,
+    };
+  }
+
+  const hopSize = Math.max(256, Math.floor(sampleRate * 0.02)); // 20ms frames (50 fps)
+  const frameCount = Math.floor(channelData.length / hopSize);
+  const energies = new Float32Array(frameCount);
+  let maxEnergy = 1e-6;
+
+  // 1. Compute 20ms RMS energy envelope (approximating kick/percussive energy)
+  for (let f = 0; f < frameCount; f++) {
+    const start = f * hopSize;
+    const end = Math.min(channelData.length, start + hopSize);
+    let sumSq = 0;
+    // Simple 1-pole low-pass filter (~220Hz) to isolate kick drum / bass transients
+    let lp = 0;
+    for (let i = start; i < end; i += 2) {
+      lp += 0.14 * (channelData[i] - lp);
+      sumSq += lp * lp;
+    }
+    const rms = Math.sqrt(sumSq / Math.max(1, (end - start) / 2));
+    energies[f] = rms;
+    if (rms > maxEnergy) maxEnergy = rms;
+  }
+
+  // 2. Half-wave rectified spectral/energy flux (positive onset spikes)
+  const flux = new Float32Array(frameCount);
+  let maxFlux = 1e-6;
+  for (let f = 1; f < frameCount; f++) {
+    const diff = energies[f] - energies[f - 1];
+    if (diff > 0) {
+      flux[f] = diff;
+      if (diff > maxFlux) maxFlux = diff;
+    }
+  }
+
+  // 3. Detect Intro Drop (first frame where kick/bass energy reaches >= 36% of track peak)
+  let introDropSec = 0;
+  if (!isOutro) {
+    const threshold = maxEnergy * 0.36;
+    for (let f = 0; f < frameCount; f++) {
+      if (energies[f] >= threshold) {
+        // Snap slightly back to the onset attack (~40ms)
+        const snapFrame = Math.max(0, f - 2);
+        introDropSec = Number(((snapFrame * hopSize) / sampleRate).toFixed(2));
+        break;
+      }
+    }
+  }
+
+  // 4. Autocorrelation on onset flux to estimate real BPM (70..180 BPM)
+  const fps = sampleRate / hopSize; // ~50 frames/sec
+  const minLag = Math.max(1, Math.floor((60 / 180) * fps));
+  const maxLag = Math.min(frameCount - 1, Math.ceil((60 / 70) * fps));
+  let bestLag = minLag;
+  let bestCorr = -1;
+  let avgCorr = 0;
+  let lagCount = 0;
+
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let corr = 0;
+    const limit = frameCount - lag;
+    for (let f = 0; f < limit; f++) {
+      corr += flux[f] * flux[f + lag];
+    }
+    corr /= Math.max(1, limit);
+    avgCorr += corr;
+    lagCount++;
+    if (corr > bestCorr) {
+      bestCorr = corr;
+      bestLag = lag;
+    }
+  }
+
+  const meanCorr = lagCount > 0 ? avgCorr / lagCount : 1e-6;
+  const confidence = Math.max(0, Math.min(1, (bestCorr / Math.max(1e-6, meanCorr) - 1) / 3));
+  let detectedBpm = Math.round((60 * fps) / Math.max(1, bestLag));
+  if (detectedBpm < 70) detectedBpm *= 2;
+  if (detectedBpm > 180) detectedBpm = Math.round(detectedBpm / 2);
+
+  // 5. Find strongest downbeat phase inside the first beat cycle after introDropSec
+  const beatPeriodFrames = Math.max(1, Math.round((60 / detectedBpm) * fps));
+  const searchStartFrame = Math.floor((introDropSec * sampleRate) / hopSize);
+  let bestPhaseFrame = searchStartFrame;
+  let bestPhaseScore = -1;
+
+  for (let phase = 0; phase < beatPeriodFrames; phase++) {
+    let score = 0;
+    let hits = 0;
+    for (let f = searchStartFrame + phase; f < frameCount; f += beatPeriodFrames) {
+      score += flux[f];
+      hits++;
+    }
+    if (hits > 0 && score / hits > bestPhaseScore) {
+      bestPhaseScore = score / hits;
+      bestPhaseFrame = searchStartFrame + phase;
+    }
+  }
+
+  const firstBeatSec = Number(((bestPhaseFrame * hopSize) / sampleRate).toFixed(3));
+  return {
+    detectedBpm: confidence >= 0.25 ? detectedBpm : null,
+    firstBeatSec,
+    introDropSec: Math.min(18, Math.max(0, introDropSec)),
+    beatGridConfidence: Number(confidence.toFixed(2)),
+  };
+}
+
+/**
+ * Decode real audio segment and extract normalized bar heights (14..94) + PCM Beatgrid & Intro-Drop Cue
  */
 export async function extractAudioWaveformData(audioUrl, barCount = 60, isOutro = false) {
   if (!audioUrl || typeof window === 'undefined') return null;
@@ -780,16 +901,24 @@ export async function extractAudioWaveformData(audioUrl, barCount = 60, isOutro 
       return Math.round(Math.max(14, Math.min(94, 14 + norm * 80)));
     });
 
-    // Detect first crisp beat onset in intro or optimal transition start in outro
-    let suggestedCueSec = isOutro ? Math.max(0, totalDur - 11) : 0.2;
-    if (!isOutro) {
-      const onsetIdx = rawRms.findIndex((r) => r >= maxRms * 0.32);
-      if (onsetIdx > 0) {
-        suggestedCueSec = Number(((onsetIdx / barCount) * windowSec).toFixed(2));
-      }
-    }
+    // Run real PCM Beatgrid & Intro-Drop Onset Analyzer on the decoded window
+    const windowSlice = channel.subarray(startSample, endSample);
+    const beatAnalysis = analyzePcmBeatGrid(windowSlice, sampleRate, isOutro);
 
-    const result = { bars, durationSec: totalDur, suggestedCueSec };
+    // Detect first crisp beat onset in intro or optimal transition start in outro
+    let suggestedCueSec = isOutro
+      ? Math.max(0, totalDur - 11)
+      : (beatAnalysis.introDropSec > 0.15 ? beatAnalysis.introDropSec : 0.2);
+
+    const result = {
+      bars,
+      durationSec: totalDur,
+      suggestedCueSec,
+      detectedBpm: beatAnalysis.detectedBpm,
+      firstBeatSec: beatAnalysis.firstBeatSec,
+      introDropSec: beatAnalysis.introDropSec,
+      beatGridConfidence: beatAnalysis.beatGridConfidence,
+    };
     waveformPeaksCache.set(cacheKey, result);
     return result;
   } catch (_) {

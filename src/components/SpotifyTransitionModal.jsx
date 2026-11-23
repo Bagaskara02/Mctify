@@ -88,6 +88,7 @@ export default function SpotifyTransitionModal({
   // Real Extracted Waveform State
   const [realTopBars, setRealTopBars] = useState(null);
   const [realBottomBars, setRealBottomBars] = useState(null);
+  const [pcmAnalysis, setPcmAnalysis] = useState({ out: null, in: null });
 
   // Determine Effective Outgoing and Incoming Tracks
   const defaultFallbackOutgoing = {
@@ -205,12 +206,13 @@ export default function SpotifyTransitionModal({
     }
   }, [isOpen, outgoing.id, incoming.id]);
 
-  // Decode real waveform peaks asynchronously when outgoing/incoming changes
+  // Decode real waveform peaks + PCM Beatgrid & Intro-Drop Cue asynchronously when outgoing/incoming changes
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
     setRealTopBars(null);
     setRealBottomBars(null);
+    setPcmAnalysis({ out: null, in: null });
 
     (async () => {
       const [resOut, resIn] = await Promise.all([
@@ -219,13 +221,18 @@ export default function SpotifyTransitionModal({
       ]);
       if (cancelled) return;
 
+      let wfOut = null;
+      let wfIn = null;
       if (resOut?.url) {
-        const wfOut = await extractAudioWaveformData(resOut.url, 60, true);
+        wfOut = await extractAudioWaveformData(resOut.url, 60, true);
         if (!cancelled && wfOut?.bars) setRealTopBars(wfOut.bars);
       }
       if (resIn?.url) {
-        const wfIn = await extractAudioWaveformData(resIn.url, 60, false);
+        wfIn = await extractAudioWaveformData(resIn.url, 60, false);
         if (!cancelled && wfIn?.bars) setRealBottomBars(wfIn.bars);
+      }
+      if (!cancelled && (wfOut || wfIn)) {
+        setPcmAnalysis({ out: wfOut, in: wfIn });
       }
     })();
 
@@ -481,9 +488,33 @@ export default function SpotifyTransitionModal({
     window.addEventListener('pointerup', onUp);
   };
 
-  // Smart Automix AI Preset Generator
+  // Smart Automix AI Preset Generator (with Real PCM Intro-Drop & Beat-Phase Lock!)
   const handleApplySmartAutomix = () => {
-    const smart = computeSmartAutomixPreset(outgoing, incoming);
+    const outWithPcm = pcmAnalysis.out?.detectedBpm
+      ? { ...outgoing, bpm: pcmAnalysis.out.detectedBpm }
+      : outgoing;
+    const inWithPcm = pcmAnalysis.in?.detectedBpm
+      ? { ...incoming, bpm: pcmAnalysis.in.detectedBpm }
+      : incoming;
+
+    const smart = computeSmartAutomixPreset(outWithPcm, inWithPcm);
+
+    // Auto-skip silent/ambient intro on Track B using real PCM Intro-Drop Onset Detector
+    const autoIntroOffset =
+      pcmAnalysis.in && pcmAnalysis.in.introDropSec > 0.35
+        ? Number(pcmAnalysis.in.introDropSec.toFixed(1))
+        : 0;
+
+    // Beat-phase alignment nudge on Track A outro if both beatgrids are detected
+    let autoOutroOffset = 0;
+    if (pcmAnalysis.out?.firstBeatSec != null && pcmAnalysis.in?.firstBeatSec != null) {
+      const beatSec = 60 / Math.max(70, smart.bpmA || 120);
+      const phaseDiff = (pcmAnalysis.out.firstBeatSec - pcmAnalysis.in.firstBeatSec) % beatSec;
+      if (Number.isFinite(phaseDiff) && Math.abs(phaseDiff) > 0.05) {
+        autoOutroOffset = Number(Math.max(-2, Math.min(2, phaseDiff)).toFixed(2));
+      }
+    }
+
     const nextCfg = {
       ...settings,
       bars: smart.bars,
@@ -492,9 +523,18 @@ export default function SpotifyTransitionModal({
       eq: smart.eq,
       effect: smart.effect,
       tempoSync: smart.tempoSync,
+      introOffsetSec: autoIntroOffset,
+      outroOffsetSec: autoOutroOffset,
     };
+    const pcmNote =
+      autoIntroOffset > 0
+        ? ` • Auto Intro-Drop: +${autoIntroOffset}s (lewati bagian hening awal)`
+        : '';
     setSettings(nextCfg);
-    setSmartAutomixInsight(smart);
+    setSmartAutomixInsight({
+      ...smart,
+      explanation: `${smart.explanation}${pcmNote}`,
+    });
     setTimeout(() => {
       startPreview(nextCfg);
     }, 120);

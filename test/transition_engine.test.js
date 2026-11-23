@@ -9,6 +9,7 @@ import {
   computeSmartAutomixPreset,
   buildEnvelopeSvgPaths,
   generateMusicalWaveformBars,
+  analyzePcmBeatGrid,
 } from '../src/services/transitionEngine.js';
 
 describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
@@ -112,5 +113,25 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const bars = generateMusicalWaveformBars(60, { title: 'Test', bpm: 90 }, true);
     assert.equal(bars.length, 60);
     assert.ok(bars.every((b) => b >= 14 && b <= 94));
+  });
+
+  it('detects Intro-Drop onset and real BPM from synthetic PCM kick drum pulses', () => {
+    const sampleRate = 22050;
+    const durationSec = 8;
+    const pcm = new Float32Array(sampleRate * durationSec);
+    // 2.0s silent intro, then 120 BPM (0.5s per beat) kick pulses
+    const beatInterval = 0.5;
+    for (let t = 2.0; t < durationSec; t += beatInterval) {
+      const startIdx = Math.floor(t * sampleRate);
+      const kickLen = Math.floor(0.08 * sampleRate);
+      for (let i = 0; i < kickLen && startIdx + i < pcm.length; i++) {
+        const env = Math.exp(-i / (0.02 * sampleRate));
+        pcm[startIdx + i] = Math.sin((2 * Math.PI * 65 * i) / sampleRate) * env;
+      }
+    }
+
+    const analysis = analyzePcmBeatGrid(pcm, sampleRate, false);
+    assert.ok(analysis.introDropSec >= 1.8 && analysis.introDropSec <= 2.2, `Expected ~2.0s introDropSec, got ${analysis.introDropSec}`);
+    assert.ok(analysis.detectedBpm >= 116 && analysis.detectedBpm <= 124, `Expected ~120 BPM, got ${analysis.detectedBpm}`);
   });
 });
