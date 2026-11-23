@@ -207,6 +207,7 @@ export default function BeautifulLyrics({
   lyricsData,
   isLoadingLyrics,
   isPlaying,
+  playbackRate = 1.0,
   onSeek,
   onClose,
 }) {
@@ -296,62 +297,77 @@ export default function BeautifulLyrics({
     } catch (_) {}
   };
 
-  // Monotonic, buttery-smooth time tracker that NEVER freezes at 300ms or snaps backwards
-  const [smoothTime, setSmoothTime] = useState(currentTime);
-  const smoothTimeRef = useRef(currentTime);
+  // Monotonic, buffer-safe time tracker locked to player clock (never drifts during YouTube buffering)
+  const [smoothTime, setSmoothTime] = useState(currentTime || 0);
+  const smoothTimeRef = useRef(currentTime || 0);
   const lastSyncWallRef = useRef(performance.now());
-  const lastSyncPlayerRef = useRef(currentTime);
+  const lastSyncPlayerRef = useRef(currentTime || 0);
+  const isPlayerAdvancingRef = useRef(false);
 
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
   const activeLineRef = useRef(null);
 
-  // Synchronize reference with player's actual time
+  // Reset clock immediately on track change so previous song's timestamp never bleeds into new song
+  useEffect(() => {
+    const startSec = Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+    lastSyncPlayerRef.current = startSec;
+    lastSyncWallRef.current = performance.now();
+    smoothTimeRef.current = startSec;
+    isPlayerAdvancingRef.current = false;
+    setSmoothTime(startSec);
+    setUserScrolled(false);
+  }, [track?.id, track?.videoId, track?.title]);
+
+  // Synchronize reference with player's actual reported currentTime
   useEffect(() => {
     const now = performance.now();
-    const dt = (now - lastSyncWallRef.current) / 1000;
-    const expected = lastSyncPlayerRef.current + (isPlaying ? dt : 0);
-    const diff = Math.abs(currentTime - expected);
+    const safeCur = Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+    const prevPlayer = lastSyncPlayerRef.current;
+    const playerDelta = safeCur - prevPlayer;
 
-    // Hard jump ONLY on user scrub/seek (> 0.75s) or when paused
-    if (diff > 0.75 || !isPlaying) {
-      lastSyncPlayerRef.current = currentTime;
-      lastSyncWallRef.current = now;
-      smoothTimeRef.current = currentTime;
-      setSmoothTime(currentTime);
-    } else {
-      // Continuous forward playback: update baseline without snapping backwards!
-      lastSyncPlayerRef.current = currentTime;
-      lastSyncWallRef.current = now;
-      if (currentTime > smoothTimeRef.current) {
-        smoothTimeRef.current = currentTime;
-      }
+    // Player is genuinely advancing if currentTime moved forward between ticks
+    isPlayerAdvancingRef.current = isPlaying && playerDelta > 0.005 && playerDelta < 1.5;
+    lastSyncPlayerRef.current = safeCur;
+    lastSyncWallRef.current = now;
+
+    // Snap immediately on pause, at start (<= 0.15s), or if drift exceeds 0.20s
+    if (!isPlaying || safeCur <= 0.15 || Math.abs(safeCur - smoothTimeRef.current) > 0.20) {
+      smoothTimeRef.current = safeCur;
+      setSmoothTime(safeCur);
+    } else if (safeCur > smoothTimeRef.current) {
+      smoothTimeRef.current = safeCur;
+      setSmoothTime(safeCur);
     }
   }, [currentTime, isPlaying]);
 
-  // High-precision animation frame ticker for buttery smooth wipe (continuous up to 4s)
+  // High-precision 60fps micro-interpolation between 100ms player ticks (bounded to 180ms max so buffering never drifts ahead)
   useEffect(() => {
     if (!isPlaying) {
-      smoothTimeRef.current = currentTime;
-      setSmoothTime(currentTime);
+      isPlayerAdvancingRef.current = false;
+      smoothTimeRef.current = currentTime || 0;
+      setSmoothTime(currentTime || 0);
       return;
     }
     let animId;
+    const rate = Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1.0;
     const loop = () => {
-      const now = performance.now();
-      const dt = (now - lastSyncWallRef.current) / 1000;
-      if (dt >= 0 && dt <= 4.0) {
-        const nextTime = lastSyncPlayerRef.current + dt;
-        if (nextTime > smoothTimeRef.current) {
-          smoothTimeRef.current = nextTime;
-          setSmoothTime(nextTime);
+      if (isPlayerAdvancingRef.current && lastSyncPlayerRef.current > 0.05) {
+        const now = performance.now();
+        const dt = (now - lastSyncWallRef.current) / 1000;
+        if (dt >= 0 && dt <= 0.18) {
+          const nextTime = lastSyncPlayerRef.current + dt * rate;
+          if (nextTime > smoothTimeRef.current) {
+            smoothTimeRef.current = nextTime;
+            setSmoothTime(nextTime);
+          }
         }
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying]);
+  }, [isPlaying, playbackRate]);
 
   // Extract vibrant colors from album artwork for ambient backdrop
   useEffect(() => {
@@ -370,10 +386,8 @@ export default function BeautifulLyrics({
   const isSynced = lyricsData?.synced !== false;
   const hasNonLatinLyrics = lines.some((l) => l.hasRomanization || isNonLatin(l.text));
 
-  // Fine-tuned visual attack lead (+0.10s / 100ms):
-  // Cancels out hardware / Web Audio / YouTube Iframe buffer output latency (typically 80-120ms).
-  // Illuminates active words and syllables exactly in lockstep as the acoustic sound wave reaches the ear.
-  const visualAttackLeadSec = 0.10;
+  // Fine-tuned visual attack lead (+0.08s / 80ms) matching RightSidebar & MobileFullscreen
+  const visualAttackLeadSec = 0.08;
   const effectiveTime = Math.max(0, smoothTime + visualAttackLeadSec + syncOffsetSec);
 
   // Determine active line index (only for synchronized lyrics)

@@ -356,9 +356,11 @@ export default function App() {
     } catch (_) {}
   }, [currentTrack?.title, currentTrack?.artist, currentTrack?.artwork, currentTrack?.videoId, isPlaying, Math.floor(currentTime), Math.floor(duration)]);
 
-  // Fetch Synchronized Lyrics whenever currentTrack changes (clear stale lyrics immediately & match exact duration)
-  const effectiveTrackDur = Math.round(currentTrack?.duration || duration || 0);
-  const lyricsDurBucket = effectiveTrackDur > 10 ? Math.round(effectiveTrackDur / 5) : 0;
+  // Fetch Synchronized Lyrics whenever currentTrack changes (clear stale lyrics immediately & avoid 180/210 placeholder duration poison)
+  const rawTrackDur = Math.round(currentTrack?.duration || 0);
+  const livePlayerDur = Math.round(duration || 0);
+  const initialTrackDur =
+    rawTrackDur > 15 && rawTrackDur !== 180 && rawTrackDur !== 210 ? rawTrackDur : undefined;
 
   useEffect(() => {
     if (!currentTrack) {
@@ -371,7 +373,7 @@ export default function App() {
     setIsLoadingLyrics(true);
 
     lyricsService
-      .fetchLyrics(currentTrack.artist, currentTrack.title, effectiveTrackDur > 5 ? effectiveTrackDur : undefined)
+      .fetchLyrics(currentTrack.artist, currentTrack.title, initialTrackDur)
       .then((data) => {
         if (isSubscribed) {
           setLyricsData(data);
@@ -388,7 +390,41 @@ export default function App() {
     return () => {
       isSubscribed = false;
     };
-  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, lyricsDurBucket]);
+  }, [currentTrack?.id, currentTrack?.videoId, currentTrack?.title, currentTrack?.artist]);
+
+  // Refine lyrics match if live YouTube player reports an actual duration that differs (> 10s) from initial candidate
+  useEffect(() => {
+    if (!currentTrack || livePlayerDur <= 15 || isLoadingLyrics) return;
+    const loadedTrackDur = Number(lyricsData?.trackDuration) || 0;
+    const isVerifiedMaster = lyricsData?.source === 'Verified Studio Synced Master';
+    if (isVerifiedMaster) return;
+
+    const hasMismatch =
+      loadedTrackDur > 15 && Math.abs(loadedTrackDur - livePlayerDur) > 10;
+    const hasNoSyncedLines = !lyricsData?.lines?.length;
+
+    if (!hasMismatch && !hasNoSyncedLines) return;
+
+    let isSubscribed = true;
+    lyricsService
+      .fetchLyrics(currentTrack.artist, currentTrack.title, livePlayerDur)
+      .then((refined) => {
+        if (!isSubscribed || !refined?.lines?.length) return;
+        const refinedDur = Number(refined.trackDuration) || 0;
+        if (
+          hasNoSyncedLines ||
+          (refinedDur > 15 &&
+            Math.abs(refinedDur - livePlayerDur) < Math.abs(loadedTrackDur - livePlayerDur))
+        ) {
+          setLyricsData(refined);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [currentTrack?.id, livePlayerDur]);
 
   // Auto-hide bottom player bar in lyrics mode when not hovered or touched
   useEffect(() => {
@@ -1820,6 +1856,7 @@ export default function App() {
           lyricsData={lyricsData}
           isLoadingLyrics={isLoadingLyrics}
           isPlaying={isPlaying}
+          playbackRate={playbackRate}
           onSeek={handleSeek}
           onClose={() => setIsLyricsOpen(false)}
         />

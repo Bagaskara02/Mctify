@@ -49,4 +49,48 @@ describe('Studio Synced Lyrics: Muria - Brangkat Tests', () => {
       assert.strictEqual(res.lines[1].time, 21.4);
     }
   });
+
+  it('prevents stopword artist hijack, substring title mismatch, Unicode stripping, and 180/210 placeholder duration rejection', async () => {
+    const {
+      normalizeLyricText,
+      scoreLyricCandidate,
+    } = await import('../src/utils/lyricsMatcher.js');
+    const { findVerifiedStudioLrc, cleanTrackMetadata } = await import('../api/lyrics.js');
+
+    // 1. Preserves Korean Hangul & Japanese Kana/Kanji in normalizeLyricText
+    assert.strictEqual(normalizeLyricText('사랑인가봐 (Love, Maybe)'), '사랑인가봐');
+    assert.strictEqual(normalizeLyricText('夜に駆ける [Official]'), '夜に駆ける');
+
+    // 2. Rejects different artist sharing stopword "The" ("The Weeknd" vs "The 1975")
+    const stopwordArtistScore = scoreLyricCandidate({
+      candTitle: 'One Of The Girls',
+      candArtist: 'The 1975',
+      candDurationSec: 244,
+      targetTitle: 'One Of The Girls',
+      targetArtist: 'The Weeknd',
+      targetDurationSec: 244,
+    });
+    assert.ok(stopwordArtistScore < 0, `Expected negative score for wrong "The" artist, got ${stopwordArtistScore}`);
+
+    // 3. Keeps exact title + exact artist match valid even if targetDurationSec was a 180s placeholder
+    const placeholderDurScore = scoreLyricCandidate({
+      candTitle: 'One Of The Girls',
+      candArtist: 'The Weeknd',
+      candDurationSec: 244,
+      targetTitle: 'One Of The Girls',
+      targetArtist: 'The Weeknd',
+      targetDurationSec: 180,
+      isSynced: true,
+    });
+    assert.ok(placeholderDurScore >= 700, `Expected exact title+artist match to survive placeholder duration, got ${placeholderDurScore}`);
+
+    // 4. Extracts real artist and title when YouTube channel is a record label
+    const cleaned = cleanTrackMetadata('Dewa 19 - Kangen (Official Video)', 'Aquarius Musikindo');
+    assert.strictEqual(cleaned.artist, 'Dewa 19');
+    assert.strictEqual(cleaned.title, 'Kangen');
+
+    // 5. Does not hijack short unrelated titles in findVerifiedStudioLrc
+    assert.strictEqual(findVerifiedStudioLrc('In', 'Some Artist'), null);
+    assert.strictEqual(findVerifiedStudioLrc('You', 'Some Artist'), null);
+  });
 });

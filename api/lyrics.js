@@ -1,14 +1,18 @@
 /**
  * Multi-Provider Serverless Lyrics API Endpoint
  * Features:
- * 1. Aggressive metadata cleaner (removes video noise, splits composite titles)
- * 2. Provider 1: NetEase Cloud Music - True Studio-Grade Syllable/Word-Synced (YRC) & LRC
- * 3. Provider 2: LRCLIB - Enhanced LRC (<mm:ss.xx>word) & Standard LRC
- * 4. Provider 3: Lyrist / OVH fallback for indie/rare tracks
+ * 1. Smart metadata cleaner (removes video noise, handles YouTube uploader channels & Artist - Title splits)
+ * 2. Provider 1: NetEase Cloud Music - Studio-Grade Syllable/Word-Synced (YRC) & LRC
+ * 3. Provider 2: LRCLIB - Structured track_name/artist_name search + Enhanced LRC (<mm:ss.xx>word) & Standard LRC
+ * 4. Provider 3: QQ Music - Studio-Synced LRC database
  * 5. Returns unified syllable-synced or line-synced structure with millisecond precision
  */
 
-import { extractPrimaryArtist, scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
+import {
+  extractPrimaryArtist,
+  isLikelyChannelOrLabel,
+  scoreLyricCandidate,
+} from '../src/utils/lyricsMatcher.js';
 import { attachRomanizationToLines } from '../src/utils/romanizer.js';
 import { applyApiSecurity, sanitizeQuery, sendSafeError } from './_security.js';
 
@@ -98,233 +102,124 @@ export const VERIFIED_STUDIO_LRC = {
 [03:27.20]Laki-laki kuat dengan ribuan berkat, yeah
 [03:29.80]Trust me then we go high, yeah
 [03:32.40]We go high, yeah, we go high, yeah-yeah`,
-  'justin bieber:::daisies': `[00:18.38]Throwin' petals like, "Do you love me or not?"
-[00:22.56]Head is spinnin', and it don't know when to stop
-[00:26.89]'Cause you said "Forever," babe, did you mean it or not?
-[00:31.47]Hold on, hold on
-[00:35.55]You leave me on read, babe, but I still get the message
-[00:39.78]Instead of a line, it's three dots, but I can connect them
-[00:44.20]Is this love or just bad habits?
-[00:48.45]Runnin' circles, yeah, we runnin' in traffic
-[00:52.80]Throwin' petals like, "Do you love me or not?"
-[00:57.05]Head is spinnin', and it don't know when to stop
-[01:01.35]'Cause you said "Forever," babe, did you mean it or not?
-[01:05.85]Hold on, hold on
-[01:10.15]You pull me in close, then you push me right back
-[01:14.40]We're runnin' on fumes, yeah, we're off of the track
-[01:18.70]Throwin' petals like, "Do you love me or not?"
-[01:23.00]Head is spinnin', and it don't know when to stop
-[01:27.25]'Cause you said "Forever," babe, did you mean it or not?
-[01:31.75]Hold on, hold on`,
-  'martin garrix:::there for you': `[00:09.40]I woke up pissed off today
-[00:13.60]And lately, everyone feels fake
-[00:17.90]Somewhere, I lost a piece of me
-[00:22.30]Smoking cigarettes on balconies
-[00:27.00]But I can't do this alone
-[00:29.20]Sometimes I just need a light
-[00:31.50]If I call you on the phone
-[00:33.80]Need you on the other side
-[00:35.80]So when your tears roll down your pillow like a river
-[00:40.40]I'll be there for you
-[00:44.60]I was there for you
-[00:48.80]When you're screaming, but they only hear a whisper
-[00:53.40]I'll be loud for you
-[00:57.60]But you gotta be there for me too
-[01:01.80]But you gotta be there for me too
-[01:19.00]Last night I couldn't even sleep
-[01:23.20]Locked in and thinking way too deep
-[01:27.50]Third cup of coffee in a row
-[01:31.90]Stayed up until the sun arose
-[01:36.50]But I can't do this alone
-[01:38.80]Sometimes I just need a light
-[01:41.00]If I call you on the phone
-[01:43.20]Need you on the other side
-[01:45.30]So when your tears roll down your pillow like a river
-[01:49.90]I'll be there for you
-[01:54.10]I was there for you
-[01:58.30]When you're screaming, but they only hear a whisper
-[02:02.90]I'll be loud for you
-[02:07.10]I'll be loud for you
-[02:11.30]Yeah, but you gotta be there for me too
-[02:20.00]Yeah, but you gotta be there for me too`,
-  'the weeknd:::one of the girls': `[00:17.50]Lock it up, lock it down, make no sound
-[00:21.80]Tie me down, make me feel like I'm yours right now
-[00:26.50]Hold me down, don't let go, take control
-[00:30.90]Tell me that you want it all, don't let me down
-[00:35.40]Give me tough love, leave me with no breath
-[00:39.90]Lock me up in chains, let me feel the pain
-[00:44.40]Push me on the wall, make me lose it all
-[00:48.80]Tell me that you love me, tell me that you need me
-[00:53.50]Give me tough love, leave me with no breath
-[00:58.00]Lock me up in chains, let me feel the pain
-[01:02.50]Push me down, take control, don't let me go
-[01:07.00]Tell me that you're mine, tell me all the time`,
-  'the weeknd:::stargirl interlude': `[00:10.50]I had a vision
-[00:13.20]A vision of my nails in the kitchen
-[00:18.50]Scratching on the counter, I was screaming
-[00:23.80]My back arched like a cat, my position
-[00:28.90]You couldn't stop, you were on a mission
-[00:35.00]And I shouldn't cry, but I love it, Stargirl
-[00:44.20]And I shouldn't cry, but I love it, Stargirl
-[00:53.40]I just want to see you shine 'cause I know you are a stargirl
-[01:02.60]I just want to see you shine 'cause I know you are a stargirl`,
-  'the weeknd:::i feel it coming': `[00:15.50]Tell me what you really like
-[00:18.00]Baby, I can take my time
-[00:21.20]We don't ever have to fight
-[00:24.00]Just take it step-by-step
-[00:27.50]I can see it in your eyes
-[00:30.00]'Cause they never tell me lies
-[00:33.20]I can feel that body shake
-[00:36.00]And the heat between your legs
-[00:39.00]You've been scared of love and what it did to you
-[00:45.00]You don't have to run, I know what you've been through
-[00:51.00]Just a simple touch and it can set you free
-[00:57.00]We don't have to rush when you're alone with me
-[01:02.50]I feel it coming, I feel it coming, babe
-[01:08.50]I feel it coming, I feel it coming, babe
-[01:14.50]I feel it coming, I feel it coming, babe
-[01:20.50]I feel it coming, I feel it coming, babe`,
-  'linkin park:::in the end': `[00:13.20]It starts with one
-[00:15.20]One thing, I don't know why
-[00:16.80]It doesn't even matter how hard you try
-[00:18.90]Keep that in mind, I designed this rhyme
-[00:20.60]To explain in due time all I know
-[00:22.80]Time is a valuable thing
-[00:24.40]Watch it fly by as the pendulum swings
-[00:26.50]Watch it count down to the end of the day
-[00:28.40]The clock ticks life away, it's so unreal
-[00:30.80]Didn't look out below
-[00:32.40]Watch the time go right out the window
-[00:34.50]Tryna hold on, didn't even know
-[00:36.30]I wasted it all just to watch you go
-[00:38.80]I kept everything inside
-[00:40.40]And even though I tried, it all fell apart
-[00:43.00]What it meant to me will eventually be
-[00:45.20]A memory of a time when I tried so hard
-[00:48.00]I tried so hard and got so far
-[00:53.40]But in the end, it doesn't even matter
-[00:58.20]I had to fall to lose it all
-[01:03.20]But in the end, it doesn't even matter`,
-  'linkin park:::numb': `[00:20.00]I'm tired of being what you want me to be
-[00:24.80]Feeling so faithless, lost under the surface
-[00:29.80]Don't know what you're expecting of me
-[00:34.20]Put under the pressure of walking in your shoes
-[00:39.20]Caught in the undertow, just caught in the undertow
-[00:44.20]Every step that I take is another mistake to you
-[00:49.00]Caught in the undertow, just caught in the undertow
-[00:53.60]I've become so numb, I can't feel you there
-[00:58.60]Become so tired, so much more aware
-[01:03.40]I'm becoming this, all I want to do
-[01:08.00]Is be more like me and be less like you`,
-  "linkin park:::what i've done": `[00:32.00]In this farewell, there's no blood, there's no alibi
-[00:39.50]'Cause I've drawn regret from the truth of a thousand lies
-[00:47.50]So let mercy come and wash away
-[00:55.00]What I've done
-[00:58.00]I'll face myself to cross out what I've become
-[01:05.50]Erase myself and let go of what I've done`,
-  'linkin park:::the emptiness machine': `[00:08.50]Your blades are sharpened with precision
-[00:12.50]Flashing your favorite point of view
-[00:16.80]I know you're waiting in the distance
-[00:20.80]Smiling at what you put me through
-[00:25.00]I only wanted to be part of something
-[00:31.00]I only wanted to be part of something
-[00:37.00]Falling for the promise of the emptiness machine
-[00:43.00]Giving up the ghost before I bleed`,
-  'linkin park:::faint': `[00:11.20]I am a little bit of loneliness, a little bit of disregard
-[00:14.20]Handful of complaints, but I can't help the fact
-[00:16.20]That everyone can see these scars
-[00:18.20]I am what I want you to want, what I want you to feel
-[00:20.80]But it's like no matter what I do, I can't convince you
-[00:23.20]To just believe this is real
-[00:24.80]So I, let go, watching you, turn your back like you always do
-[00:28.80]Face away and pretend that I'm not
-[00:30.80]I'll be what you want from me when I'm somebody else
-[00:34.00]I can't feel the way I did before
-[00:37.50]Don't turn your back on me, I won't be ignored
-[00:41.20]Time won't heal this damage anymore
-[00:44.80]Don't turn your back on me, I won't be ignored`,
-  'linkin park:::somewhere i belong': `[00:27.50]When this began, I had nothing to say
-[00:31.20]And I'd get lost in the days between the lines
-[00:34.80]There was so much I didn't see
-[00:38.20]And then I fell to the ground, feeling this way
-[00:42.00]Every time I tried to break away
-[00:45.50]I wanna heal, I wanna feel what I thought was never real
-[00:52.20]I wanna let go of the pain I've felt so long
-[00:56.80]Erase all the pain till it's gone
-[01:00.00]I wanna heal, I wanna feel like I'm close to something real
-[01:06.50]I wanna find something I've wanted all along
-[01:11.20]Somewhere I belong`,
 };
+
+const EDITION_SUFFIX_RE =
+  /^(acoustic(\s*version)?|remix|live(\s*version|\s*session)?|session|brooklyn\s*session|radio\s*edit|remaster(ed)?(\s*\d{4})?|version|from\s+["'].*["']|ost\b.*|original\s*soundtrack.*|stripped|unplugged|deluxe.*|bonus\s*track.*)$/i;
 
 export function findVerifiedStudioLrc(cleanTitle, cleanArtist) {
   const normTitle = (cleanTitle || '').toLowerCase().trim();
   const normArtist = (cleanArtist || '').toLowerCase().trim();
+  if (!normTitle) return null;
 
   for (const [key, lrc] of Object.entries(VERIFIED_STUDIO_LRC)) {
     const [vArtist, vTitle] = key.split(':::');
-    const artistMatches = !normArtist || normArtist.includes(vArtist) || vArtist.includes(normArtist);
-    const titleMatches = normTitle.includes(vTitle) || vTitle.includes(normTitle);
-    if (titleMatches && (artistMatches || !normArtist)) {
+    const titleWords = normTitle.split(/\s+/);
+    const titleMatches =
+      normTitle === vTitle || (vTitle.length >= 6 && titleWords.includes(vTitle));
+    const artistMatches =
+      !normArtist ||
+      normArtist === vArtist ||
+      normArtist.split(/\s+/).includes(vArtist) ||
+      (normArtist.length >= 4 && vArtist.includes(normArtist));
+    if (titleMatches && artistMatches) {
       return lrc;
     }
   }
   return null;
 }
 
-function cleanTrackMetadata(rawTitle, rawArtist) {
+export function cleanTrackMetadata(rawTitle, rawArtist) {
   let title = (rawTitle || '').trim();
   let artist = extractPrimaryArtist(rawArtist || '');
+  const altQueries = [];
 
-  // If title has 'Artist - Title' format
+  // 1. Strip [11-char YouTube videoId] and bracketed video noise first
+  title = title.replace(/\s*\[[\w-]{11}\]\s*$/i, '');
+  const noiseRegex =
+    /\s*[\(\[](official\s*(music\s*)?video|official\s*audio|official\s*lyric(\s*video)?|visualizer|audio|video|clip\s*officiel|mv|hd|4k|remastered(\s*\d{4})?|live|session|brooklyn\s*session|10\s*years|lirik|lyrics|feat\.?|ft\.?|with\s+[^\)\]]+)[^\)\]]*[\)\]]/gi;
+  title = title.replace(noiseRegex, '');
+  title = title.replace(/\s*\|\s*official.*$/i, '');
+  title = title.replace(/\s*(feat\.?|ft\.?)\s+[^-\(\]]+/gi, '');
+  title = title.replace(/[◐◑]/g, '').trim();
+  title = title.replace(/\s+\b(lirik|lyrics)\b.*$/i, '').trim();
+
+  let baseTitleWithoutEdition = null;
+
+  // 2. Handle 'Artist - Title' or 'Title - Edition'
   if (title.includes(' - ')) {
-    const parts = title.split(' - ');
+    const parts = title.split(' - ').map((s) => s.trim()).filter(Boolean);
     if (parts.length >= 2) {
-      const p0 = parts[0].trim();
-      const p1 = parts.slice(1).join(' - ').trim();
-      if (artist && (p0.toLowerCase().includes(artist.toLowerCase()) || artist.toLowerCase().includes(p0.toLowerCase()))) {
+      const p0 = parts[0];
+      const p1 = parts.slice(1).join(' - ');
+      const lastPart = parts[parts.length - 1];
+
+      if (EDITION_SUFFIX_RE.test(lastPart)) {
+        baseTitleWithoutEdition = parts.slice(0, -1).join(' - ').trim();
+        if (parts.length >= 3) {
+          // e.g. "NIKI - La La Lost You - Acoustic Version"
+          const candArtist = extractPrimaryArtist(parts[0]);
+          const candCoreTitle = parts.slice(1, -1).join(' - ').trim();
+          if (candCoreTitle) {
+            altQueries.push({ title: `${candCoreTitle} - ${lastPart}`, artist: candArtist });
+            altQueries.push({ title: candCoreTitle, artist: candArtist });
+          }
+        }
+      } else if (
+        artist &&
+        (p0.toLowerCase().includes(artist.toLowerCase()) ||
+          artist.toLowerCase().includes(p0.toLowerCase()))
+      ) {
         title = p1;
-      } else if (artist && (p1.toLowerCase().includes(artist.toLowerCase()) || artist.toLowerCase().includes(p1.toLowerCase()))) {
+      } else if (
+        artist &&
+        (p1.toLowerCase().includes(artist.toLowerCase()) ||
+          artist.toLowerCase().includes(p1.toLowerCase()))
+      ) {
         title = p0;
-      } else if (!artist) {
-        artist = extractPrimaryArtist(p0);
+      } else if (!artist || isLikelyChannelOrLabel(artist)) {
+        const extractedArtist = extractPrimaryArtist(p0);
+        altQueries.push({ title: p1, artist: extractedArtist });
+        altQueries.push({ title: p0, artist: extractPrimaryArtist(p1) });
+        artist = extractedArtist;
         title = p1;
+      } else {
+        // Uploader channel might differ from actual artist in video title "Artist - Song"
+        altQueries.push({ title: p1, artist: extractPrimaryArtist(p0) });
+        altQueries.push({ title: p0, artist });
       }
     }
   }
 
-  // Strip brackets and parentheses noise
-  const noiseRegex = /\s*[\(\[](official\s*(music\s*)?video|official\s*audio|official\s*lyric(\s*video)?|visualizer|audio|video|clip\s*officiel|mv|hd|4k|remastered|live|session|brooklyn\s*session|10\s*years|lirik|lyrics|feat\.?|ft\.?)[^\)\]]*[\)\]]/gi;
-  title = title.replace(noiseRegex, '');
-  title = title.replace(/\s*(feat\.|ft\.)\s+[^-\(\]]+/gi, '');
-  title = title.replace(/[◐◑]/g, '').trim();
-
-  // Strip trailing standalone 'lirik' or 'lyrics'
-  title = title.replace(/\s+\b(lirik|lyrics)\b.*$/i, '').trim();
-
-  // Clean remaining lonely parentheses
   title = title.replace(/[\(\)\[\]]/g, '').trim();
   artist = artist.replace(/[\(\)\[\]]/g, '').trim();
 
-  // Subtitle candidates if composite title like 'Television / So Far So Good'
   const subTitles = [title];
+  if (baseTitleWithoutEdition) {
+    const cleanBase = baseTitleWithoutEdition.replace(/[\(\)\[\]]/g, '').trim();
+    if (cleanBase && !subTitles.includes(cleanBase)) {
+      subTitles.push(cleanBase);
+    }
+  }
   if (title.includes(' / ')) {
-    const subParts = title.split(' / ').map(s => s.trim()).filter(Boolean);
-    subTitles.push(...subParts);
+    const subParts = title
+      .split(' / ')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const sp of subParts) {
+      if (!subTitles.includes(sp)) subTitles.push(sp);
+    }
   }
 
-  return { title, artist, subTitles };
+  return { title, artist, subTitles, altQueries };
 }
 
-/**
- * Generate sub-character micro-timestamps for a word
- */
 function generateCharTimings(word, wordStart, wordDuration) {
   if (!word) return [];
   const chars = Array.from(word);
   if (chars.length === 0) return [];
 
-  // Vowels and Asian syllabic phonemes carry longer phonation
-  const charWeights = chars.map(ch => {
+  const charWeights = chars.map((ch) => {
     if (/[aiueoAIUEO]/.test(ch)) return 1.8;
     if (/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/.test(ch)) return 2.2;
     if (/[,.!?]/.test(ch)) return 0.6;
@@ -348,11 +243,6 @@ function generateCharTimings(word, wordStart, wordDuration) {
   });
 }
 
-/**
- * Parse NetEase YRC syllable/word-synced format
- * Header: [lineStartMs,lineDurMs]
- * Words: (wordStartMs,wordDurMs,0)wordText
- */
 function parseYrc(yrcText) {
   if (!yrcText) return [];
   const rawLines = yrcText.split('\n');
@@ -370,8 +260,9 @@ function parseYrc(yrcText) {
     const lineDurMs = parseInt(match[2], 10);
     const lineContent = match[3] || '';
 
-    // Filter metadata lines
-    if (/作词|作曲|Written by|Composer|Producer|Arranger|Mixing/i.test(lineContent)) continue;
+    if (/作词|作曲|编曲|制作人|Written by|Composer|Producer|Arranger|Mixing/i.test(lineContent)) {
+      continue;
+    }
 
     const words = [];
     let wordMatch;
@@ -396,7 +287,7 @@ function parseYrc(yrcText) {
     }
 
     if (words.length > 0) {
-      const lineText = words.map(w => w.word).join('').trim();
+      const lineText = words.map((w) => w.word).join('').trim();
       const lineStartSec = lineStartMs / 1000;
       const lineDurSec = Math.max(0.6, lineDurMs / 1000);
 
@@ -415,49 +306,27 @@ function parseYrc(yrcText) {
   return finalizeLinesWithInterludes(parsed);
 }
 
-
-function applyIntroPaddingCompensation(lines, targetDurationSec, candDurationSec) {
-  if (!targetDurationSec || !candDurationSec || targetDurationSec <= 10 || candDurationSec <= 10) {
-    return lines;
-  }
-  const diff = targetDurationSec - candDurationSec;
-  if (diff >= 0.5 && diff <= 4.0) {
-    const shift = Math.round(diff * 0.5 * 100) / 100;
-    return lines.map(line => ({
-      ...line,
-      time: Math.round((line.time + shift) * 100) / 100,
-      endTime: Math.round((line.endTime + shift) * 100) / 100,
-      words: line.words ? line.words.map(w => ({
-        ...w,
-        startTime: Math.round((w.startTime + shift) * 100) / 100,
-        endTime: Math.round((w.endTime + shift) * 100) / 100,
-      })) : undefined,
-    }));
-  }
-  return lines;
-}
-
 function parsePlainLyrics(plainText) {
   if (!plainText) return [];
-  return plainText.split('\n').map((line, idx) => {
-    const time = idx * 4.0;
-    const dur = 3.8;
-    const trimmed = line.trim();
-    return {
-      id: `plain-${idx}`,
-      time,
-      endTime: time + dur,
-      text: trimmed,
-      duration: dur,
-      words: computeLrcWords(trimmed, time, dur),
-      isPlain: true,
-    };
-  }).filter((l) => l.text.length > 0);
+  return plainText
+    .split('\n')
+    .map((line, idx) => {
+      const time = idx * 4.0;
+      const dur = 3.8;
+      const trimmed = line.trim();
+      return {
+        id: `plain-${idx}`,
+        time,
+        endTime: time + dur,
+        text: trimmed,
+        duration: dur,
+        words: computeLrcWords(trimmed, time, dur),
+        isPlain: true,
+      };
+    })
+    .filter((l) => l.text.length > 0);
 }
 
-/**
- * Parse Standard or Enhanced LRC (<mm:ss.xx>word)
- */
 function parseLrc(lrcText) {
   if (!lrcText) return [];
   const rawLines = lrcText.split('\n');
@@ -475,7 +344,10 @@ function parseLrc(lrcText) {
       const min = parseInt(match[1], 10);
       const sec = parseInt(match[2], 10);
       const msStr = match[3] || '0';
-      const ms = msStr.length === 2 ? parseInt(msStr, 10) * 10 : parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
+      const ms =
+        msStr.length === 2
+          ? parseInt(msStr, 10) * 10
+          : parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
       timestamps.push(min * 60 + sec + ms / 1000);
     }
 
@@ -483,7 +355,6 @@ function parseLrc(lrcText) {
 
     const cleanText = rawLine.replace(/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim();
 
-    // Check empty text for vocal end-time
     if (!cleanText) {
       if (parsed.length > 0) {
         const prev = parsed[parsed.length - 1];
@@ -496,10 +367,9 @@ function parseLrc(lrcText) {
       continue;
     }
 
-    // Filter author lines
-    if (/^(作词|作曲|Written by|Composer|Producer):/i.test(cleanText)) continue;
+    if (/^(作词|作曲|编曲|制作人|Written by|Composer|Producer):/i.test(cleanText)) continue;
 
-    timestamps.forEach(t => {
+    timestamps.forEach((t) => {
       parsed.push({
         id: `lrc-${t.toFixed(2)}-${i}`,
         time: t,
@@ -511,7 +381,11 @@ function parseLrc(lrcText) {
 
   parsed.sort((a, b) => a.time - b.time);
 
-  // Compute word timings and durations
+  // Reject bogus LRC where every timestamp is 0
+  if (parsed.length > 2 && parsed[parsed.length - 1].time <= 0.5) {
+    return [];
+  }
+
   for (let i = 0; i < parsed.length; i++) {
     const curr = parsed[i];
     const next = parsed[i + 1];
@@ -521,21 +395,30 @@ function parseLrc(lrcText) {
         const rawGap = next.time - curr.time;
         if (rawGap <= 1.2) {
           curr.duration = Math.max(0.6, rawGap - 0.06);
+        } else if (rawGap <= 7.0) {
+          curr.duration = Math.max(1.2, Math.min(rawGap - 0.3, rawGap * 0.88));
         } else {
-          // Dynamic phonetic duration modeling based on words & syllable density
           const words = curr.text.split(/\s+/).filter(Boolean);
-          const nonLatinSyllables = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
-          const approxSyllables = nonLatinSyllables > 0 ? nonLatinSyllables : (words.length * 1.5);
-          // Human singing tempo: ~0.30s per syllable + vocal onset/release
-          const naturalSingingDuration = Math.max(1.5, Math.min(6.5, approxSyllables * 0.32 + 0.5));
-          curr.duration = Math.min(rawGap - 0.15, naturalSingingDuration);
+          const nonLatinSyllables = (
+            curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []
+          ).length;
+          const approxSyllables =
+            nonLatinSyllables > 0 ? nonLatinSyllables : words.length * 1.5;
+          const naturalSingingDuration = Math.max(
+            2.2,
+            Math.min(5.8, approxSyllables * 0.34 + 0.8)
+          );
+          curr.duration = Math.min(rawGap - 1.0, naturalSingingDuration);
         }
         curr.endTime = curr.time + curr.duration;
       } else {
         const words = curr.text.split(/\s+/).filter(Boolean);
-        const nonLatinSyllables = (curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
-        const approxSyllables = nonLatinSyllables > 0 ? nonLatinSyllables : (words.length * 1.5);
-        curr.duration = Math.max(2.0, Math.min(5.5, approxSyllables * 0.32 + 0.8));
+        const nonLatinSyllables = (
+          curr.text.match(/[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/g) || []
+        ).length;
+        const approxSyllables =
+          nonLatinSyllables > 0 ? nonLatinSyllables : words.length * 1.5;
+        curr.duration = Math.max(2.2, Math.min(5.5, approxSyllables * 0.34 + 0.8));
         curr.endTime = curr.time + curr.duration;
       }
     }
@@ -547,7 +430,6 @@ function parseLrc(lrcText) {
 }
 
 function computeLrcWords(rawText, lineStart, lineDuration) {
-  // Check for Enhanced LRC tags <mm:ss.xx>word
   const wordTagRegex = /<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>/g;
   if (wordTagRegex.test(rawText)) {
     const tokens = [];
@@ -557,7 +439,10 @@ function computeLrcWords(rawText, lineStart, lineDuration) {
       const min = parseInt(match[1], 10);
       const sec = parseInt(match[2], 10);
       const msStr = match[3] || '0';
-      const ms = msStr.length === 2 ? parseInt(msStr, 10) * 10 : parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
+      const ms =
+        msStr.length === 2
+          ? parseInt(msStr, 10) * 10
+          : parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
       const time = min * 60 + sec + ms / 1000;
       const wText = match[4].trim();
       if (wText) {
@@ -568,26 +453,29 @@ function computeLrcWords(rawText, lineStart, lineDuration) {
     if (tokens.length > 0) {
       for (let i = 0; i < tokens.length; i++) {
         const next = tokens[i + 1];
-        const nextStart = next ? next.startTime : (lineStart + lineDuration);
+        const nextStart = next ? next.startTime : lineStart + lineDuration;
         tokens[i].endTime = Math.max(tokens[i].startTime + 0.15, nextStart);
         tokens[i].duration = tokens[i].endTime - tokens[i].startTime;
         tokens[i].id = `w-${i}-${tokens[i].startTime}`;
-        tokens[i].chars = generateCharTimings(tokens[i].word, tokens[i].startTime, tokens[i].duration);
+        tokens[i].chars = generateCharTimings(
+          tokens[i].word,
+          tokens[i].startTime,
+          tokens[i].duration
+        );
       }
       return tokens;
     }
   }
 
-  // Standard LRC: Syllabic & character weighting
   const clean = rawText.replace(/<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>/g, '').trim();
-  const rawWords = clean.split(/\s+/).filter(w => w.length > 0);
+  const rawWords = clean.split(/\s+/).filter((w) => w.length > 0);
   if (rawWords.length === 0) return [];
 
-  const weights = rawWords.map(word => {
+  const weights = rawWords.map((word) => {
     const latinVowels = (word.match(/[aiueoAIUEO]/g) || []).length;
     const hangulSyllables = (word.match(/[\uAC00-\uD7A3]/g) || []).length;
     const kanaSyllables = (word.match(/[\u3040-\u309F\u30A0-\u30FF]/g) || []).length;
-    const totalPhonemes = latinVowels + (hangulSyllables * 1.5) + (kanaSyllables * 1.5);
+    const totalPhonemes = latinVowels + hangulSyllables * 1.5 + kanaSyllables * 1.5;
 
     let weight = Math.max(1, totalPhonemes * 1.6 + word.length * 0.3);
     if (/[,;]$/.test(word)) weight += 0.8;
@@ -624,7 +512,6 @@ function finalizeLinesWithInterludes(parsedLines) {
     const curr = parsedLines[i];
     const next = parsedLines[i + 1];
 
-    // Intro interlude (> 4.2s)
     if (i === 0 && curr.time > 4.2) {
       result.push({
         id: 'intro-interlude',
@@ -640,8 +527,7 @@ function finalizeLinesWithInterludes(parsedLines) {
 
     result.push(curr);
 
-    // Break interlude (> 4.5s)
-    if (next && (next.time - curr.endTime) > 4.5) {
+    if (next && next.time - curr.endTime > 4.5) {
       result.push({
         id: `interlude-${curr.time}`,
         time: Math.round((curr.endTime + 0.15) * 1000) / 1000,
@@ -658,13 +544,10 @@ function finalizeLinesWithInterludes(parsedLines) {
   return result;
 }
 
-/**
- * Fetch from NetEase Cloud Music (scores top candidates strictly by artist, title, and duration)
- */
 async function fetchNetEase(title, artist, targetDuration) {
   try {
     const q = `${title} ${artist}`.trim();
-    const params = new URLSearchParams({ s: q, type: '1', offset: '0', limit: '6' });
+    const params = new URLSearchParams({ s: q, type: '1', offset: '0', limit: '8' });
     const searchRes = await fetch('https://music.163.com/api/cloudsearch/pc', {
       method: 'POST',
       headers: {
@@ -680,7 +563,6 @@ async function fetchNetEase(title, artist, targetDuration) {
     const candidates = searchData.result?.songs || [];
     if (candidates.length === 0) return null;
 
-    // Score NetEase songs before fetching lyrics so wrong-artist/remix songs are NEVER chosen
     const ranked = candidates
       .map((s) => {
         const candArtist = (s.ar || s.artists || []).map((a) => a.name).join(', ');
@@ -693,19 +575,22 @@ async function fetchNetEase(title, artist, targetDuration) {
           targetArtist: artist,
           targetDurationSec: targetDuration || 0,
         });
-        return { song: s, matchScore };
+        return { song: s, candDurSec, matchScore };
       })
-      .filter((x) => x.matchScore >= 700)
+      .filter((x) => x.matchScore >= 650)
       .sort((a, b) => b.matchScore - a.matchScore);
 
     for (const entry of ranked.slice(0, 2)) {
       const song = entry.song;
-      const lyricRes = await fetch(`https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1&rv=1`, {
-        headers: {
-          'Referer': 'https://music.163.com',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        },
-      });
+      const lyricRes = await fetch(
+        `https://music.163.com/api/song/lyric?id=${song.id}&lv=1&kv=1&tv=-1&yv=1&rv=1`,
+        {
+          headers: {
+            'Referer': 'https://music.163.com',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          },
+        }
+      );
       if (!lyricRes.ok) continue;
       const lyricData = await lyricRes.json();
       const romalrcText = lyricData.romalrc?.lyric || null;
@@ -713,11 +598,12 @@ async function fetchNetEase(title, artist, targetDuration) {
       if (lyricData.yrc?.lyric) {
         let lines = parseYrc(lyricData.yrc.lyric);
         lines = attachRomanizationToLines(lines, romalrcText);
-        if (lines.length > 0) {
+        if (lines.length >= 4) {
           return {
             source: 'NetEase YRC (Syllable-Synced)',
             isSyllableSynced: true,
             synced: true,
+            trackDuration: entry.candDurSec,
             matchScore: entry.matchScore + 180,
             lines,
           };
@@ -727,11 +613,12 @@ async function fetchNetEase(title, artist, targetDuration) {
       if (lyricData.lrc?.lyric) {
         let lines = parseLrc(lyricData.lrc.lyric);
         lines = attachRomanizationToLines(lines, romalrcText);
-        if (lines.length > 0) {
+        if (lines.length >= 4) {
           return {
             source: 'NetEase LRC',
             isSyllableSynced: false,
             synced: true,
+            trackDuration: entry.candDurSec,
             matchScore: entry.matchScore,
             lines,
           };
@@ -740,127 +627,119 @@ async function fetchNetEase(title, artist, targetDuration) {
     }
 
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Fetch from LRCLIB (exact match + scored search across synced candidates)
- */
 async function fetchLrclib(title, artist, targetDuration) {
   try {
     let fallbackPlainCandidate = null;
+    const allItems = [];
 
-    // 1. Exact studio match via /api/get
-    const params = new URLSearchParams({ track_name: title, artist_name: artist });
-    if (targetDuration) params.append('duration', String(targetDuration));
+    // 1. Exact studio lookup + structured track_name/artist_name search in parallel
+    const getParams = new URLSearchParams({ track_name: title, artist_name: artist });
+    if (targetDuration && targetDuration > 15 && targetDuration !== 180 && targetDuration !== 210) {
+      getParams.append('duration', String(targetDuration));
+    }
 
-    const exactRes = await fetch(`https://lrclib.net/api/get?${params.toString()}`);
-    if (exactRes.ok) {
-      const data = await exactRes.json();
-      if (data?.syncedLyrics) {
-        const isEnhanced = /<\d{1,3}:\d{2}/.test(data.syncedLyrics || '');
-        let rawLines = parseLrc(data.syncedLyrics);
-        rawLines = applyIntroPaddingCompensation(rawLines, targetDuration, data.duration);
-        const lines = attachRomanizationToLines(rawLines, null);
-        const matchScore = scoreLyricCandidate({
-          candTitle: data.trackName || title,
-          candArtist: data.artistName || artist,
-          candDurationSec: Math.round(data.duration || targetDuration || 0),
-          targetTitle: title,
-          targetArtist: artist,
-          targetDurationSec: targetDuration || 0,
-          isSynced: true,
-          isSyllable: isEnhanced,
-        });
-        if (lines.length > 0 && matchScore >= 600) {
-          return {
-            source: isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Synced Exact)',
-            isSyllableSynced: isEnhanced,
-            synced: true,
-            matchScore: matchScore + 250,
-            lines,
-          };
-        }
-      } else if (data?.plainLyrics) {
-        fallbackPlainCandidate = {
-          source: 'LRCLIB (Teks Statis)',
-          isSyllableSynced: false,
-          synced: false,
-          matchScore: 300,
-          lines: attachRomanizationToLines(parsePlainLyrics(data.plainLyrics), null),
-        };
+    const structSearchParams = new URLSearchParams({ track_name: title });
+    if (artist) structSearchParams.append('artist_name', artist);
+
+    const [exactRes, structRes] = await Promise.all([
+      fetch(`https://lrclib.net/api/get?${getParams.toString()}`).catch(() => null),
+      fetch(`https://lrclib.net/api/search?${structSearchParams.toString()}`).catch(() => null),
+    ]);
+
+    if (exactRes?.ok) {
+      const exactData = await exactRes.json().catch(() => null);
+      if (exactData) allItems.push(exactData);
+    }
+    if (structRes?.ok) {
+      const structList = await structRes.json().catch(() => null);
+      if (Array.isArray(structList)) allItems.push(...structList);
+    }
+
+    // 2. If structured search returned nothing, fall back to general query search
+    if (allItems.length === 0) {
+      const q = `${title} ${artist}`.trim();
+      const searchRes = await fetch(
+        `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`
+      ).catch(() => null);
+      if (searchRes?.ok) {
+        const list = await searchRes.json().catch(() => null);
+        if (Array.isArray(list)) allItems.push(...list);
       }
     }
 
-    // 2. General search query: score ALL candidates rather than taking blind [0]
-    const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(`${title} ${artist}`)}`);
-    if (searchRes.ok) {
-      const list = await searchRes.json();
-      if (Array.isArray(list) && list.length > 0) {
-        const scored = list
-          .filter((i) => i?.syncedLyrics || i?.plainLyrics)
-          .map((item) => {
-            const isEnhanced = /<\d{1,3}:\d{2}/.test(item.syncedLyrics || '');
-            const hasSynced = !!item.syncedLyrics;
-            const s = scoreLyricCandidate({
-              candTitle: item.trackName || '',
-              candArtist: item.artistName || '',
-              candDurationSec: Math.round(item.duration || 0),
-              targetTitle: title,
-              targetArtist: artist,
-              targetDurationSec: targetDuration || 0,
-              isSynced: hasSynced,
-              isSyllable: isEnhanced,
-            });
-            const finalScore = hasSynced ? s : (s - 650);
-            return { item, isEnhanced, hasSynced, matchScore: finalScore };
-          })
-          .filter((x) => x.matchScore >= 450)
-          .sort((a, b) => b.matchScore - a.matchScore);
+    if (allItems.length > 0) {
+      const scored = allItems
+        .filter((i) => i && (i.syncedLyrics || i.plainLyrics))
+        .map((item) => {
+          const isEnhanced = /<\d{1,3}:\d{2}/.test(item.syncedLyrics || '');
+          const hasSynced = Boolean(item.syncedLyrics);
+          const s = scoreLyricCandidate({
+            candTitle: item.trackName || title,
+            candArtist: item.artistName || artist,
+            candDurationSec: Math.round(item.duration || 0),
+            targetTitle: title,
+            targetArtist: artist,
+            targetDurationSec: targetDuration || 0,
+            isSynced: hasSynced,
+            isSyllable: isEnhanced,
+          });
+          const finalScore = hasSynced ? s : s - 650;
+          return { item, isEnhanced, hasSynced, matchScore: finalScore };
+        })
+        .filter((x) => x.matchScore >= 450)
+        .sort((a, b) => b.matchScore - a.matchScore);
 
-        if (scored.length > 0) {
-          const best = scored[0];
-          if (best.hasSynced && best.item.syncedLyrics) {
-            let rawLines = parseLrc(best.item.syncedLyrics);
-            rawLines = applyIntroPaddingCompensation(rawLines, targetDuration, best.item.duration);
-            const lines = attachRomanizationToLines(rawLines, null);
-            if (lines.length > 0) {
-              return {
-                source: best.isEnhanced ? 'LRCLIB (Enhanced Word-Synced)' : 'LRCLIB (Matched Search)',
-                isSyllableSynced: best.isEnhanced,
-                synced: true,
-                matchScore: best.matchScore,
-                lines,
-              };
-            }
-          } else if (!fallbackPlainCandidate && best.item.plainLyrics) {
+      for (const cand of scored) {
+        if (cand.hasSynced && cand.item.syncedLyrics) {
+          const rawLines = parseLrc(cand.item.syncedLyrics);
+          const lines = attachRomanizationToLines(rawLines, null);
+          if (lines.length >= 4) {
+            return {
+              source: cand.isEnhanced
+                ? 'LRCLIB (Enhanced Word-Synced)'
+                : 'LRCLIB (Studio Synced)',
+              isSyllableSynced: cand.isEnhanced,
+              synced: true,
+              trackDuration: Math.round(cand.item.duration || 0),
+              matchScore: cand.matchScore + 150,
+              lines,
+            };
+          }
+        } else if (!fallbackPlainCandidate && cand.item.plainLyrics) {
+          const plainLines = attachRomanizationToLines(
+            parsePlainLyrics(cand.item.plainLyrics),
+            null
+          );
+          if (plainLines.length >= 4) {
             fallbackPlainCandidate = {
               source: 'LRCLIB (Teks Statis)',
               isSyllableSynced: false,
               synced: false,
+              trackDuration: Math.round(cand.item.duration || 0),
               matchScore: 300,
-              lines: attachRomanizationToLines(parsePlainLyrics(best.item.plainLyrics), null),
+              lines: plainLines,
             };
           }
         }
       }
     }
+
     return fallbackPlainCandidate;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Fetch from QQ Music (Tencent Music Studio-synced LRC database)
- */
 async function fetchQQMusic(title, artist, targetDuration) {
   try {
     const q = `${title} ${artist}`.trim();
     const searchRes = await fetch(
-      `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&n=5`,
+      `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(q)}&format=json&n=6`,
       {
         headers: {
           'Referer': 'https://y.qq.com',
@@ -886,7 +765,7 @@ async function fetchQQMusic(title, artist, targetDuration) {
           targetArtist: artist,
           targetDurationSec: targetDuration || 0,
         });
-        return { song: s, score };
+        return { song: s, candDurSec, score };
       })
       .filter((x) => x.score >= 580)
       .sort((a, b) => b.score - a.score);
@@ -907,11 +786,12 @@ async function fetchQQMusic(title, artist, targetDuration) {
       if (lyricData.code === 0 && lyricData.lyric) {
         const rawLines = parseLrc(lyricData.lyric);
         const lines = attachRomanizationToLines(rawLines, null);
-        if (lines.length > 0) {
+        if (lines.length >= 4) {
           return {
             source: 'QQ Music (Studio Synced)',
             isSyllableSynced: false,
             synced: true,
+            trackDuration: entry.candDurSec,
             matchScore: entry.score + 100,
             lines,
           };
@@ -924,11 +804,8 @@ async function fetchQQMusic(title, artist, targetDuration) {
   }
 }
 
-/**
- * Main Cascading Resolver: compares scored candidates from NetEase, QQ Music & LRCLIB in parallel
- */
 export async function getLyrics(rawTitle, rawArtist, duration) {
-  const { title, artist, subTitles } = cleanTrackMetadata(rawTitle, rawArtist);
+  const { title, artist, subTitles, altQueries } = cleanTrackMetadata(rawTitle, rawArtist);
   const durBucket = duration > 10 ? Math.round(duration / 5) : 'any';
   const cacheKey = `${artist.toLowerCase()}:::${title.toLowerCase()}:::${durBucket}`;
 
@@ -936,7 +813,7 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
     return memoryCache.get(cacheKey);
   }
 
-  // Tier 0: Verified Studio LRC master database (instant match & perfect millisecond precision)
+  // Tier 0: Verified Studio LRC master database
   const verifiedLrc = findVerifiedStudioLrc(title, artist);
   if (verifiedLrc) {
     const rawLines = parseLrc(verifiedLrc);
@@ -952,7 +829,7 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
     return result;
   }
 
-  // Query NetEase, QQ Music and LRCLIB in parallel and pick highest verified matchScore!
+  // Tier 1: Query NetEase, QQ Music, and LRCLIB in parallel
   const [neRes, qqRes, lrcRes] = await Promise.all([
     fetchNetEase(title, artist, duration),
     fetchQQMusic(title, artist, duration),
@@ -963,8 +840,8 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
   candidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
   let best = candidates[0] || null;
 
-  // Fallback to composite sub-titles (e.g. 'Television' from 'Television / So Far So Good')
-  if (!best && subTitles.length > 1) {
+  // Tier 2: Try composite sub-titles or base title without edition suffix
+  if ((!best || !best.synced) && subTitles.length > 1) {
     for (let i = 1; i < subTitles.length; i++) {
       const sub = subTitles[i];
       const [subNe, subQq, subLrc] = await Promise.all([
@@ -974,9 +851,26 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
       ]);
       const subCandidates = [subNe, subQq, subLrc].filter(Boolean);
       subCandidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
-      if (subCandidates.length > 0) {
+      if (subCandidates.length > 0 && (!best || subCandidates[0].matchScore > (best.matchScore || 0))) {
         best = subCandidates[0];
-        break;
+        if (best.synced) break;
+      }
+    }
+  }
+
+  // Tier 3: Try alternative Artist - Title split pairs (when uploader channel differed from actual artist)
+  if ((!best || !best.synced) && altQueries.length > 0) {
+    for (const alt of altQueries.slice(0, 2)) {
+      if (!alt.title) continue;
+      const [altNe, altLrc] = await Promise.all([
+        fetchNetEase(alt.title, alt.artist, duration),
+        fetchLrclib(alt.title, alt.artist, duration),
+      ]);
+      const altCandidates = [altNe, altLrc].filter(Boolean);
+      altCandidates.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      if (altCandidates.length > 0 && (!best || altCandidates[0].matchScore > (best.matchScore || 0))) {
+        best = altCandidates[0];
+        if (best.synced) break;
       }
     }
   }
@@ -989,7 +883,6 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
   return { synced: false, isSyllableSynced: false, lines: [] };
 }
 
-// Vercel Serverless Function Handler
 export default async function handler(req, res) {
   if (!applyApiSecurity(req, res)) return;
   try {

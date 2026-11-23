@@ -48,17 +48,34 @@ export default function RightSidebarNowPlaying({
 
   if (!isOpen || !currentTrack) return null;
 
-  // Extract current active line calibrated to Web audio clock
+  // Extract current active line calibrated to Web audio clock & user per-track sync offset
   const lines = lyricsData?.lines || [];
-  const hasNonLatin = lines.some((l) => l.hasRomanization || /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF]/.test(l.text));
-  const baseLatency = hasNonLatin ? 0.48 : 0.20;
-  const effectiveTime = Math.max(0, currentTime - baseLatency);
+  const isSynced = lyricsData?.synced !== false;
+  const cleanTitle = (currentTrack?.title || '')
+    .replace(/\s*[\(\[](official\s*(music\s*)?video|official\s*audio|visualizer|mv|hd|4k)[^\)\]]*[\)\]]/gi, '')
+    .toLowerCase()
+    .trim();
+  const cleanArtist = (currentTrack?.artist || '')
+    .replace(/\s*-\s*topic$/i, '')
+    .toLowerCase()
+    .trim();
+  const trackKey = cleanTitle ? `${cleanTitle}__${cleanArtist}` : '';
+  let syncOffsetSec = 0;
+  try {
+    if (trackKey) {
+      const saved = localStorage.getItem(`mctify_lyrics_sync_${trackKey}`);
+      if (saved !== null) syncOffsetSec = parseFloat(saved) || 0;
+    }
+  } catch {}
+  const effectiveTime = Math.max(0, currentTime + 0.08 + syncOffsetSec);
   let activeIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].time <= effectiveTime) {
-      if (i === lines.length - 1 || lines[i + 1].time > effectiveTime) {
-        activeIndex = i;
-        break;
+  if (isSynced) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].time <= effectiveTime) {
+        if (i === lines.length - 1 || lines[i + 1].time > effectiveTime) {
+          activeIndex = i;
+          break;
+        }
       }
     }
   }

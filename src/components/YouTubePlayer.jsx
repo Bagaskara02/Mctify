@@ -208,6 +208,11 @@ export default function YouTubePlayer({
           newActivePlayer.setVolume?.(computeMasterCeilingVol());
         }
         newActivePlayer.setPlaybackRate?.(playbackRateRef.current || 1.0);
+        const cur = newActivePlayer.getCurrentTime?.() || 0;
+        const dur = newActivePlayer.getDuration?.() || 0;
+        if (Number.isFinite(cur) && Number.isFinite(dur) && dur > 0) {
+          onTimeUpdateRef.current?.(cur, dur);
+        }
       } catch {}
     }
 
