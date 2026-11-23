@@ -1,111 +1,55 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  Play, 
-  Pause, 
-  Volume2, 
-  Sliders, 
-  Sparkles, 
-  ChevronDown, 
-  Check, 
-  Music2, 
-  Activity,
-  Layers,
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Play,
+  Pause,
+  Sparkles,
+  ChevronDown,
+  Check,
   Wand2,
   Search,
   X,
   ArrowLeft,
   RefreshCw,
-  Disc,
   Heart,
   Flame,
-  ListMusic
+  ListMusic,
+  Radio,
+  Sliders,
+  Zap,
 } from 'lucide-react';
 import { storageService } from '../services/storageService';
 import { musicApi, getHighResArtworkUrl } from '../services/musicApi';
+import {
+  TRANSITION_BAR_OPTIONS,
+  TRANSITION_VOLUME_OPTIONS,
+  TRANSITION_EQ_OPTIONS,
+  TRANSITION_EFFECT_OPTIONS,
+  computeTrackBpmAndKey,
+  computeCamelotCompatibility,
+  computeBarDurationSec,
+  computeSmartAutomixPreset,
+  buildEnvelopeSvgPaths,
+  resolveTransitionTrackAudio,
+  generateMusicalWaveformBars,
+  extractAudioWaveformData,
+  TransitionAuditionMixer,
+} from '../services/transitionEngine';
 
-// Helper: Realistic BPM & Camelot Key Analyzer
-function computeTrackBpmAndKey(track) {
-  if (!track) return { bpm: 90, key: '4B' };
-  
-  if (track.bpm && track.key) {
-    return { bpm: Number(track.bpm), key: String(track.key) };
-  }
-
-  const str = `${track.title || ''} ${track.artist || ''} ${track.genre || ''}`.toLowerCase();
-  
-  // Deterministic seed from track title + artist
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  const posHash = Math.abs(hash);
-
-  // Genre-aware realistic BPM
-  let baseBpm = 95;
-  if (/dance|edm|house|techno|club|electronic/i.test(str)) {
-    baseBpm = 120 + (posHash % 10);
-  } else if (/hip\s*hop|rap|trap|r&b|soul/i.test(str)) {
-    baseBpm = 82 + (posHash % 16);
-  } else if (/rock|metal|punk|band/i.test(str)) {
-    baseBpm = 125 + (posHash % 25);
-  } else if (/acoustic|ballad|slow|sad|lofi|piano/i.test(str)) {
-    baseBpm = 72 + (posHash % 18);
-  } else {
-    // Pop / General
-    baseBpm = 92 + (posHash % 34);
-  }
-
-  // Camelot Key (1A - 12B)
-  const keyNum = (posHash % 12) + 1;
-  const keyLetter = posHash % 2 === 0 ? 'B' : 'A';
-  const camelotKey = `${keyNum}${keyLetter}`;
-
-  return { bpm: baseBpm, key: camelotKey };
-}
-
-// Helper: Camelot Key Color Styling
 function getCamelotBadgeColor(key) {
   const k = (key || '').toUpperCase();
+  if (k.startsWith('10')) return 'bg-pink-400 text-black';
+  if (k.startsWith('11')) return 'bg-emerald-400 text-black';
+  if (k.startsWith('12')) return 'bg-teal-400 text-black';
   if (k.startsWith('1')) return 'bg-cyan-400 text-black';
   if (k.startsWith('2')) return 'bg-sky-400 text-black';
   if (k.startsWith('3')) return 'bg-blue-500 text-white';
-  if (k.startsWith('4')) return 'bg-amber-400 text-black'; // Exact Pinterest style
+  if (k.startsWith('4')) return 'bg-amber-400 text-black';
   if (k.startsWith('5')) return 'bg-orange-500 text-white';
   if (k.startsWith('6')) return 'bg-rose-500 text-white';
   if (k.startsWith('7')) return 'bg-red-500 text-white';
   if (k.startsWith('8')) return 'bg-purple-500 text-white';
   if (k.startsWith('9')) return 'bg-fuchsia-400 text-black';
-  if (k.startsWith('10')) return 'bg-pink-400 text-black';
-  if (k.startsWith('11')) return 'bg-emerald-400 text-black';
-  if (k.startsWith('12')) return 'bg-teal-400 text-black';
   return 'bg-amber-400 text-black';
-}
-
-// In-Memory Audio Preview URL Cache
-const previewUrlCache = new Map();
-
-async function resolveTrackAudioPreview(track) {
-  if (!track) return null;
-  if (track.audioUrl) return track.audioUrl;
-  const cacheKey = `${track.title}:::${track.artist}`;
-  if (previewUrlCache.has(cacheKey)) return previewUrlCache.get(cacheKey);
-
-  try {
-    const q = `${track.title} ${track.artist || ''}`.trim();
-    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=1`);
-    if (res.ok) {
-      const data = await res.json();
-      const preview = data.results?.[0]?.previewUrl;
-      if (preview) {
-        previewUrlCache.set(cacheKey, preview);
-        return preview;
-      }
-    }
-  } catch (err) {
-    console.warn('[TransitionModal] Preview fetch error:', err);
-  }
-  return null;
 }
 
 export default function SpotifyTransitionModal({
@@ -116,11 +60,9 @@ export default function SpotifyTransitionModal({
   queue = [],
   likedTracks = [],
   trendingTracks = [],
-  onPlayTrack,
   onSaveTransition,
+  onTestLiveTransition,
 }) {
-  const [settings, setSettings] = useState(() => storageService.getTransitionSettings());
-  
   // Custom Song Selection State
   const [outgoingOverride, setOutgoingOverride] = useState(null);
   const [incomingOverride, setIncomingOverride] = useState(null);
@@ -134,39 +76,18 @@ export default function SpotifyTransitionModal({
 
   // Smart Automix / AI Insights
   const [smartAutomixInsight, setSmartAutomixInsight] = useState(null);
-  const [isSmartAutomixApplied, setIsSmartAutomixApplied] = useState(false);
 
   // Playback Audition State
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
-  const [previewProgress, setPreviewProgress] = useState(0); // 0 to 1
+  const [previewProgress, setPreviewProgress] = useState(0); // 0..1 across full audition window
+  const [liveTelemetry, setLiveTelemetry] = useState(null);
   const [activeDropdown, setActiveDropdown] = useState(null); // 'bars' | 'volume' | 'eq' | 'effect'
   const [audioLoading, setAudioLoading] = useState(false);
+  const [showCueControls, setShowCueControls] = useState(false);
 
-  // Audio References
-  const audioCtxRef = useRef(null);
-  const audioEl1Ref = useRef(null);
-  const audioEl2Ref = useRef(null);
-  const animFrameRef = useRef(null);
-  const previewTimerRef = useRef(null);
-  const searchDebounceRef = useRef(null);
-
-  // Reload settings on open
-  useEffect(() => {
-    if (isOpen) {
-      setSettings(storageService.getTransitionSettings());
-      setPickerTarget(null);
-      setIsPlayingPreview(false);
-      setPreviewProgress(0);
-      setSmartAutomixInsight(null);
-    }
-  }, [isOpen]);
-
-  // Cleanup on close or unmount
-  useEffect(() => {
-    return () => {
-      stopPreview();
-    };
-  }, []);
+  // Real Extracted Waveform State
+  const [realTopBars, setRealTopBars] = useState(null);
+  const [realBottomBars, setRealBottomBars] = useState(null);
 
   // Determine Effective Outgoing and Incoming Tracks
   const defaultFallbackOutgoing = {
@@ -186,16 +107,21 @@ export default function SpotifyTransitionModal({
     artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=400',
     duration: 111,
     bpm: 90,
-    key: '8B',
+    key: '5A',
   };
 
   const outgoing = useMemo(() => {
-    const raw = outgoingOverride || currentTrack || queue[0] || trendingTracks[0] || defaultFallbackOutgoing;
+    const raw =
+      outgoingOverride ||
+      currentTrack ||
+      queue[0] ||
+      trendingTracks[0] ||
+      defaultFallbackOutgoing;
     const computed = computeTrackBpmAndKey(raw);
     return {
       ...raw,
-      bpm: raw.bpm || computed.bpm,
-      key: raw.key || computed.key,
+      bpm: computed.bpm,
+      key: computed.key,
       artwork: getHighResArtworkUrl(raw.artwork || raw.thumbnail),
       duration: raw.duration || 210,
     };
@@ -207,9 +133,9 @@ export default function SpotifyTransitionModal({
       if (nextTrack && nextTrack.id !== outgoing.id) {
         candidate = nextTrack;
       } else if (queue.length > 1) {
-        candidate = queue.find(t => t.id !== outgoing.id) || queue[1];
+        candidate = queue.find((t) => t.id !== outgoing.id) || queue[1];
       } else if (trendingTracks.length > 1) {
-        candidate = trendingTracks.find(t => t.id !== outgoing.id) || trendingTracks[1];
+        candidate = trendingTracks.find((t) => t.id !== outgoing.id) || trendingTracks[1];
       } else {
         candidate = defaultFallbackIncoming;
       }
@@ -217,14 +143,403 @@ export default function SpotifyTransitionModal({
     const computed = computeTrackBpmAndKey(candidate);
     return {
       ...candidate,
-      bpm: candidate.bpm || computed.bpm,
-      key: candidate.key || computed.key,
+      bpm: computed.bpm,
+      key: computed.key,
       artwork: getHighResArtworkUrl(candidate.artwork || candidate.thumbnail),
       duration: candidate.duration || 180,
     };
   }, [incomingOverride, nextTrack, outgoing.id, queue, trendingTracks]);
 
-  // Format mm:ss
+  const [settings, setSettings] = useState(() =>
+    storageService.getTransitionForPair(outgoing, incoming)
+  );
+
+  // Mixer & Fallback YouTube Deck Refs
+  const mixerRef = useRef(null);
+  const waveformBoxRef = useRef(null);
+  const isScrubbingWaveformRef = useRef(false);
+  const searchDebounceRef = useRef(null);
+  const ytPreviewOutRef = useRef(null);
+  const ytPreviewInRef = useRef(null);
+  const usingYtFallbackRef = useRef({ out: false, in: false });
+
+  // Beat-accurate bar duration options dynamically computed from outgoing.bpm & incoming.bpm
+  const durationOptions = useMemo(() => {
+    return TRANSITION_BAR_OPTIONS.map((opt) => {
+      const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, opt.label);
+      return {
+        label: opt.label,
+        bars: opt.bars,
+        dur: calc.durationSec,
+        beats: calc.beats,
+      };
+    });
+  }, [outgoing.bpm, incoming.bpm]);
+
+  const compatibility = useMemo(
+    () => computeCamelotCompatibility(outgoing.key, incoming.key),
+    [outgoing.key, incoming.key]
+  );
+
+  const barStats = useMemo(
+    () => computeBarDurationSec(outgoing.bpm, incoming.bpm, settings.bars || '2 bars'),
+    [outgoing.bpm, incoming.bpm, settings.bars]
+  );
+
+  // Sync pair settings when modal opens or pair changes
+  useEffect(() => {
+    if (isOpen) {
+      const pairCfg = storageService.getTransitionForPair(outgoing, incoming);
+      const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, pairCfg.bars || '2 bars');
+      setSettings({
+        ...pairCfg,
+        durationSec: calc.durationSec,
+      });
+      setPickerTarget(null);
+      setIsPlayingPreview(false);
+      setPreviewProgress(0);
+      setLiveTelemetry(null);
+      setSmartAutomixInsight(null);
+    } else {
+      stopPreview();
+    }
+  }, [isOpen, outgoing.id, incoming.id]);
+
+  // Decode real waveform peaks asynchronously when outgoing/incoming changes
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setRealTopBars(null);
+    setRealBottomBars(null);
+
+    (async () => {
+      const [resOut, resIn] = await Promise.all([
+        resolveTransitionTrackAudio(outgoing),
+        resolveTransitionTrackAudio(incoming),
+      ]);
+      if (cancelled) return;
+
+      if (resOut?.url) {
+        const wfOut = await extractAudioWaveformData(resOut.url, 60, true);
+        if (!cancelled && wfOut?.bars) setRealTopBars(wfOut.bars);
+      }
+      if (resIn?.url) {
+        const wfIn = await extractAudioWaveformData(resIn.url, 60, false);
+        if (!cancelled && wfIn?.bars) setRealBottomBars(wfIn.bars);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, outgoing.id, outgoing.title, incoming.id, incoming.title]);
+
+  // Keep live DSP mixer synchronized when user changes dropdowns mid-preview
+  useEffect(() => {
+    if (mixerRef.current && mixerRef.current.isRunning) {
+      mixerRef.current.updateConfig({
+        ...settings,
+        durationSec: barStats.durationSec,
+        bpmA: outgoing.bpm,
+        bpmB: incoming.bpm,
+      });
+    }
+  }, [settings, barStats.durationSec, outgoing.bpm, incoming.bpm]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopPreview();
+      destroyYtFallbackDecks();
+    };
+  }, []);
+
+  const destroyYtFallbackDecks = () => {
+    try {
+      ytPreviewOutRef.current?.destroy?.();
+    } catch (_) {}
+    try {
+      ytPreviewInRef.current?.destroy?.();
+    } catch (_) {}
+    ytPreviewOutRef.current = null;
+    ytPreviewInRef.current = null;
+  };
+
+  const stopPreview = useCallback(() => {
+    if (mixerRef.current) {
+      const m = mixerRef.current;
+      mixerRef.current = null;
+      m.stop();
+    }
+    try {
+      ytPreviewOutRef.current?.pauseVideo?.();
+    } catch (_) {}
+    try {
+      ytPreviewInRef.current?.pauseVideo?.();
+    } catch (_) {}
+    usingYtFallbackRef.current = { out: false, in: false };
+    setIsPlayingPreview(false);
+    setPreviewProgress(0);
+    setLiveTelemetry(null);
+    setAudioLoading(false);
+  }, []);
+
+  // Ensure hidden YouTube fallback preview deck exists when direct/iTunes stream is unavailable
+  const ensureYtFallbackDeck = (slot, videoId, startSec = 0) => {
+    return new Promise((resolve) => {
+      if (!videoId || !window.YT || !window.YT.Player) {
+        resolve(null);
+        return;
+      }
+      const ref = slot === 'out' ? ytPreviewOutRef : ytPreviewInRef;
+      const domId = slot === 'out' ? 'yt-transition-preview-out' : 'yt-transition-preview-in';
+
+      if (ref.current && typeof ref.current.loadVideoById === 'function') {
+        try {
+          ref.current.setVolume(slot === 'out' ? 100 : 0);
+          ref.current.unMute();
+          ref.current.loadVideoById({ videoId, startSeconds: Math.max(0, startSec) });
+          if (slot === 'in') {
+            setTimeout(() => {
+              try { ref.current?.pauseVideo?.(); } catch (_) {}
+            }, 250);
+          }
+          resolve(ref.current);
+          return;
+        } catch (_) {}
+      }
+
+      try {
+        ref.current = new window.YT.Player(domId, {
+          height: '120',
+          width: '160',
+          videoId,
+          playerVars: {
+            autoplay: slot === 'out' ? 1 : 0,
+            controls: 0,
+            disablekb: 1,
+            enablejsapi: 1,
+            playsinline: 1,
+            start: Math.max(0, Math.floor(startSec)),
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: (ev) => {
+              try {
+                ev.target.unMute();
+                ev.target.setVolume(slot === 'out' ? 100 : 0);
+                ev.target.seekTo(Math.max(0, startSec), true);
+                if (slot === 'out') ev.target.playVideo();
+                else ev.target.pauseVideo();
+              } catch (_) {}
+              resolve(ev.target);
+            },
+            onError: () => resolve(null),
+          },
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  };
+
+  // Start Real Dual-Deck Web Audio DSP Audition
+  const startPreview = async (overrideSettings = null) => {
+    stopPreview();
+    setIsPlayingPreview(true);
+    setAudioLoading(true);
+
+    // Pause main background player while auditioning inside the studio modal
+    try {
+      window.__mctify_yt_player?.pauseVideo?.();
+    } catch (_) {}
+
+    const activeCfg = overrideSettings || settings;
+    const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, activeCfg.bars || '2 bars');
+    const durationSec = calc.durationSec;
+
+    try {
+      const [resOut, resIn] = await Promise.all([
+        resolveTransitionTrackAudio(outgoing),
+        resolveTransitionTrackAudio(incoming),
+      ]);
+
+      // Check if we need YouTube IFrame fallback for either track
+      let outUrl = resOut?.url || null;
+      let inUrl = resIn?.url || null;
+
+      // Setup YT fallback only if a track has no direct/iTunes stream
+      usingYtFallbackRef.current = {
+        out: !outUrl && Boolean(outgoing.videoId),
+        in: !inUrl && Boolean(incoming.videoId),
+      };
+
+      if (usingYtFallbackRef.current.out) {
+        const outCue = Math.max(10, (outgoing.duration || 180) - (durationSec + 8) + (Number(activeCfg.outroOffsetSec) || 0));
+        await ensureYtFallbackDeck('out', outgoing.videoId, outCue);
+      }
+      if (usingYtFallbackRef.current.in) {
+        const inCue = Math.max(0, Number(activeCfg.introOffsetSec) || 0);
+        await ensureYtFallbackDeck('in', incoming.videoId, inCue);
+      }
+
+      setAudioLoading(false);
+
+      const mixer = new TransitionAuditionMixer();
+      mixerRef.current = mixer;
+      let ytInStarted = false;
+
+      await mixer.start({
+        outUrl,
+        inUrl,
+        outDurationEstimate: resOut?.isPreview30s ? 29.5 : (outgoing.duration || 180),
+        config: {
+          ...activeCfg,
+          durationSec,
+          bpmA: outgoing.bpm,
+          bpmB: incoming.bpm,
+        },
+        onProgress: (telemetry) => {
+          setPreviewProgress(telemetry.overallProgress);
+          setLiveTelemetry(telemetry);
+        },
+        onYtPreviewTick: ({ phase, envelope }) => {
+          if (usingYtFallbackRef.current.out && ytPreviewOutRef.current) {
+            try {
+              ytPreviewOutRef.current.setVolume?.(envelope.effectiveOutIframeVol);
+              if (phase === 'lead_out') {
+                ytPreviewOutRef.current.pauseVideo?.();
+              }
+            } catch (_) {}
+          }
+          if (usingYtFallbackRef.current.in && ytPreviewInRef.current) {
+            try {
+              if (phase !== 'lead_in' && !ytInStarted) {
+                ytInStarted = true;
+                ytPreviewInRef.current.unMute?.();
+                ytPreviewInRef.current.playVideo?.();
+              }
+              ytPreviewInRef.current.setVolume?.(envelope.effectiveInIframeVol);
+            } catch (_) {}
+          }
+        },
+        onStop: () => {
+          try { ytPreviewOutRef.current?.pauseVideo?.(); } catch (_) {}
+          try { ytPreviewInRef.current?.pauseVideo?.(); } catch (_) {}
+          setIsPlayingPreview(false);
+          setPreviewProgress(0);
+          setLiveTelemetry(null);
+        },
+      });
+    } catch (e) {
+      console.warn('[TransitionModal] Audition mixer error:', e);
+      stopPreview();
+    }
+  };
+
+  const handleTogglePreview = () => {
+    if (isPlayingPreview) {
+      stopPreview();
+    } else {
+      startPreview();
+    }
+  };
+
+  // Interactive Waveform Scrubbing (Click or Drag on Canvas)
+  const handleWaveformPointerDown = (e) => {
+    if (!waveformBoxRef.current) return;
+    isScrubbingWaveformRef.current = true;
+    const rect = waveformBoxRef.current.getBoundingClientRect();
+    const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+
+    if (!isPlayingPreview) {
+      startPreview().then(() => {
+        setTimeout(() => {
+          mixerRef.current?.seek(relX);
+        }, 120);
+      });
+    } else {
+      mixerRef.current?.seek(relX);
+      setPreviewProgress(relX);
+    }
+
+    const onMove = (moveEv) => {
+      if (!isScrubbingWaveformRef.current || !waveformBoxRef.current) return;
+      const r = waveformBoxRef.current.getBoundingClientRect();
+      const nextX = Math.max(0, Math.min(0.99, (moveEv.clientX - r.left) / Math.max(1, r.width)));
+      mixerRef.current?.seek(nextX);
+      setPreviewProgress(nextX);
+    };
+
+    const onUp = () => {
+      isScrubbingWaveformRef.current = false;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // Smart Automix AI Preset Generator
+  const handleApplySmartAutomix = () => {
+    const smart = computeSmartAutomixPreset(outgoing, incoming);
+    const nextCfg = {
+      ...settings,
+      bars: smart.bars,
+      durationSec: smart.durationSec,
+      volume: smart.volume,
+      eq: smart.eq,
+      effect: smart.effect,
+      tempoSync: smart.tempoSync,
+    };
+    setSettings(nextCfg);
+    setSmartAutomixInsight(smart);
+    setTimeout(() => {
+      startPreview(nextCfg);
+    }, 120);
+  };
+
+  const handleSave = () => {
+    stopPreview();
+    const finalSettings = {
+      ...settings,
+      durationSec: barStats.durationSec,
+      enabled: true,
+    };
+    storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
+    onSaveTransition?.({
+      ...finalSettings,
+      outgoingTrack: outgoing,
+      incomingTrack: incoming,
+    });
+    onClose();
+  };
+
+  const handleTestLiveInPlayer = () => {
+    stopPreview();
+    const finalSettings = {
+      ...settings,
+      durationSec: barStats.durationSec,
+      enabled: true,
+    };
+    storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
+    if (onTestLiveTransition) {
+      onTestLiveTransition({
+        ...finalSettings,
+        outgoingTrack: outgoing,
+        incomingTrack: incoming,
+      });
+    } else {
+      onSaveTransition?.({
+        ...finalSettings,
+        outgoingTrack: outgoing,
+        incomingTrack: incoming,
+      });
+    }
+    onClose();
+  };
+
   const formatMinSec = (sec) => {
     const s = Math.round(sec || 180);
     const m = Math.floor(s / 60);
@@ -238,7 +553,6 @@ export default function SpotifyTransitionModal({
       setSearchResults([]);
       return;
     }
-
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (!pickerQuery.trim()) {
       setSearchResults([]);
@@ -256,324 +570,50 @@ export default function SpotifyTransitionModal({
       } finally {
         setIsSearching(false);
       }
-    }, 320);
+    }, 300);
 
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [pickerQuery, pickerTab]);
 
-  // SMART AUTOMIX CALCULATION ENGINE
-  const handleApplySmartAutomix = () => {
-    const bpmA = outgoing.bpm || 90;
-    const bpmB = incoming.bpm || 90;
-    const deltaBpm = Math.abs(bpmA - bpmB);
-    const keyA = outgoing.key || '4B';
-    const keyB = incoming.key || '4B';
+  // Waveform Bars & Dynamic Overlap Zone Width
+  const topWaveformBars = useMemo(
+    () => realTopBars || generateMusicalWaveformBars(60, outgoing, true),
+    [realTopBars, outgoing.id, outgoing.bpm, outgoing.title]
+  );
+  const bottomWaveformBars = useMemo(
+    () => realBottomBars || generateMusicalWaveformBars(60, incoming, false),
+    [realBottomBars, incoming.id, incoming.bpm, incoming.title]
+  );
 
-    let newBars = '4 bars';
-    let newDurationSec = 10.0;
-    let newVolume = 'overlap';
-    let newEq = 'bass_swap';
-    let newEffect = 'smooth_blend';
-    let explanation = '';
+  // Overlap fraction changes visually with selected bar count (1 bar = 36%, 2 bars = 50%, 4 bars = 65%, 8 bars = 78%)
+  const overlapFraction = useMemo(() => {
+    if (barStats.bars <= 1) return 0.36;
+    if (barStats.bars === 2) return 0.50;
+    if (barStats.bars === 4) return 0.65;
+    return 0.78;
+  }, [barStats.bars]);
 
-    if (deltaBpm <= 4) {
-      newBars = '4 bars';
-      newDurationSec = 10.0;
-      newVolume = 'overlap';
-      newEq = 'bass_swap';
-      newEffect = 'smooth_blend';
-      explanation = `✨ Transisi Harmonis Sempurna! Tempo identik (${bpmA} & ${bpmB} BPM, selisih ${deltaBpm} BPM). Mode Overlap 4 Bars dengan Bass Swap diaktifkan agar kick/bass bergantian di beat drop tanpa tabrakan frekuensi rendah!`;
-    } else if (deltaBpm <= 12) {
-      newBars = '2 bars';
-      newDurationSec = 5.5;
-      newVolume = 'crossfade';
-      newEq = 'high_pass';
-      newEffect = 'high_pass';
-      explanation = `✨ Transisi Smooth Filter Sweep! Selisih tempo moderat (${bpmA} → ${bpmB} BPM). Menggunakan Crossfade 2 Bars dengan High-Pass Sweep pada lagu keluar agar intro ${incoming.title} masuk dengan jernih & energik!`;
-    } else {
-      newBars = '1 bar';
-      newDurationSec = 2.8;
-      newVolume = 'cut';
-      newEq = 'none';
-      newEffect = 'echo_fade';
-      explanation = `✨ Transisi DJ Drop Cut! Tempo cukup kontras (${bpmA} vs ${bpmB} BPM, selisih ${deltaBpm} BPM). Mode 1 Bar Drop Cut dipadukan Echo Fade Out pada ketukan terakhir untuk perpindahan beat yang dinamis & spektakuler!`;
-    }
-
-    setSettings({
-      bars: newBars,
-      durationSec: newDurationSec,
-      volume: newVolume,
-      eq: newEq,
-      effect: newEffect,
-    });
-
-    setIsSmartAutomixApplied(true);
-    setSmartAutomixInsight({
-      explanation,
-      deltaBpm,
-      keyA,
-      keyB,
-    });
-
-    // Auto-audition the smart mix
-    setTimeout(() => {
-      startPreview({
-        bars: newBars,
-        durationSec: newDurationSec,
-        volume: newVolume,
-        eq: newEq,
-        effect: newEffect,
-      });
-    }, 250);
-  };
-
-  // AUDITION PREVIEW ENGINE: Real Audio Streams + Web Audio Crossfade & EQ
-  const stopPreview = () => {
-    setIsPlayingPreview(false);
-    setPreviewProgress(0);
-    setAudioLoading(false);
-
-    if (previewTimerRef.current) {
-      clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = null;
-    }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-
-    if (audioEl1Ref.current) {
-      try {
-        audioEl1Ref.current.pause();
-        audioEl1Ref.current.currentTime = 0;
-      } catch (_) {}
-    }
-    if (audioEl2Ref.current) {
-      try {
-        audioEl2Ref.current.pause();
-        audioEl2Ref.current.currentTime = 0;
-      } catch (_) {}
-    }
-
-    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      try {
-        audioCtxRef.current.close();
-      } catch (_) {}
-      audioCtxRef.current = null;
-    }
-  };
-
-  const handleTogglePreview = () => {
-    if (isPlayingPreview) {
-      stopPreview();
-    } else {
-      startPreview();
-    }
-  };
-
-  const startPreview = async (overrideSettings = null) => {
-    stopPreview();
-    setIsPlayingPreview(true);
-    setAudioLoading(true);
-
-    const activeCfg = overrideSettings || settings;
-    const durationSec = activeCfg.durationSec || 5.5;
-
-    try {
-      // 1. Resolve preview audio URLs in parallel
-      const [url1, url2] = await Promise.all([
-        resolveTrackAudioPreview(outgoing),
-        resolveTrackAudioPreview(incoming),
-      ]);
-
-      setAudioLoading(false);
-
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const ctx = AudioCtx ? new AudioCtx() : null;
-      if (ctx) audioCtxRef.current = ctx;
-
-      const startTime = ctx ? ctx.currentTime : performance.now() / 1000;
-      const endTime = startTime + durationSec;
-
-      // 2. Play Audio 1 (Outgoing Outro)
-      if (url1) {
-        let el1 = audioEl1Ref.current;
-        if (!el1) {
-          el1 = new Audio();
-          el1.crossOrigin = 'anonymous';
-          audioEl1Ref.current = el1;
-        }
-        el1.src = url1;
-        el1.currentTime = 18.0; // Outro region of 30s preview
-        el1.volume = 0.8;
-        el1.play().catch(() => {});
-
-        // Fade out el1
-        const fadeInterval = setInterval(() => {
-          if (!el1 || el1.paused) {
-            clearInterval(fadeInterval);
-            return;
-          }
-          if (el1.volume > 0.05) {
-            el1.volume = Math.max(0, el1.volume - (0.8 / (durationSec * 20)));
-          } else {
-            el1.volume = 0;
-            clearInterval(fadeInterval);
-          }
-        }, 50);
-      }
-
-      // 3. Play Audio 2 (Incoming Intro with overlap delay)
-      if (url2) {
-        let el2 = audioEl2Ref.current;
-        if (!el2) {
-          el2 = new Audio();
-          el2.crossOrigin = 'anonymous';
-          audioEl2Ref.current = el2;
-        }
-        el2.src = url2;
-        el2.currentTime = 0;
-        el2.volume = 0.05;
-
-        // Overlap delay: starts midway based on overlap setting
-        const delayMs = activeCfg.volume === 'cut' ? (durationSec * 1000 * 0.9) : (durationSec * 1000 * 0.35);
-        setTimeout(() => {
-          if (!isPlayingPreview) return;
-          el2.play().catch(() => {});
-          const fadeInInterval = setInterval(() => {
-            if (!el2 || el2.paused) {
-              clearInterval(fadeInInterval);
-              return;
-            }
-            if (el2.volume < 0.85) {
-              el2.volume = Math.min(0.85, el2.volume + 0.07);
-            } else {
-              clearInterval(fadeInInterval);
-            }
-          }, 60);
-        }, delayMs);
-      }
-
-      // 4. Fallback Web Audio Rhythmic Synth (if either preview fails or network is slow)
-      if (ctx && (!url1 || !url2)) {
-        // Outgoing chord
-        const osc1 = ctx.createOscillator();
-        const gain1 = ctx.createGain();
-        osc1.type = 'triangle';
-        osc1.frequency.setValueAtTime(220, startTime);
-        gain1.gain.setValueAtTime(0.35, startTime);
-        gain1.gain.linearRampToValueAtTime(0.001, endTime);
-        osc1.connect(gain1);
-        gain1.connect(ctx.destination);
-        osc1.start(startTime);
-        osc1.stop(endTime);
-
-        // Incoming beat & chord
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(329.63, startTime + durationSec * 0.4);
-        gain2.gain.setValueAtTime(0.001, startTime);
-        gain2.gain.exponentialRampToValueAtTime(0.38, startTime + durationSec * 0.6);
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.start(startTime + durationSec * 0.4);
-        osc2.stop(endTime);
-      }
-
-      // 5. Waveform Progress Animation
-      const animStart = performance.now();
-      const tick = () => {
-        const elapsed = (performance.now() - animStart) / 1000;
-        const p = Math.min(1.0, elapsed / durationSec);
-        setPreviewProgress(p);
-        if (p < 1.0) {
-          animFrameRef.current = requestAnimationFrame(tick);
-        } else {
-          stopPreview();
-        }
-      };
-      animFrameRef.current = requestAnimationFrame(tick);
-
-      previewTimerRef.current = setTimeout(() => {
-        stopPreview();
-      }, durationSec * 1000 + 400);
-
-    } catch (e) {
-      console.warn('[TransitionModal] Preview engine error:', e);
-      stopPreview();
-    }
-  };
-
-  const handleSave = () => {
-    stopPreview();
-    storageService.saveTransitionSettings(settings);
-    onSaveTransition?.({
-      ...settings,
-      outgoingTrack: outgoing,
-      incomingTrack: incoming,
-    });
-    onClose();
-  };
-
-  const durationOptions = [
-    { label: '1 bar', dur: 2.8 },
-    { label: '2 bars', dur: 5.5 },
-    { label: '4 bars', dur: 10.0 },
-    { label: '8 bars', dur: 16.0 },
-    { label: 'Custom 4s', dur: 4.0 },
-    { label: 'Custom 8s', dur: 8.0 },
-  ];
-
-  const volumeOptions = [
-    { id: 'overlap', label: 'Overlap', desc: 'Kedua lagu membaur bersama' },
-    { id: 'crossfade', label: 'Crossfade', desc: 'Fade out bertahap & fade in halus' },
-    { id: 'cut', label: 'Cut', desc: 'Langsung potong di beat intro' },
-  ];
-
-  const eqOptions = [
-    { id: 'none', label: 'None', desc: 'EQ standar netral' },
-    { id: 'bass_swap', label: 'Bass Swap', desc: 'Tukar frekuensi rendah di beat drop' },
-    { id: 'high_pass', label: 'High pass outgoing', desc: 'Filter bass lagu keluar' },
-    { id: 'smooth_blend', label: 'Smooth blend', desc: 'Transisi frekuensi vokal seimbang' },
-  ];
-
-  const effectOptions = [
-    { id: 'high_pass', label: 'High pass filter', desc: 'Potong frekuensi rendah saat outro' },
-    { id: 'low_pass', label: 'Low pass filter', desc: 'Meredam vokal menjadi hangat' },
-    { id: 'reverb_tail', label: 'Reverb tail', desc: 'Gema halus mengiringi intro baru' },
-    { id: 'echo_fade', label: 'Echo fade', desc: 'Efek delay ritmis sebelum lagu masuk' },
-    { id: 'none', label: 'None', desc: 'Tanpa efek tambahan' },
-  ];
-
-  // Dynamic Waveform Generator
-  const generateBars = (count, seed, isOutro = false) => {
-    const bars = [];
-    for (let i = 0; i < count; i++) {
-      const x = i / count;
-      let envelope = 1.0;
-      if (isOutro) {
-        envelope = Math.cos(x * (Math.PI / 2));
-      } else {
-        envelope = Math.sin(x * (Math.PI / 2));
-      }
-      const raw = Math.sin((i + seed) * 12.34) * 0.4 + Math.sin((i + seed) * 3.45) * 0.35 + 0.55;
-      const height = Math.max(12, Math.min(88, raw * 80 * (0.3 + 0.7 * envelope)));
-      bars.push(height);
-    }
-    return bars;
-  };
-
-  const topWaveformBars = useMemo(() => generateBars(56, (outgoing.bpm || 85) + 12, true), [outgoing.id, outgoing.bpm]);
-  const bottomWaveformBars = useMemo(() => generateBars(56, (incoming.bpm || 90) + 24, false), [incoming.id, incoming.bpm]);
+  const envelopeSvg = useMemo(
+    () =>
+      buildEnvelopeSvgPaths(
+        {
+          ...settings,
+          bpmA: outgoing.bpm,
+          bpmB: incoming.bpm,
+        },
+        200,
+        72
+      ),
+    [settings.volume, settings.eq, settings.effect, outgoing.bpm, incoming.bpm]
+  );
 
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-view-fade-in"
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-md animate-view-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           stopPreview();
@@ -581,19 +621,24 @@ export default function SpotifyTransitionModal({
         }
       }}
     >
-      <div 
-        className="relative w-full max-w-[460px] bg-[#121318] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white select-none animate-in fade-in zoom-in-95 duration-200"
+      {/* Hidden YouTube Fallback Preview Containers (used only when direct/iTunes CORS stream is unavailable) */}
+      <div className="fixed -left-[9999px] -top-[9999px] w-40 h-28 pointer-events-none opacity-0 overflow-hidden">
+        <div id="yt-transition-preview-out" />
+        <div id="yt-transition-preview-in" />
+      </div>
+
+      <div
+        className="relative w-full max-w-[470px] max-h-[94vh] bg-[#121318] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-white select-none animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => {
           e.stopPropagation();
           setActiveDropdown(null);
         }}
       >
         {/* ========================================================= */}
-        {/* VIEW 1: SONG PICKER SHEET (When user clicks 'Ganti Lagu') */}
+        {/* VIEW 1: SONG PICKER SHEET                                 */}
         {/* ========================================================= */}
         {pickerTarget && (
           <div className="absolute inset-0 z-40 bg-[#121318] flex flex-col animate-in slide-in-from-right duration-200">
-            {/* Picker Header */}
             <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/10 bg-[#161820]">
               <button
                 onClick={() => setPickerTarget(null)}
@@ -603,7 +648,9 @@ export default function SpotifyTransitionModal({
                 <span>Kembali</span>
               </button>
               <h4 className="font-bold text-sm text-white">
-                {pickerTarget === 'outgoing' ? 'Pilih Lagu Keluar (Track 1)' : 'Pilih Lagu Masuk (Track 2)'}
+                {pickerTarget === 'outgoing'
+                  ? 'Pilih Lagu Keluar (Deck A)'
+                  : 'Pilih Lagu Masuk (Deck B)'}
               </h4>
               <button
                 onClick={() => setPickerTarget(null)}
@@ -613,7 +660,6 @@ export default function SpotifyTransitionModal({
               </button>
             </div>
 
-            {/* Search Input Bar */}
             <div className="p-3 border-b border-white/10 bg-[#161820]/60">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
@@ -639,12 +685,13 @@ export default function SpotifyTransitionModal({
               </div>
             </div>
 
-            {/* Quick Filter Tabs */}
             <div className="flex items-center gap-1 px-3 py-2 border-b border-white/5 bg-[#14151c] overflow-x-auto no-scrollbar text-xs">
               <button
                 onClick={() => setPickerTab('queue')}
                 className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  pickerTab === 'queue' ? 'bg-emerald-500 text-black' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                  pickerTab === 'queue'
+                    ? 'bg-emerald-500 text-black'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10'
                 }`}
               >
                 <ListMusic className="w-3.5 h-3.5" />
@@ -653,7 +700,9 @@ export default function SpotifyTransitionModal({
               <button
                 onClick={() => setPickerTab('liked')}
                 className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  pickerTab === 'liked' ? 'bg-emerald-500 text-black' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                  pickerTab === 'liked'
+                    ? 'bg-emerald-500 text-black'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10'
                 }`}
               >
                 <Heart className="w-3.5 h-3.5" />
@@ -662,15 +711,16 @@ export default function SpotifyTransitionModal({
               <button
                 onClick={() => setPickerTab('trending')}
                 className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  pickerTab === 'trending' ? 'bg-emerald-500 text-black' : 'bg-white/5 text-white/70 hover:bg-white/10'
+                  pickerTab === 'trending'
+                    ? 'bg-emerald-500 text-black'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10'
                 }`}
               >
                 <Flame className="w-3.5 h-3.5" />
-                <span>Hits & Populer</span>
+                <span>Hits &amp; Populer</span>
               </button>
             </div>
 
-            {/* List of Selectable Songs */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {isSearching && (
                 <div className="py-8 text-center text-xs text-white/50 flex items-center justify-center gap-2">
@@ -679,7 +729,6 @@ export default function SpotifyTransitionModal({
                 </div>
               )}
 
-              {/* Render Selected Tab Pool */}
               {(() => {
                 let pool = [];
                 if (pickerTab === 'search' || pickerQuery.trim()) {
@@ -695,7 +744,9 @@ export default function SpotifyTransitionModal({
                 if (!isSearching && pool.length === 0) {
                   return (
                     <div className="py-12 text-center text-xs text-white/40">
-                      {pickerQuery ? 'Tidak ada lagu yang cocok dengan pencarian.' : 'Belum ada lagu dalam daftar ini.'}
+                      {pickerQuery
+                        ? 'Tidak ada lagu yang cocok dengan pencarian.'
+                        : 'Belum ada lagu dalam daftar ini.'}
                     </div>
                   );
                 }
@@ -706,6 +757,7 @@ export default function SpotifyTransitionModal({
                     <div
                       key={`pick-${t.id || t.videoId || idx}`}
                       onClick={() => {
+                        stopPreview();
                         if (pickerTarget === 'outgoing') {
                           setOutgoingOverride(t);
                         } else {
@@ -713,7 +765,6 @@ export default function SpotifyTransitionModal({
                         }
                         setPickerTarget(null);
                         setPickerQuery('');
-                        setIsSmartAutomixApplied(false);
                         setSmartAutomixInsight(null);
                       }}
                       className="flex items-center justify-between p-2 rounded-xl hover:bg-white/10 cursor-pointer transition-colors group"
@@ -725,10 +776,10 @@ export default function SpotifyTransitionModal({
                           className="w-10 h-10 rounded-lg object-cover bg-neutral-800 flex-shrink-0"
                         />
                         <div className="min-w-0">
-                          <h5 className="text-xs font-bold text-white truncate max-w-[210px] group-hover:text-emerald-400 transition-colors">
+                          <h5 className="text-xs font-bold text-white truncate max-w-[205px] group-hover:text-emerald-400 transition-colors">
                             {t.title}
                           </h5>
-                          <p className="text-[11px] text-[#a1a1aa] truncate max-w-[210px]">
+                          <p className="text-[11px] text-[#a1a1aa] truncate max-w-[205px]">
                             {t.artist}
                           </p>
                         </div>
@@ -738,7 +789,11 @@ export default function SpotifyTransitionModal({
                         <span className="text-[10px] font-mono text-white/60">
                           {bpmKey.bpm} bpm
                         </span>
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${getCamelotBadgeColor(bpmKey.key)}`}>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-black ${getCamelotBadgeColor(
+                            bpmKey.key
+                          )}`}
+                        >
                           {bpmKey.key}
                         </span>
                         <button className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black font-bold text-[11px] transition-all">
@@ -754,11 +809,11 @@ export default function SpotifyTransitionModal({
         )}
 
         {/* ========================================================= */}
-        {/* VIEW 2: MAIN TRANSITION STUDIO (Pinterest Spec)          */}
+        {/* VIEW 2: SPOTIFY EDIT TRANSITION STUDIO (BETA)             */}
         {/* ========================================================= */}
 
-        {/* 1. Header Bar: Cancel | Edit transition (Beta) | Save */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] bg-[#161820]">
+        {/* 1. Header Bar: Cancel | Edit transition [BETA] | Save */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06] bg-[#161820] shrink-0">
           <button
             onClick={() => {
               stopPreview();
@@ -774,7 +829,7 @@ export default function SpotifyTransitionModal({
               Edit transition
             </h3>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              Beta
+              BETA
             </span>
           </div>
 
@@ -786,22 +841,23 @@ export default function SpotifyTransitionModal({
           </button>
         </div>
 
-        {/* 2. Body Container */}
-        <div className="p-4 sm:p-5 space-y-3.5">
-          
-          {/* Smart Automix Trigger Bar */}
-          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/15 via-[#182638] to-[#121c2b] border border-emerald-500/30">
+        {/* 2. Scrollable Body Container */}
+        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto no-scrollbar">
+          {/* Smart Automix AI Bar */}
+          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gradient-to-r from-emerald-500/15 via-[#182638] to-[#121c2b] border border-emerald-500/25">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
-                  <span>Transisi Pintar (Smart Automix)</span>
-                  <span className="text-[9px] px-1 rounded bg-emerald-400 text-black font-black uppercase">AI</span>
+                  <span>Smart Automix DSP</span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-400/20 text-emerald-300 border border-emerald-400/30 font-black">
+                    {compatibility.score}% MATCH
+                  </span>
                 </p>
                 <p className="text-[10px] text-white/60 truncate">
-                  Sinkronisasi tempo ({outgoing.bpm} → {incoming.bpm} BPM) &amp; harmonic key
+                  {compatibility.label} • {barStats.durationSec}s ({barStats.beats} ketukan)
                 </p>
               </div>
             </div>
@@ -811,21 +867,20 @@ export default function SpotifyTransitionModal({
               className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex-shrink-0"
             >
               <Wand2 className="w-3.5 h-3.5" />
-              <span>Otomatiskan</span>
+              <span>Auto-Mix</span>
             </button>
           </div>
 
-          {/* Smart Automix Explanation Badge (if activated) */}
           {smartAutomixInsight && (
-            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-[11px] text-emerald-200 leading-relaxed animate-in fade-in duration-200">
+            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/35 text-[11px] text-emerald-200 leading-relaxed animate-in fade-in duration-200">
               <p className="font-semibold">{smartAutomixInsight.explanation}</p>
             </div>
           )}
 
-          {/* Outgoing Track (Track 1) */}
-          <div 
+          {/* Outgoing Track Row (Deck A) */}
+          <div
             onClick={() => setPickerTarget('outgoing')}
-            className="flex items-center justify-between gap-3 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors"
+            className="flex items-center justify-between gap-2.5 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors group"
           >
             <div className="flex items-center gap-3 min-w-0">
               <img
@@ -834,30 +889,35 @@ export default function SpotifyTransitionModal({
                 className="w-11 h-11 rounded-lg object-cover bg-neutral-800 shadow-md flex-shrink-0"
               />
               <div className="min-w-0">
-                <h4 className="text-xs sm:text-sm font-bold text-white truncate max-w-[170px] sm:max-w-[200px]">
+                <h4 className="text-xs sm:text-sm font-bold text-white truncate max-w-[165px] sm:max-w-[195px] group-hover:text-cyan-300 transition-colors">
                   {outgoing.title}
                 </h4>
-                <p className="text-[11px] text-[#a1a1aa] truncate max-w-[170px] sm:max-w-[200px]">
+                <p className="text-[11px] text-[#a1a1aa] truncate max-w-[165px] sm:max-w-[195px]">
                   {outgoing.artist}
                 </p>
               </div>
             </div>
 
-            <div className="text-right flex-shrink-0 flex items-center gap-2">
-              <span className="text-xs text-white/80 font-mono font-medium">
+            <div className="text-right flex-shrink-0 flex items-center gap-1.5 sm:gap-2">
+              <span className="text-xs text-white/85 font-mono font-semibold">
                 {outgoing.bpm} bpm
               </span>
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${getCamelotBadgeColor(outgoing.key)}`}>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-black ${getCamelotBadgeColor(
+                  outgoing.key
+                )}`}
+              >
                 {outgoing.key}
               </span>
               <span className="text-xs text-[#a1a1aa] tabular-nums font-mono">
                 {formatMinSec(outgoing.duration)}
               </span>
-              
-              {/* Button to Change Outgoing Song */}
               <button
-                onClick={() => setPickerTarget('outgoing')}
-                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white/90 hover:text-white transition-all ml-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPickerTarget('outgoing');
+                }}
+                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white/90 hover:text-white transition-all"
                 title="Ganti Lagu Keluar"
               >
                 Ganti
@@ -865,41 +925,101 @@ export default function SpotifyTransitionModal({
             </div>
           </div>
 
-          {/* Interactive Dual Waveform Overlap Canvas */}
-          <div className="relative rounded-2xl bg-[#181a22] border border-white/[0.08] p-4 overflow-hidden">
-            
-            {/* Top Waveform (Outgoing track outro) */}
-            <div className="relative h-20 flex items-center justify-between gap-[2px] opacity-85">
+          {/* ========================================================= */}
+          {/* INTERACTIVE DUAL-DECK WAVEFORM STUDIO CANVAS              */}
+          {/* ========================================================= */}
+          <div
+            ref={waveformBoxRef}
+            onPointerDown={handleWaveformPointerDown}
+            className="relative rounded-2xl bg-[#181a22] border border-white/[0.08] px-4 py-3.5 overflow-hidden cursor-ew-resize"
+            title="Klik atau geser pada waveform untuk mengaudisi titik transisi"
+          >
+            {/* Subtle Beat Grid Lines */}
+            <div className="absolute inset-0 pointer-events-none flex justify-between px-4 opacity-15">
+              {Array.from({ length: 9 }).map((_, idx) => (
+                <div
+                  key={`grid-${idx}`}
+                  className={`h-full w-px ${
+                    idx === 4 ? 'bg-white/70' : 'bg-white/25'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* 1. TOP WAVEFORM: Outgoing Track (Grey Lead-In -> Cyan Overlap Zone) */}
+            <div className="relative h-20 flex items-center justify-between gap-[2px]">
               {topWaveformBars.map((h, i) => {
-                const isOverlapped = i > 28;
+                const ratio = i / topWaveformBars.length;
+                const overlapStartRatio = 1 - overlapFraction;
+                const isOverlapped = ratio >= overlapStartRatio;
+                const localOverlapPos = isOverlapped
+                  ? (ratio - overlapStartRatio) / overlapFraction
+                  : 0;
+                // Modulate bar brightness with active playhead
+                const isPlayed = isPlayingPreview && previewProgress >= ratio;
+
                 return (
                   <div
                     key={`top-${i}`}
-                    className={`flex-1 rounded-full transition-all duration-150 ${
-                      isOverlapped ? 'bg-cyan-400/80 shadow-[0_0_8px_rgba(6,182,212,0.4)]' : 'bg-white/40'
+                    className={`flex-1 rounded-full transition-all duration-100 ${
+                      isOverlapped
+                        ? isPlayed
+                          ? 'bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.65)]'
+                          : 'bg-cyan-400/85 shadow-[0_0_6px_rgba(6,182,212,0.35)]'
+                        : isPlayed
+                        ? 'bg-white/65'
+                        : 'bg-white/35'
                     }`}
-                    style={{ height: `${h}%` }}
+                    style={{
+                      height: `${Math.max(12, h * (isOverlapped && settings.volume === 'cut' && localOverlapPos > 0.84 ? 0.25 : 1))}%`,
+                    }}
                   />
                 );
               })}
 
-              {/* Outgoing fade envelope line */}
-              <div 
-                className="absolute inset-0 pointer-events-none border-b-2 border-cyan-400/60"
-                style={{
-                  clipPath: 'polygon(50% 10%, 100% 90%, 100% 100%, 50% 100%)',
-                  background: 'linear-gradient(to bottom, rgba(6,182,212,0.12), transparent)'
-                }}
-              />
+              {/* Dynamic Outgoing SVG Volume/Filter Envelope Overlay on Overlap Region */}
+              <div
+                className="absolute top-0 bottom-0 right-0 pointer-events-none"
+                style={{ width: `${overlapFraction * 100}%` }}
+              >
+                <svg
+                  viewBox="0 0 200 72"
+                  preserveAspectRatio="none"
+                  className="w-full h-full overflow-visible"
+                >
+                  <defs>
+                    <linearGradient id="outEnvGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.24" />
+                      <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  <path d={envelopeSvg.outAreaPath} fill="url(#outEnvGrad)" />
+                  <polyline
+                    fill="none"
+                    stroke="#22d3ee"
+                    strokeWidth="2.2"
+                     points={envelopeSvg.outLinePoints}
+                  />
+                </svg>
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-cyan-400/75 rounded-full" />
+              </div>
             </div>
 
-            {/* Middle Floating Overlap Action Bar (Play button & Duration pill) */}
-            <div className="relative my-2 flex items-center justify-center gap-3">
+            {/* 2. CENTER CONTROLS: Play Button + Bars Dropdown + Tempo Sync / Telemetry */}
+            <div
+              className="relative my-2.5 flex items-center justify-center gap-2.5 z-20"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {/* Play / Pause Preview Button */}
               <button
                 onClick={handleTogglePreview}
                 disabled={audioLoading}
-                className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer relative"
-                title={isPlayingPreview ? 'Hentikan Preview Audisi' : 'Audisi Transisi Lagu Nyata'}
+                className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-[0_0_24px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all cursor-pointer relative"
+                title={
+                  isPlayingPreview
+                    ? 'Hentikan Audisi Transisi'
+                    : 'Putar Audisi Transisi Real-Time'
+                }
               >
                 {audioLoading ? (
                   <RefreshCw className="w-5 h-5 text-black animate-spin" />
@@ -910,82 +1030,249 @@ export default function SpotifyTransitionModal({
                 )}
               </button>
 
-              {/* Bars Selector Pill */}
+              {/* Bars Selector Pill (1 bar, 2 bars, 4 bars, 8 bars) */}
               <div className="relative">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveDropdown(activeDropdown === 'bars' ? null : 'bars');
                   }}
-                  className="px-3.5 py-1.5 rounded-full bg-[#262832] hover:bg-[#323542] border border-white/10 text-xs font-bold text-white flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                  className="px-3.5 py-1.5 rounded-full bg-[#262832] hover:bg-[#323542] border border-white/15 text-xs font-bold text-white flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
                 >
                   <span>{settings.bars || '2 bars'}</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">
+                    ({barStats.durationSec}s)
+                  </span>
                   <ChevronDown className="w-3.5 h-3.5 text-white/70" />
                 </button>
 
                 {activeDropdown === 'bars' && (
-                  <div 
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-36 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
+                  <div
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {durationOptions.map((opt) => (
                       <button
                         key={opt.label}
                         onClick={() => {
-                          setSettings(prev => ({ ...prev, bars: opt.label, durationSec: opt.dur }));
+                          setSettings((prev) => ({
+                            ...prev,
+                            bars: opt.label,
+                            durationSec: opt.dur,
+                          }));
                           setActiveDropdown(null);
                         }}
                         className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center justify-between hover:bg-white/10 transition-colors ${
-                          settings.bars === opt.label ? 'text-emerald-400' : 'text-white'
+                          settings.bars === opt.label
+                            ? 'text-emerald-400'
+                            : 'text-white'
                         }`}
                       >
-                        <span>{opt.label}</span>
-                        {settings.bars === opt.label && <Check className="w-3.5 h-3.5" />}
+                        <div>
+                          <span>{opt.label}</span>
+                          <span className="text-[10px] text-white/45 ml-1.5 font-mono">
+                            {opt.dur}s • {opt.beats} beats
+                          </span>
+                        </div>
+                        {settings.bars === opt.label && (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
+
+              {/* Tempo Sync Pill */}
+              <button
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    tempoSync: prev.tempoSync === false,
+                  }))
+                }
+                className={`px-2.5 py-1.5 rounded-full border text-[10px] font-bold flex items-center gap-1 transition-all ${
+                  settings.tempoSync !== false
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                }`}
+                title="Sinkronisasi Tempo Otomatis (Beatmatch)"
+              >
+                <Zap className="w-3 h-3" />
+                <span>Sync</span>
+              </button>
+
+              {/* Cue Offset Fine-Tuner Toggle */}
+              <button
+                onClick={() => setShowCueControls((v) => !v)}
+                className={`p-1.5 rounded-full border text-[10px] transition-all ${
+                  showCueControls
+                    ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300'
+                    : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                }`}
+                title="Atur Titik Cue Outro & Intro"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            {/* Bottom Waveform (Incoming track intro) */}
-            <div className="relative h-20 flex items-center justify-between gap-[2px] opacity-85">
+            {/* Optional Cue Point Nudge Bar */}
+            {showCueControls && (
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="mb-2.5 px-2.5 py-1.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between text-[10px] text-white/80"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-cyan-300 font-bold">Cue Outro:</span>
+                  <button
+                    onClick={() =>
+                      setSettings((p) => ({
+                        ...p,
+                        outroOffsetSec: Math.max(-8, (Number(p.outroOffsetSec) || 0) - 1),
+                      }))
+                    }
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                  >
+                    -1s
+                  </button>
+                  <span className="font-mono w-7 text-center">
+                    {(Number(settings.outroOffsetSec) || 0) >= 0
+                      ? `+${Number(settings.outroOffsetSec) || 0}s`
+                      : `${Number(settings.outroOffsetSec)}s`}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setSettings((p) => ({
+                        ...p,
+                        outroOffsetSec: Math.min(8, (Number(p.outroOffsetSec) || 0) + 1),
+                      }))
+                    }
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                  >
+                    +1s
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-fuchsia-300 font-bold">Cue Intro:</span>
+                  <button
+                    onClick={() =>
+                      setSettings((p) => ({
+                        ...p,
+                        introOffsetSec: Math.max(0, (Number(p.introOffsetSec) || 0) - 1),
+                      }))
+                    }
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                  >
+                    -1s
+                  </button>
+                  <span className="font-mono w-7 text-center">
+                    +{Math.max(0, Number(settings.introOffsetSec) || 0)}s
+                  </span>
+                  <button
+                    onClick={() =>
+                      setSettings((p) => ({
+                        ...p,
+                        introOffsetSec: Math.min(15, (Number(p.introOffsetSec) || 0) + 1),
+                      }))
+                    }
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                  >
+                    +1s
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 3. BOTTOM WAVEFORM: Incoming Track (Purple Overlap Zone -> Grey Body) */}
+            <div className="relative h-20 flex items-center justify-between gap-[2px]">
               {bottomWaveformBars.map((h, i) => {
-                const isOverlapped = i < 28;
+                const ratio = i / bottomWaveformBars.length;
+                const isOverlapped = ratio <= overlapFraction;
+                const isPlayed = isPlayingPreview && previewProgress >= ratio;
+
                 return (
                   <div
                     key={`bottom-${i}`}
-                    className={`flex-1 rounded-full transition-all duration-150 ${
-                      isOverlapped ? 'bg-fuchsia-400/80 shadow-[0_0_8px_rgba(232,121,249,0.4)]' : 'bg-white/40'
+                    className={`flex-1 rounded-full transition-all duration-100 ${
+                      isOverlapped
+                        ? isPlayed
+                          ? 'bg-fuchsia-300 shadow-[0_0_10px_rgba(232,121,249,0.65)]'
+                          : 'bg-fuchsia-500/85 shadow-[0_0_6px_rgba(217,70,239,0.35)]'
+                        : isPlayed
+                        ? 'bg-white/65'
+                        : 'bg-white/35'
                     }`}
                     style={{ height: `${h}%` }}
                   />
                 );
               })}
 
-              {/* Incoming fade envelope line */}
-              <div 
-                className="absolute inset-0 pointer-events-none border-t-2 border-fuchsia-400/60"
-                style={{
-                  clipPath: 'polygon(0% 90%, 50% 10%, 50% 0%, 0% 0%)',
-                  background: 'linear-gradient(to top, rgba(232,121,249,0.12), transparent)'
-                }}
-              />
+              {/* Dynamic Incoming SVG Volume/Filter Envelope Overlay on Overlap Region */}
+              <div
+                className="absolute top-0 bottom-0 left-0 pointer-events-none"
+                style={{ width: `${overlapFraction * 100}%` }}
+              >
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-fuchsia-400/75 rounded-full" />
+                <svg
+                  viewBox="0 0 200 72"
+                  preserveAspectRatio="none"
+                  className="w-full h-full overflow-visible"
+                >
+                  <defs>
+                    <linearGradient id="inEnvGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#e879f9" stopOpacity="0.24" />
+                      <stop offset="100%" stopColor="#e879f9" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  <path d={envelopeSvg.inAreaPath} fill="url(#inEnvGrad)" />
+                  <polyline
+                    fill="none"
+                    stroke="#e879f9"
+                    strokeWidth="2.2"
+                    points={envelopeSvg.inLinePoints}
+                  />
+                </svg>
+              </div>
             </div>
 
-            {/* Live Playback Sweep Indicator */}
+            {/* Live DSP Telemetry Overlay while Auditioning */}
+            {isPlayingPreview && liveTelemetry?.envelope && (
+              <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/75">
+                <span className="text-cyan-300">
+                  Deck A: {Math.round(liveTelemetry.envelope.outGain * 100)}%
+                  {settings.effect === 'high_pass' &&
+                    ` • HPF ${Math.round(liveTelemetry.envelope.outFilterFreqHz)}Hz`}
+                  {settings.effect === 'low_pass' &&
+                    ` • LPF ${Math.round(liveTelemetry.envelope.outFilterFreqHz)}Hz`}
+                </span>
+                <span className="text-emerald-400 font-bold uppercase">
+                  {liveTelemetry.phase === 'lead_in'
+                    ? 'OUTRO SOLO'
+                    : liveTelemetry.phase === 'overlap'
+                    ? `MIXING (${Math.round(liveTelemetry.overlapProgress * 100)}%)`
+                    : 'INTRO SOLO'}
+                </span>
+                <span className="text-fuchsia-300">
+                  Deck B: {Math.round(liveTelemetry.envelope.inGain * 100)}% •{' '}
+                  {liveTelemetry.envelope.inPlaybackRate}x
+                </span>
+              </div>
+            )}
+
+            {/* Live Playhead Sweep Line */}
             {isPlayingPreview && (
-              <div 
-                className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 shadow-[0_0_12px_#34d399] pointer-events-none transition-all duration-75 z-20"
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 shadow-[0_0_12px_#34d399] pointer-events-none z-20"
                 style={{ left: `${previewProgress * 100}%` }}
               />
             )}
           </div>
 
-          {/* Incoming Track (Track 2) */}
-          <div 
+          {/* Incoming Track Row (Deck B) */}
+          <div
             onClick={() => setPickerTarget('incoming')}
-            className="flex items-center justify-between gap-3 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors"
+            className="flex items-center justify-between gap-2.5 bg-white/[0.03] hover:bg-white/[0.06] p-2.5 rounded-xl border border-white/5 cursor-pointer transition-colors group"
           >
             <div className="flex items-center gap-3 min-w-0">
               <img
@@ -994,30 +1281,35 @@ export default function SpotifyTransitionModal({
                 className="w-11 h-11 rounded-lg object-cover bg-neutral-800 shadow-md flex-shrink-0"
               />
               <div className="min-w-0">
-                <h4 className="text-xs sm:text-sm font-bold text-white truncate max-w-[170px] sm:max-w-[200px]">
+                <h4 className="text-xs sm:text-sm font-bold text-white truncate max-w-[165px] sm:max-w-[195px] group-hover:text-fuchsia-300 transition-colors">
                   {incoming.title}
                 </h4>
-                <p className="text-[11px] text-[#a1a1aa] truncate max-w-[170px] sm:max-w-[200px]">
+                <p className="text-[11px] text-[#a1a1aa] truncate max-w-[165px] sm:max-w-[195px]">
                   {incoming.artist}
                 </p>
               </div>
             </div>
 
-            <div className="text-right flex-shrink-0 flex items-center gap-2">
-              <span className="text-xs text-white/80 font-mono font-medium">
+            <div className="text-right flex-shrink-0 flex items-center gap-1.5 sm:gap-2">
+              <span className="text-xs text-white/85 font-mono font-semibold">
                 {incoming.bpm} bpm
               </span>
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${getCamelotBadgeColor(incoming.key)}`}>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-black ${getCamelotBadgeColor(
+                  incoming.key
+                )}`}
+              >
                 {incoming.key}
               </span>
               <span className="text-xs text-[#a1a1aa] tabular-nums font-mono">
                 {formatMinSec(incoming.duration)}
               </span>
-
-              {/* Button to Change Incoming Song */}
               <button
-                onClick={() => setPickerTarget('incoming')}
-                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white/90 hover:text-white transition-all ml-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPickerTarget('incoming');
+                }}
+                className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white/90 hover:text-white transition-all"
                 title="Ganti Lagu Masuk"
               >
                 Ganti
@@ -1025,10 +1317,9 @@ export default function SpotifyTransitionModal({
             </div>
           </div>
 
-          {/* 3. Bottom Settings Dock (3 Dropdowns: Volume | EQ | Effects) */}
+          {/* 3. Bottom Settings Dock (3 Dropdowns: VOLUME | EQ | EFFECTS) */}
           <div className="rounded-2xl bg-[#181a22] border border-white/[0.08] p-3 grid grid-cols-3 gap-2">
-            
-            {/* Column 1: Volume */}
+            {/* Column 1: VOLUME */}
             <div className="relative">
               <label className="text-[10px] font-bold uppercase tracking-wider text-white/40 block mb-1">
                 Volume
@@ -1041,32 +1332,35 @@ export default function SpotifyTransitionModal({
                 className="w-full py-2 px-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-bold text-white flex items-center justify-between transition-colors"
               >
                 <span className="truncate">
-                  {volumeOptions.find(o => o.id === settings.volume)?.label || 'Overlap'}
+                  {TRANSITION_VOLUME_OPTIONS.find((o) => o.id === settings.volume)?.label ||
+                    'Overlap'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-white/60 flex-shrink-0" />
               </button>
 
               {activeDropdown === 'volume' && (
-                <div 
-                  className="absolute bottom-full left-0 mb-2 w-44 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
+                <div
+                  className="absolute bottom-full left-0 mb-2 w-52 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {volumeOptions.map((opt) => (
+                  {TRANSITION_VOLUME_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
                       onClick={() => {
-                        setSettings(prev => ({ ...prev, volume: opt.id }));
+                        setSettings((prev) => ({ ...prev, volume: opt.id }));
                         setActiveDropdown(null);
                       }}
                       className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center justify-between hover:bg-white/10 transition-colors ${
                         settings.volume === opt.id ? 'text-emerald-400' : 'text-white'
                       }`}
                     >
-                      <div>
+                      <div className="pr-2">
                         <div>{opt.label}</div>
                         <div className="text-[10px] text-white/50">{opt.desc}</div>
                       </div>
-                      {settings.volume === opt.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      {settings.volume === opt.id && (
+                        <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1086,39 +1380,42 @@ export default function SpotifyTransitionModal({
                 className="w-full py-2 px-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-bold text-white flex items-center justify-between transition-colors"
               >
                 <span className="truncate">
-                  {eqOptions.find(o => o.id === settings.eq)?.label || 'None'}
+                  {TRANSITION_EQ_OPTIONS.find((o) => o.id === settings.eq)?.label ||
+                    'None'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-white/60 flex-shrink-0" />
               </button>
 
               {activeDropdown === 'eq' && (
-                <div 
-                  className="absolute bottom-full left-0 mb-2 w-48 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
+                <div
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {eqOptions.map((opt) => (
+                  {TRANSITION_EQ_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
                       onClick={() => {
-                        setSettings(prev => ({ ...prev, eq: opt.id }));
+                        setSettings((prev) => ({ ...prev, eq: opt.id }));
                         setActiveDropdown(null);
                       }}
                       className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center justify-between hover:bg-white/10 transition-colors ${
                         settings.eq === opt.id ? 'text-emerald-400' : 'text-white'
                       }`}
                     >
-                      <div>
+                      <div className="pr-2">
                         <div>{opt.label}</div>
                         <div className="text-[10px] text-white/50">{opt.desc}</div>
                       </div>
-                      {settings.eq === opt.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      {settings.eq === opt.id && (
+                        <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                      )}
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Column 3: Effects */}
+            {/* Column 3: EFFECTS */}
             <div className="relative">
               <label className="text-[10px] font-bold uppercase tracking-wider text-white/40 block mb-1">
                 Effects
@@ -1131,42 +1428,53 @@ export default function SpotifyTransitionModal({
                 className="w-full py-2 px-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-xs font-bold text-white flex items-center justify-between transition-colors"
               >
                 <span className="truncate">
-                  {effectOptions.find(o => o.id === settings.effect)?.label || 'High pass fi...'}
+                  {TRANSITION_EFFECT_OPTIONS.find((o) => o.id === settings.effect)
+                    ?.label || 'High pass filter'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-white/60 flex-shrink-0" />
               </button>
 
               {activeDropdown === 'effect' && (
-                <div 
-                  className="absolute bottom-full right-0 mb-2 w-52 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
+                <div
+                  className="absolute bottom-full right-0 mb-2 w-56 bg-[#20222a] border border-white/15 rounded-xl shadow-2xl py-1 z-30 overflow-hidden"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {effectOptions.map((opt) => (
+                  {TRANSITION_EFFECT_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
                       onClick={() => {
-                        setSettings(prev => ({ ...prev, effect: opt.id }));
+                        setSettings((prev) => ({ ...prev, effect: opt.id }));
                         setActiveDropdown(null);
                       }}
                       className={`w-full px-3 py-2 text-left text-xs font-semibold flex items-center justify-between hover:bg-white/10 transition-colors ${
                         settings.effect === opt.id ? 'text-emerald-400' : 'text-white'
                       }`}
                     >
-                      <div>
+                      <div className="pr-2">
                         <div>{opt.label}</div>
                         <div className="text-[10px] text-white/50">{opt.desc}</div>
                       </div>
-                      {settings.effect === opt.id && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      {settings.effect === opt.id && (
+                        <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                      )}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-
           </div>
 
+          {/* 4. Live Player Test Button (Play Outgoing -> Incoming Transition directly in Main Player) */}
+          <button
+            onClick={handleTestLiveInPlayer}
+            className="w-full py-2.5 px-4 rounded-xl bg-white/[0.06] hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/40 text-xs font-bold text-white hover:text-emerald-300 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+          >
+            <Radio className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              Simpan &amp; Uji Langsung di Player Utama ({outgoing.title} ⇄ {incoming.title})
+            </span>
+          </button>
         </div>
-
       </div>
     </div>
   );

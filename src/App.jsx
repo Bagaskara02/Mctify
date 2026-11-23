@@ -28,6 +28,7 @@ import { musicApi, getHighResArtworkUrl } from './services/musicApi';
 import { lyricsService } from './services/lyricsService';
 import { buildSpotifyShuffleDeck } from './utils/shuffle';
 import { parseUrlSyncParams, generateUrlSyncLink, formatPlaybackSeconds } from './utils/urlSync';
+import { computeTrackBpmAndKey, computeBarDurationSec } from './services/transitionEngine';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -106,6 +107,8 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isSleepTimerModalOpen, setIsSleepTimerModalOpen] = useState(false);
   const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
+  const [transitionRevision, setTransitionRevision] = useState(0);
+  const [liveTransitionState, setLiveTransitionState] = useState(null);
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState(null); // null | number | 'endOfTrack'
   const sleepTimerIntervalRef = useRef(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -1370,6 +1373,168 @@ export default function App() {
   const likedTrackIds = new Set(likedTracks.map(t => t.id));
   const activePlaylist = playlists.find(p => p.id === selectedPlaylistId);
 
+  // Determine the upcoming track in queue for Dual-Deck pre-cueing & transition config
+  const nextQueuedTrack = (() => {
+    if (currentTrack && queue.length > 0) {
+      const idx = findTrackIndexInQueue(currentTrack, queue);
+      if (idx !== -1 && idx + 1 < queue.length) return queue[idx + 1];
+      if (repeatMode === 'all' && queue.length > 1) return queue[0];
+    }
+    if (!currentTrack && queue.length > 1) return queue[1];
+    return null;
+  })();
+
+  const activeTransitionConfig = (() => {
+    // Reference transitionRevision so React re-computes immediately after Save in SpotifyTransitionModal
+    void transitionRevision;
+    const pairCfg = storageService.getTransitionForPair(currentTrack, nextQueuedTrack);
+    const metaA = computeTrackBpmAndKey(currentTrack);
+    const metaB = computeTrackBpmAndKey(nextQueuedTrack);
+    const barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, pairCfg.bars || '2 bars');
+    return {
+      ...pairCfg,
+      durationSec: barStats.durationSec,
+      bpmA: metaA.bpm,
+      bpmB: metaB.bpm,
+      keyA: metaA.key,
+      keyB: metaB.key,
+    };
+  })();
+
+  // Align queue so incomingTrack is positioned immediately after outgoingTrack and pre-resolved
+  const alignQueueForTransitionPair = async (outgoingTrack, incomingTrack) => {
+    if (!outgoingTrack || !incomingTrack) return { outTrack: outgoingTrack, inTrack: incomingTrack };
+
+    let outResolved = {
+      ...outgoingTrack,
+      artwork: getHighResArtworkUrl(outgoingTrack.artwork || outgoingTrack.thumbnail),
+    };
+    let inResolved = {
+      ...incomingTrack,
+      artwork: getHighResArtworkUrl(incomingTrack.artwork || incomingTrack.thumbnail),
+    };
+
+    const baseQueue = queueRef.current.length > 0 ? [...queueRef.current] : [];
+    const filtered = baseQueue.filter(
+      (t) => t.id !== inResolved.id && (!inResolved.videoId || t.videoId !== inResolved.videoId)
+    );
+    let outIdx = findTrackIndexInQueue(outResolved, filtered);
+    if (outIdx === -1) {
+      filtered.unshift(outResolved);
+      outIdx = 0;
+    } else {
+      outResolved = { ...filtered[outIdx], ...outResolved };
+      filtered[outIdx] = outResolved;
+    }
+    filtered.splice(outIdx + 1, 0, inResolved);
+
+    queueRef.current = filtered;
+    setQueue(filtered);
+    setOriginalQueue(filtered);
+
+    // Pre-resolve incomingTrack videoId immediately so standby Deck B cues it
+    if (!inResolved.videoId) {
+      musicApi
+        .resolveYouTubeMatch(inResolved.title, inResolved.artist, inResolved.duration)
+        .then((yt) => {
+          if (yt && yt.videoId) {
+            const enrichedIn = {
+              ...inResolved,
+              videoId: yt.videoId,
+              duration: yt.duration || inResolved.duration,
+              artwork: yt.thumbnail ? getHighResArtworkUrl(yt.thumbnail) : inResolved.artwork,
+            };
+            setQueue((prev) => {
+              const next = prev.map((it) => (it.id === inResolved.id ? enrichedIn : it));
+              queueRef.current = next;
+              return next;
+            });
+            setOriginalQueue((prev) =>
+              prev.map((it) => (it.id === inResolved.id ? enrichedIn : it))
+            );
+          }
+        })
+        .catch(() => {});
+    }
+
+    return { outTrack: outResolved, inTrack: inResolved, updatedQueue: filtered };
+  };
+
+  // Seamless Dual-Deck Transition Completion Handler (Deck B is already playing incomingVid!)
+  const handleDualDeckTransitionComplete = (incomingVid) => {
+    const activeTrack = currentTrackRef.current;
+    const liveQueue = queueRef.current;
+    if (activeTrack) {
+      storageService.recordTrackComplete(activeTrack);
+      const endedKey = `${activeTrack.id || ''}__${activeTrack.videoId || ''}`;
+      lastEndedRef.current = { key: endedKey, at: Date.now() };
+    }
+
+    const currentIndex = findTrackIndexInQueue(activeTrack, liveQueue);
+    let targetTrack =
+      (incomingVid && liveQueue.find((t) => t.videoId === incomingVid)) ||
+      (currentIndex !== -1 && currentIndex + 1 < liveQueue.length
+        ? liveQueue[currentIndex + 1]
+        : null);
+
+    if (!targetTrack) {
+      handleNext(true);
+      return;
+    }
+
+    ++playGenRef.current;
+    const hdTrack = {
+      ...targetTrack,
+      videoId: incomingVid || targetTrack.videoId,
+      artwork: getHighResArtworkUrl(targetTrack.artwork || targetTrack.thumbnail),
+    };
+    setSeekTime(null);
+    currentTrackRef.current = hdTrack;
+    setCurrentTrack(hdTrack);
+    setDuration(hdTrack.duration || 210);
+    setIsPlaying(true);
+
+    storageService.addToHistory(hdTrack);
+    setHistoryTracks(storageService.getHistory());
+    setSmartToast(
+      `Transisi Mulus (${activeTransitionConfig.bars} • ${activeTransitionConfig.volume}) → ${hdTrack.title}`
+    );
+    setTimeout(() => setSmartToast(null), 3200);
+  };
+
+  const handleSaveTransition = async (saved) => {
+    setTransitionRevision((r) => r + 1);
+    if (saved?.outgoingTrack && saved?.incomingTrack) {
+      await alignQueueForTransitionPair(saved.outgoingTrack, saved.incomingTrack);
+      if (!currentTrackRef.current) {
+        handlePlayTrack(saved.outgoingTrack);
+      }
+    }
+    setSmartToast(
+      `Transisi disimpan: ${saved.bars} (${saved.durationSec}s) • ${saved.volume} • ${saved.effect}`
+    );
+    setTimeout(() => setSmartToast(null), 3500);
+  };
+
+  const handleTestLiveTransition = async (saved) => {
+    setTransitionRevision((r) => r + 1);
+    if (!saved?.outgoingTrack || !saved?.incomingTrack) return;
+
+    const { outTrack, updatedQueue } = await alignQueueForTransitionPair(
+      saved.outgoingTrack,
+      saved.incomingTrack
+    );
+    const outDur = Number(outTrack.duration) || 180;
+    const overlapSec = Number(saved.durationSec) || 5.5;
+    const testStartSec = Math.max(5, Math.floor(outDur - (overlapSec + 6)));
+
+    await handlePlayTrack(outTrack, updatedQueue, testStartSec);
+    setSmartToast(
+      `Menguji Transisi Live (${saved.bars} • ${saved.volume}): Transisi dimulai dalam ~6 detik...`
+    );
+    setTimeout(() => setSmartToast(null), 4500);
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-black text-white select-none">
       {/* Smart Radio Toast Notification */}
@@ -1396,9 +1561,16 @@ export default function App() {
         onOpenImportYouTube={() => setIsYouTubeModalOpen(true)}
       />
 
-      {/* Primary YouTube Player Engine - Always mounted for continuous background auto-advance */}
+      {/* Primary Dual-Deck YouTube Player Engine - Always mounted for continuous background auto-advance & live crossfading */}
       <YouTubePlayer
         videoId={currentTrack?.videoId}
+        nextVideoId={nextQueuedTrack?.videoId || null}
+        transitionConfig={activeTransitionConfig}
+        canAutoTransition={
+          repeatMode !== 'one' &&
+          sleepTimerSeconds !== 'endOfTrack' &&
+          Boolean(nextQueuedTrack?.videoId)
+        }
         isPlaying={isPlaying}
         volume={volume}
         isMuted={isMuted}
@@ -1411,6 +1583,8 @@ export default function App() {
           }
         }}
         onEnded={handleEnded}
+        onTransitionStateChange={setLiveTransitionState}
+        onTransitionComplete={handleDualDeckTransitionComplete}
         onError={handleYouTubeError}
       />
 
@@ -1695,6 +1869,7 @@ export default function App() {
           onToggleAudioQuality={() => setIsAudioQualityOpen(!isAudioQualityOpen)}
           onOpenTransitionModal={() => setIsTransitionModalOpen(true)}
           isTransitionModalOpen={isTransitionModalOpen}
+          liveTransitionState={liveTransitionState}
           onTrackContextMenu={handleTrackContextMenu}
           onShareTrack={() => currentTrack && handleCopyShare(currentTrack)}
         />
@@ -1765,6 +1940,11 @@ export default function App() {
         isPlaying={isPlaying}
         onPlayTrack={handlePlayTrack}
         onClearQueue={() => setQueue(currentTrack ? [currentTrack] : [])}
+        onOpenTransitionModal={() => {
+          setIsQueueOpen(false);
+          setIsTransitionModalOpen(true);
+        }}
+        transitionConfig={activeTransitionConfig}
       />
 
       {/* --- IMPORT PLAYLIST MODAL --- */}
@@ -1832,24 +2012,19 @@ export default function App() {
         isOpen={isTransitionModalOpen}
         onClose={() => setIsTransitionModalOpen(false)}
         currentTrack={currentTrack || queue[0] || personalizedFeed?.quickCards?.[0] || trendingTracks[0] || null}
-        nextTrack={(() => {
-          if (currentTrack && queue.length > 0) {
-            const idx = findTrackIndexInQueue(currentTrack, queue);
-            if (idx !== -1 && idx + 1 < queue.length) return queue[idx + 1];
-          }
-          if (queue.length > 1) return queue[1];
-          if (personalizedFeed?.quickCards?.length > 1) return personalizedFeed.quickCards[1];
-          if (trendingTracks.length > 1) return trendingTracks[1];
-          return null;
-        })()}
+        nextTrack={
+          nextQueuedTrack ||
+          (queue.length > 1 ? queue[1] : null) ||
+          (personalizedFeed?.quickCards?.length > 1 ? personalizedFeed.quickCards[1] : null) ||
+          (trendingTracks.length > 1 ? trendingTracks[1] : null) ||
+          null
+        }
         queue={queue}
         likedTracks={likedTracks}
         trendingTracks={trendingTracks}
         onPlayTrack={handlePlayTrack}
-        onSaveTransition={(saved) => {
-          setSmartToast(`Transisi disimpan: ${saved.bars} • ${saved.volume}`);
-          setTimeout(() => setSmartToast(null), 3500);
-        }}
+        onSaveTransition={handleSaveTransition}
+        onTestLiveTransition={handleTestLiveTransition}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}

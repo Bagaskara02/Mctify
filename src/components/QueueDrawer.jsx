@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Play, Sparkles, Music, Trash2 } from 'lucide-react';
+import { X, Play, Sparkles, Music, Trash2, Wand2 } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
 export default function QueueDrawer({
@@ -10,6 +10,8 @@ export default function QueueDrawer({
   isPlaying,
   onPlayTrack,
   onClearQueue,
+  onOpenTransitionModal,
+  transitionConfig = null,
 }) {
   if (!isOpen) return null;
 
@@ -87,6 +89,29 @@ export default function QueueDrawer({
                 </div>
               )}
             </div>
+
+            {/* Interactive Transition Connector Pill between Current Track & Up Next */}
+            {upNextTracks.length > 0 && onOpenTransitionModal && (
+              <div className="mt-2.5 flex items-center justify-center">
+                <button
+                  onClick={() => {
+                    onOpenTransitionModal();
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-bold text-emerald-300 flex items-center justify-between transition-all group"
+                >
+                  <div className="flex items-center gap-2">
+                    <Wand2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Edit transition</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-emerald-500/25 text-emerald-300">
+                      BETA
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-white/70 group-hover:text-white">
+                    {transitionConfig?.bars || '2 bars'} • {transitionConfig?.volume || 'overlap'}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

@@ -574,34 +574,98 @@ export const storageService = {
   },
 
   getTransitionSettings() {
+    const defaults = {
+      bars: '2 bars',
+      durationSec: 5.5,
+      volume: 'overlap',
+      eq: 'none',
+      effect: 'high_pass',
+      tempoSync: true,
+      outroOffsetSec: 0,
+      introOffsetSec: 0,
+      enabled: true,
+    };
     try {
       const saved = localStorage.getItem('mcmusic_transition_settings_v1');
-      if (saved) return JSON.parse(saved);
-      return {
-        bars: '2 bars',
-        durationSec: 5.5,
-        volume: 'overlap',
-        eq: 'none',
-        effect: 'high_pass',
-        enabled: true,
-      };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...defaults, ...parsed };
+      }
+      return defaults;
     } catch {
-      return {
-        bars: '2 bars',
-        durationSec: 5.5,
-        volume: 'overlap',
-        eq: 'none',
-        effect: 'high_pass',
-        enabled: true,
-      };
+      return defaults;
     }
   },
 
   saveTransitionSettings(settings) {
     try {
-      localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify(settings));
+      const current = this.getTransitionSettings();
+      const merged = { ...current, ...settings };
+      localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify(merged));
+      return merged;
     } catch (e) {
       console.error('Failed to save transition settings', e);
+      return settings;
     }
+  },
+
+  _makeTransitionPairKey(outgoingTrack, incomingTrack) {
+    const keyOf = (t) => {
+      if (!t) return '';
+      if (t.videoId) return `vid:${t.videoId}`;
+      if (t.id) return `id:${t.id}`;
+      return `ta:${String(t.title || '').toLowerCase().trim()}__${String(t.artist || '').toLowerCase().trim()}`;
+    };
+    const k1 = keyOf(outgoingTrack);
+    const k2 = keyOf(incomingTrack);
+    return k1 && k2 ? `${k1}>>>${k2}` : '';
+  },
+
+  getTransitionForPair(outgoingTrack, incomingTrack) {
+    const base = this.getTransitionSettings();
+    const pairKey = this._makeTransitionPairKey(outgoingTrack, incomingTrack);
+    if (!pairKey) return base;
+    try {
+      const raw = localStorage.getItem('mcmusic_transition_pairs_v1');
+      if (!raw) return base;
+      const map = JSON.parse(raw);
+      if (map && typeof map === 'object' && map[pairKey]) {
+        return { ...base, ...map[pairKey], isCustomPair: true };
+      }
+    } catch (_) {}
+    return base;
+  },
+
+  saveTransitionForPair(outgoingTrack, incomingTrack, settings) {
+    const cleanSettings = {
+      bars: settings.bars || '2 bars',
+      durationSec: Number(settings.durationSec) || 5.5,
+      volume: settings.volume || 'overlap',
+      eq: settings.eq || 'none',
+      effect: settings.effect || 'high_pass',
+      tempoSync: settings.tempoSync !== false,
+      outroOffsetSec: Number(settings.outroOffsetSec) || 0,
+      introOffsetSec: Number(settings.introOffsetSec) || 0,
+      enabled: settings.enabled !== false,
+      updatedAt: Date.now(),
+    };
+    this.saveTransitionSettings(cleanSettings);
+    const pairKey = this._makeTransitionPairKey(outgoingTrack, incomingTrack);
+    if (!pairKey) return cleanSettings;
+    try {
+      const raw = localStorage.getItem('mcmusic_transition_pairs_v1');
+      const map = raw ? JSON.parse(raw) : {};
+      map[pairKey] = cleanSettings;
+      // Keep most recent 100 custom track-pair transitions
+      const keys = Object.keys(map);
+      if (keys.length > 100) {
+        keys
+          .sort((a, b) => (map[a]?.updatedAt || 0) - (map[b]?.updatedAt || 0))
+          .slice(0, keys.length - 100)
+          .forEach((k) => delete map[k]);
+      }
+      localStorage.setItem('mcmusic_transition_pairs_v1', JSON.stringify(map));
+    } catch (_) {}
+    return cleanSettings;
   },
 };

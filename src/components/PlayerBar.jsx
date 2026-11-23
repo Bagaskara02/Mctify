@@ -63,6 +63,7 @@ export default function PlayerBar({
   onToggleAudioQuality,
   onOpenTransitionModal,
   isTransitionModalOpen,
+  liveTransitionState = null,
   onTrackContextMenu,
   onShareTrack,
 }) {
@@ -499,15 +500,23 @@ export default function PlayerBar({
         {/* Spotify Transition Songs Trigger (Edit transition Beta) */}
         <button
           onClick={onOpenTransitionModal}
-          className={`hidden 2xl:block p-2 rounded-full transition-all active:scale-95 relative ${
-            isTransitionModalOpen
+          className={`hidden sm:flex items-center gap-1 p-1.5 sm:p-2 rounded-full transition-all active:scale-95 relative shrink-0 ${
+            liveTransitionState?.active
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-2.5'
+              : isTransitionModalOpen
               ? 'text-emerald-400'
               : 'text-[#b3b3b3] hover:text-emerald-400'
           }`}
-          title="Edit transition (Beta) - Spotify Transition Songs"
+          title="Edit transition (Beta) - Spotify Dual-Deck Automix"
         >
-          <Wand2 className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <Wand2 className={`w-4 h-4 ${liveTransitionState?.active ? 'animate-spin' : ''}`} />
+          {liveTransitionState?.active ? (
+            <span className="text-[10px] font-black font-mono text-emerald-300">
+              MIX {Math.round((liveTransitionState.progress || 0) * 100)}%
+            </span>
+          ) : (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          )}
         </button>
 
         {/* Dengarkan Bareng / Share Live URL Trigger */}
