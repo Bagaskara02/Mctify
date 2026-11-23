@@ -29,6 +29,7 @@ export default function YouTubePlayer({
 }) {
   // Dual-deck player instances: index 0 = Deck A, index 1 = Deck B
   const decksRef = useRef([null, null]);
+  const deckReadyRef = useRef([false, false]);
   const activeDeckIdxRef = useRef(0);
   const loadedVidByDeckRef = useRef(['', '']);
   const endedVideoIdRef = useRef('');
@@ -301,8 +302,10 @@ export default function YouTubePlayer({
                   ?.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
               } catch {}
 
+              deckReadyRef.current[deckIdx] = true;
               readyCount += 1;
               if (deckIdx === activeDeckIdxRef.current) {
+                setIsReady(true);
                 window.__mctify_yt_player = event.target;
                 if (isMutedRef.current) {
                   event.target.mute();
@@ -343,10 +346,6 @@ export default function YouTubePlayer({
                   event.target.unMute();
                   event.target.setVolume(0);
                 } catch {}
-              }
-
-              if (readyCount >= 1) {
-                setIsReady(true);
               }
             },
             onStateChange: (event) => {
@@ -447,7 +446,7 @@ export default function YouTubePlayer({
 
     const standbyIdx = getStandbyDeckIdx();
     const standbyPlayer = decksRef.current[standbyIdx];
-    if (!standbyPlayer || typeof standbyPlayer.cueVideoById !== 'function') return;
+    if (!deckReadyRef.current[standbyIdx] || !standbyPlayer || typeof standbyPlayer.cueVideoById !== 'function') return;
 
     if (loadedVidByDeckRef.current[standbyIdx] !== nextVideoId) {
       loadedVidByDeckRef.current[standbyIdx] = nextVideoId;
@@ -701,16 +700,23 @@ export default function YouTubePlayer({
         const activeIdx = activeDeckIdxRef.current;
         const activePlayer = decksRef.current[activeIdx];
         const activeVid = videoIdRef.current;
-        if (!activePlayer || !isPlayingRef.current || !activeVid) return;
+        if (!activePlayer || !activeVid) return;
+
+        const playerState = activePlayer.getPlayerState?.();
+        const isActuallyPlaying =
+          isPlayingRef.current || playerState === window.YT?.PlayerState?.PLAYING;
+        if (!isActuallyPlaying) return;
 
         const url = activePlayer.getVideoUrl?.() || '';
-        if (url && !url.includes(activeVid)) return;
+        if (url && url.includes('v=') && !url.includes(activeVid)) return;
 
         const current = activePlayer.getCurrentTime?.() || 0;
         const dur = activePlayer.getDuration?.() || 0;
-        if (!Number.isFinite(current) || !Number.isFinite(dur) || dur <= 0) return;
+        if (!Number.isFinite(current)) return;
 
-        onTimeUpdateRef.current?.(current, dur);
+        onTimeUpdateRef.current?.(current, Number.isFinite(dur) && dur > 0 ? dur : 0);
+
+        if (!Number.isFinite(dur) || dur <= 0) return;
 
         const cfg = transitionConfigRef.current;
         const transitionEnabled = cfg?.enabled !== false && canAutoTransitionRef.current;
@@ -788,13 +794,19 @@ export default function YouTubePlayer({
       } catch {}
     };
 
+    // Always run primary main-thread 100ms interval so CSP or worker policies can NEVER freeze the clock at 0:00!
+    fallbackTimer = setInterval(pollTime, 100);
+    pollTime();
+
+    // Supplemental Web Worker tick for background-tab resilience when tab is hidden
+    let blobUrl = null;
     try {
       const blob = new Blob(
         [
           `let t = null;
            self.onmessage = (e) => {
              if (e.data === 'start') {
-               if (!t) t = setInterval(() => self.postMessage('tick'), 100);
+               if (!t) t = setInterval(() => self.postMessage('tick'), 250);
              } else if (e.data === 'stop') {
                if (t) { clearInterval(t); t = null; }
              }
@@ -802,23 +814,36 @@ export default function YouTubePlayer({
         ],
         { type: 'application/javascript' }
       );
-      const blobUrl = URL.createObjectURL(blob);
+      blobUrl = URL.createObjectURL(blob);
       worker = new Worker(blobUrl);
-      worker.onmessage = () => pollTime();
+      worker.onmessage = () => {
+        if (document.hidden) pollTime();
+      };
+      worker.onerror = () => {
+        try {
+          worker?.terminate();
+        } catch {}
+        worker = null;
+      };
       worker.postMessage('start');
     } catch {
-      fallbackTimer = setInterval(pollTime, 100);
+      worker = null;
     }
 
     return () => {
+      if (fallbackTimer) {
+        clearInterval(fallbackTimer);
+      }
       if (worker) {
         try {
           worker.postMessage('stop');
           worker.terminate();
         } catch {}
       }
-      if (fallbackTimer) {
-        clearInterval(fallbackTimer);
+      if (blobUrl) {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {}
       }
     };
   }, [isReady, isPlaying, videoId]);

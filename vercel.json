@@ -26,7 +26,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' https://mctify.vercel.app https://lrclib.net https://music.163.com https://lyrist.vercel.app https://itunes.apple.com https://api.deezer.com https://www.youtube.com https://api.allorigins.win https://api.github.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' blob: https://www.youtube.com https://s.ytimg.com; worker-src 'self' blob:; child-src 'self' blob: https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' https: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
         }
       ]
     },
