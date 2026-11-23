@@ -225,19 +225,12 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inGain = 0.0;
 
   if (volumeMode === 'mashup') {
-    // Spotify Automix / DJ Mashup Blend:
-    // Both tracks lock at full energy through the middle phrase while EQ/Filter carves
-    // sub-bass & vocal pockets so they weave together like a live remix mashup!
-    if (p < 0.25) {
-      outGain = 1.0;
-      inGain = 0.25 + 0.75 * Math.sin((p / 0.25) * (Math.PI / 2));
-    } else if (p < 0.72) {
-      outGain = 1.0 - 0.14 * ((p - 0.25) / 0.47);
-      inGain = 1.0;
-    } else {
-      outGain = 0.86 * Math.cos(((p - 0.72) / 0.28) * (Math.PI / 2));
-      inGain = 1.0;
-    }
+    // Authentic Spotify Mix 8-Bar Blend (per TikTok reference):
+    // Outgoing holds 100% full energy across bars 1..8 and drops cleanly at bar 8 end (p > 0.94);
+    // Incoming enters immediately at full energy on bar 1 (p > 0.04) while Yellow Bass Swap &
+    // Pink S-Curve Filter carve frequency space so both songs fuse into a single seamless remix!
+    outGain = p < 0.92 ? 1.0 : Math.cos(((p - 0.92) / 0.08) * (Math.PI / 2));
+    inGain = p < 0.06 ? Math.sin((p / 0.06) * (Math.PI / 2)) : 1.0;
   } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
     // Incoming fades in over 0..55% and stays at 100%
@@ -293,23 +286,23 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inMidDb = 0;
 
   if (volumeMode === 'mashup') {
-    // Mashup automatically applies DJ stem-style pocket carving:
-    // Bar 1-2: Outgoing owns bass, incoming enters with crisp highs/vocals
-    // Bar 3 (p=0.46..0.56): Instant Bass Swap on the downbeat + gentle vocal pocket on outgoing
-    // Bar 4: Outgoing rides high-pass echo tail while incoming drops full low-end
-    if (p < 0.46) {
+    // Authentic Spotify Mix Hard Step Bass Swap at exact 50% midpoint (Bar 4 -> Bar 5):
+    // Bars 1-4: Outgoing owns full sub-bass (0 dB), Incoming bass killed (-20 dB)
+    // Exact Midpoint (p = 0.49..0.51): Vertical step swap! Outgoing bass drops to -20 dB,
+    // Incoming bass jumps to 0 dB (+1.5 dB punch) right on the downbeat of Bar 5!
+    if (p < 0.49) {
       outLowDb = 0;
-      inLowDb = -18;
-      inMidDb = -2.0;
-    } else if (p <= 0.56) {
-      const t = (p - 0.46) / 0.10;
+      inLowDb = -20;
+      inMidDb = -1.5;
+    } else if (p <= 0.51) {
+      const t = (p - 0.49) / 0.02;
       outLowDb = -20 * t;
-      inLowDb = -18 + 20 * t;
+      inLowDb = -20 + 21.5 * t;
       outMidDb = -4.5 * t;
     } else {
       outLowDb = -20;
       inLowDb = 1.5;
-      outMidDb = -6.0;
+      outMidDb = -5.5;
     }
   } else if (eqMode === 'bass_swap') {
     // Swap sub-bass cleanly around p = 0.50
@@ -344,7 +337,24 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let echoFeedback = 0.25;
   let reverbWet = 0;
 
-  if (effectMode === 'high_pass') {
+  if (volumeMode === 'mashup' && effectMode === 'high_pass') {
+    // Authentic Spotify Mix Pink S-Curve Filter Sweep (bars 5..6 smooth S-curve, hold flat bars 7..8)
+    outFilterType = 'highpass';
+    if (p < 0.50) {
+      outFilterFreqHz = 28;
+      outFilterQ = 0.85;
+    } else if (p < 0.78) {
+      // Smooth S-curve (cosine ease-in-out) across bars 5-6
+      const s = 0.5 - 0.5 * Math.cos(((p - 0.50) / 0.28) * Math.PI);
+      outFilterFreqHz = 28 * Math.pow(1850 / 28, s);
+      outFilterQ = 1.0 + 0.75 * s;
+    } else {
+      outFilterFreqHz = 1850;
+      outFilterQ = 1.75;
+    }
+    inFilterType = 'highpass';
+    inFilterFreqHz = p < 0.49 ? 220 : 20;
+  } else if (effectMode === 'high_pass') {
     outFilterType = 'highpass';
     // Exponential sweep 28 Hz -> 2400 Hz
     outFilterFreqHz = 28 * Math.pow(2400 / 28, Math.pow(p, 1.1));
@@ -494,23 +504,46 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
 }
 
 /**
- * Generate SVG polyline points & area path for waveform envelope visualization
+ * Generate SVG polyline points & area path for authentic Spotify Mix 3-curve automation:
+ * 1. Cyan: Volume Envelope (outLinePoints / inLinePoints)
+ * 2. Yellow/Gold: Sub-Bass EQ Swap Step Line (outBassPoints / inBassPoints)
+ * 3. Pink/Magenta: Filter Sweep S-Curve (outFilterPoints)
  */
 export function buildEnvelopeSvgPaths(config = {}, width = 360, height = 76) {
-  const steps = 32;
+  const steps = 40;
   const outPoints = [];
   const inPoints = [];
+  const outBassPoints = [];
+  const inBassPoints = [];
+  const outFilterPoints = [];
 
   for (let i = 0; i <= steps; i++) {
     const p = i / steps;
     const env = evaluateTransitionEnvelope(p, config);
     const x = Number((p * width).toFixed(1));
-    // Top canvas: y=8 is 100% gain, y=height-6 is 0% gain
+    // 1. Cyan Volume curve (y=8 is 100%, y=height-6 is 0%)
     const outY = Number((height - 6 - env.outGain * (height - 14)).toFixed(1));
-    // Bottom canvas: y=8 is 100% gain, y=height-6 is 0% gain
     const inY = Number((height - 6 - env.inGain * (height - 14)).toFixed(1));
     outPoints.push([x, outY]);
     inPoints.push([x, inY]);
+
+    // 2. Yellow/Gold Bass Swap step curve (0 dB -> midline 46%, -20 dB -> bottom 90%)
+    const outBassNorm = Math.max(0, Math.min(1, (env.outLowDb + 20) / 20));
+    const inBassNorm = Math.max(0, Math.min(1, (env.inLowDb + 20) / 20));
+    const outBassY = Number((height * 0.90 - outBassNorm * (height * 0.44)).toFixed(1));
+    const inBassY = Number((height * 0.90 - inBassNorm * (height * 0.44)).toFixed(1));
+    outBassPoints.push([x, outBassY]);
+    inBassPoints.push([x, inBassY]);
+
+    // 3. Pink/Magenta Filter S-Curve (28 Hz -> midline 50%, 1850+ Hz -> top 16%)
+    let filterNorm = 0;
+    if (env.outFilterType === 'highpass' && env.outFilterFreqHz > 30) {
+      filterNorm = Math.max(0, Math.min(1, Math.log(env.outFilterFreqHz / 28) / Math.log(2000 / 28)));
+    } else if (env.outFilterType === 'lowpass' && env.outFilterFreqHz < 16000) {
+      filterNorm = Math.max(0, Math.min(1, Math.log(18000 / Math.max(320, env.outFilterFreqHz)) / Math.log(18000 / 320)));
+    }
+    const filterY = Number((height * 0.50 - filterNorm * (height * 0.34)).toFixed(1));
+    outFilterPoints.push([x, filterY]);
   }
 
   const toLine = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
@@ -524,6 +557,9 @@ export function buildEnvelopeSvgPaths(config = {}, width = 360, height = 76) {
     outAreaPath: toArea(outPoints),
     inLinePoints: toLine(inPoints),
     inAreaPath: toArea(inPoints),
+    outBassPoints: toLine(outBassPoints),
+    inBassPoints: toLine(inBassPoints),
+    outFilterPoints: toLine(outFilterPoints),
   };
 }
 

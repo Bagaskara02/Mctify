@@ -265,6 +265,12 @@ class TransitionPresetOption {
 class TransitionEngine {
   static const List<TransitionPresetOption> volumePresets = [
     TransitionPresetOption(
+      id: 'mashup',
+      label: 'Mashup Blend',
+      desc: 'Style Spotify Mix: energi penuh di kedua deck dengan Hard Bass Swap di bar tengah & Pink S-Curve Filter',
+      badge: 'Spotify Mix',
+    ),
+    TransitionPresetOption(
       id: 'overlap',
       label: 'Overlap',
       desc: 'Lagu baru masuk penuh sementara lagu lama tetap utuh hingga paruh bar lalu turun halus',
@@ -559,6 +565,11 @@ class TransitionEngine {
     double inGain = 0.0;
 
     switch (volumeMode) {
+      case 'mashup':
+        // Authentic Spotify Mix 8-Bar Blend: full energy overlap + vertical bass swap at midpoint
+        outGain = p < 0.92 ? 1.0 : math.cos(((p - 0.92) / 0.08) * (math.pi / 2.0));
+        inGain = p < 0.06 ? math.sin((p / 0.06) * (math.pi / 2.0)) : 1.0;
+        break;
       case 'overlap':
         outGain = p < 0.45 ? 1.0 : math.cos(((p - 0.45) / 0.55) * (math.pi / 2.0));
         inGain = p < 0.65 ? math.sin((p / 0.65) * (math.pi / 2.0)) : 1.0;
@@ -599,7 +610,22 @@ class TransitionEngine {
     double outMidDb = 0.0;
     double inMidDb = 0.0;
 
-    if (eqMode == 'bass_swap') {
+    if (volumeMode == 'mashup') {
+      if (p < 0.49) {
+        outLowDb = 0.0;
+        inLowDb = -20.0;
+        inMidDb = -1.5;
+      } else if (p <= 0.51) {
+        final swapP = (p - 0.49) / 0.02;
+        outLowDb = -20.0 * swapP;
+        inLowDb = -20.0 + 21.5 * swapP;
+        outMidDb = -4.5 * swapP;
+      } else {
+        outLowDb = -20.0;
+        inLowDb = 1.5;
+        outMidDb = -5.5;
+      }
+    } else if (eqMode == 'bass_swap') {
       if (p < 0.48) {
         outLowDb = 0.0;
         inLowDb = -16.0 * (1.0 - (p / 0.48) * 0.25);
@@ -685,14 +711,14 @@ class TransitionEngine {
     bool syncTempo = true;
 
     if (bpmDelta <= 4 && harmonic.score >= 90) {
-      bars = '4 bars';
-      volumeMode = 'overlap';
+      bars = '8 bars';
+      volumeMode = 'mashup';
       eqMode = 'bass_swap';
       effectsMode = 'high_pass';
       syncTempo = true;
     } else if (bpmDelta <= 10 && harmonic.score >= 78) {
-      bars = '2 bars';
-      volumeMode = 'crossfade';
+      bars = '4 bars';
+      volumeMode = 'mashup';
       eqMode = 'bass_swap';
       effectsMode = 'high_pass';
       syncTempo = true;

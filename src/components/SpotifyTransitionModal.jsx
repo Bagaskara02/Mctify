@@ -994,12 +994,33 @@ export default function SpotifyTransitionModal({
                     </linearGradient>
                   </defs>
                   <path d={envelopeSvg.outAreaPath} fill="url(#outEnvGrad)" />
+                  {/* 1. Cyan Volume Envelope */}
                   <polyline
                     fill="none"
                     stroke="#22d3ee"
-                    strokeWidth="2.2"
-                     points={envelopeSvg.outLinePoints}
+                    strokeWidth="2.4"
+                    points={envelopeSvg.outLinePoints}
                   />
+                  {/* 2. Yellow/Gold Bass Swap Step Automation Line */}
+                  {(settings.volume === 'mashup' || settings.eq === 'bass_swap' || settings.eq === 'high_pass') && envelopeSvg.outBassPoints && (
+                    <polyline
+                      fill="none"
+                      stroke="#facc15"
+                      strokeWidth="2.0"
+                      strokeLinejoin="round"
+                      points={envelopeSvg.outBassPoints}
+                    />
+                  )}
+                  {/* 3. Pink/Magenta Filter S-Curve Sweep Line */}
+                  {settings.effect !== 'none' && envelopeSvg.outFilterPoints && (
+                    <polyline
+                      fill="none"
+                      stroke="#f472b6"
+                      strokeWidth="2.0"
+                      strokeLinecap="round"
+                      points={envelopeSvg.outFilterPoints}
+                    />
+                  )}
                 </svg>
                 <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-cyan-400/75 rounded-full" />
               </div>
@@ -1226,12 +1247,23 @@ export default function SpotifyTransitionModal({
                     </linearGradient>
                   </defs>
                   <path d={envelopeSvg.inAreaPath} fill="url(#inEnvGrad)" />
+                  {/* 1. Cyan/Magenta Volume Envelope */}
                   <polyline
                     fill="none"
-                    stroke="#e879f9"
-                    strokeWidth="2.2"
+                    stroke={settings.volume === 'mashup' ? '#22d3ee' : '#e879f9'}
+                    strokeWidth="2.4"
                     points={envelopeSvg.inLinePoints}
                   />
+                  {/* 2. Yellow/Gold Bass Swap Step Automation Line (jumps up at Bar 4 midpoint) */}
+                  {(settings.volume === 'mashup' || settings.eq === 'bass_swap') && envelopeSvg.inBassPoints && (
+                    <polyline
+                      fill="none"
+                      stroke="#facc15"
+                      strokeWidth="2.0"
+                      strokeLinejoin="round"
+                      points={envelopeSvg.inBassPoints}
+                    />
+                  )}
                 </svg>
               </div>
             </div>

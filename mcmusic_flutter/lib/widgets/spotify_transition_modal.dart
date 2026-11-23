@@ -1910,12 +1910,68 @@ class _DeckWaveformPainter extends CustomPainter {
     canvas.drawPath(fillPath, fillPaint);
 
     final strokePaint = Paint()
-      ..color = accentColor
+      ..color = config.volumeMode == 'mashup' ? const Color(0xFF22D3EE) : accentColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(linePath, strokePaint);
+
+    // 3. Yellow/Gold Bass Swap Step Automation Line (Spotify Mix reference)
+    if (config.volumeMode == 'mashup' || config.eqMode == 'bass_swap') {
+      final bassPath = Path();
+      for (int i = 0; i <= samples; i++) {
+        final p = i / samples;
+        final env = TransitionEngine.evaluateTransitionEnvelope(p, config);
+        final db = isOutgoing ? env.outLowDb : env.inLowDb;
+        final norm = ((db + 20.0) / 20.0).clamp(0.0, 1.0);
+        final x = startX + p * zoneW;
+        final y = size.height * 0.90 - norm * (size.height * 0.44);
+        if (i == 0) {
+          bassPath.moveTo(x, y);
+        } else {
+          bassPath.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(
+        bassPath,
+        Paint()
+          ..color = const Color(0xFFFACC15)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+
+    // 4. Pink/Magenta Filter S-Curve Sweep Line on Outgoing Deck (Spotify Mix reference)
+    if (isOutgoing && config.effectsMode != 'none') {
+      final filterPath = Path();
+      for (int i = 0; i <= samples; i++) {
+        final p = i / samples;
+        final env = TransitionEngine.evaluateTransitionEnvelope(p, config);
+        double filterNorm = 0.0;
+        if (env.outHighpassHz > 30.0) {
+          filterNorm = ((env.outHighpassHz - 20.0) / 2000.0).clamp(0.0, 1.0);
+        } else if (env.outLowpassHz < 16000.0) {
+          filterNorm = ((18000.0 - env.outLowpassHz) / 17600.0).clamp(0.0, 1.0);
+        }
+        final x = startX + p * zoneW;
+        final y = size.height * 0.52 - filterNorm * (size.height * 0.36);
+        if (i == 0) {
+          filterPath.moveTo(x, y);
+        } else {
+          filterPath.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(
+        filterPath,
+        Paint()
+          ..color = const Color(0xFFF472B6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round,
+      );
+    }
   }
 
   @override
