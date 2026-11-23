@@ -17,6 +17,7 @@ import '../views/queue_view.dart';
 import 'audio_quality_modal.dart';
 import 'optimized_image.dart';
 import 'sleep_timer_modal.dart';
+import 'spotify_transition_modal.dart';
 import 'track_action_sheet.dart';
 
 class FullscreenPlayer extends StatefulWidget {
@@ -221,6 +222,37 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with SingleTickerPr
                       track: track,
                       player: widget.player,
                     );
+                  },
+                ),
+
+                // 0b. Edit transition (BETA) - Spotify Automix & Crossfade Studio
+                ListTile(
+                  leading: const Icon(Icons.auto_fix_high_rounded, color: Color(0xFF22D3EE)),
+                  title: Row(
+                    children: [
+                      const Text('Edit transition', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 7),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF22D3EE).withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: const Color(0xFF22D3EE).withValues(alpha: 0.45)),
+                        ),
+                        child: const Text(
+                          'BETA',
+                          style: TextStyle(color: Color(0xFF67E8F9), fontSize: 9, fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Text(
+                    '${widget.player.activePairTransitionConfig.bars} • ${widget.player.activePairTransitionConfig.volumeMode} • EQ ${widget.player.activePairTransitionConfig.eqMode}',
+                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    SpotifyTransitionModal.show(context, widget.player);
                   },
                 ),
 
@@ -850,9 +882,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with SingleTickerPr
 
                     const SizedBox(height: 14),
 
-                    // Utility Controls Row (EQ, Timer, Speed, Share, Queue)
+                    // Utility Controls Row (EQ, Timer, Speed, Transition BETA, Share, Queue)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 22),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -900,6 +932,54 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with SingleTickerPr
                                       fontWeight: FontWeight.bold,
                                       fontSize: 11.5,
                                     ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () {
+                                  HapticFeedback.lightImpact();
+                                  SpotifyTransitionModal.show(context, widget.player);
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 220),
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                                  decoration: BoxDecoration(
+                                    color: widget.player.isTransitioning
+                                        ? const Color(0xFF22D3EE).withValues(alpha: 0.24)
+                                        : Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: widget.player.isTransitioning
+                                          ? const Color(0xFF22D3EE).withValues(alpha: 0.65)
+                                          : const Color(0xFF22D3EE).withValues(alpha: 0.25),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.auto_fix_high_rounded,
+                                        size: 13.5,
+                                        color: widget.player.isTransitioning
+                                            ? const Color(0xFF67E8F9)
+                                            : Colors.white70,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        widget.player.isTransitioning
+                                            ? 'MIX ${(widget.player.transitionProgress * 100).round()}%'
+                                            : 'Transisi',
+                                        style: TextStyle(
+                                          color: widget.player.isTransitioning
+                                              ? const Color(0xFF67E8F9)
+                                              : Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),

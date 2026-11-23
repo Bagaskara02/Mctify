@@ -4,6 +4,7 @@ import '../models/track.dart';
 import '../services/audio_player_manager.dart';
 import '../theme/app_theme.dart';
 import '../widgets/optimized_image.dart';
+import '../widgets/spotify_transition_modal.dart';
 
 class QueueView extends StatefulWidget {
   final AudioPlayerManager player;
@@ -222,7 +223,106 @@ class _QueueViewState extends State<QueueView> {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
+
+                        // Spotify "Edit transition BETA" Connector Card between Active & Next Track
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            SpotifyTransitionModal.show(
+                              context,
+                              widget.player,
+                              initialOutgoing: current,
+                              initialIncoming: upcoming.isNotEmpty ? upcoming.first : null,
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFF22D3EE).withValues(alpha: 0.12),
+                                  const Color(0xFFA855F7).withValues(alpha: 0.12),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFF22D3EE).withValues(alpha: 0.32),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF22D3EE).withValues(alpha: 0.18),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.auto_fix_high_rounded,
+                                    color: Color(0xFF67E8F9),
+                                    size: 15,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            'Edit transition',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF22D3EE).withValues(alpha: 0.18),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              'BETA',
+                                              style: TextStyle(
+                                                color: Color(0xFF67E8F9),
+                                                fontSize: 8.5,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${widget.player.activePairTransitionConfig.bars} • '
+                                        '${widget.player.activePairTransitionConfig.volumeMode} • '
+                                        'EQ ${widget.player.activePairTransitionConfig.eqMode}',
+                                        style: const TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
                       ],
 
                       // Section 2: Berikutnya dalam Antrean

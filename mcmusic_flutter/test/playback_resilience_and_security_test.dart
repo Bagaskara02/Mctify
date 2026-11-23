@@ -10,6 +10,7 @@ import 'package:mcmusic_flutter/models/track.dart';
 import 'package:mcmusic_flutter/services/audio_player_manager.dart';
 import 'package:mcmusic_flutter/services/audio_proxy_server.dart';
 import 'package:mcmusic_flutter/services/storage_service.dart';
+import 'package:mcmusic_flutter/services/transition_engine.dart';
 
 class _DirectHttpOverrides extends HttpOverrides {}
 
@@ -276,6 +277,98 @@ void main() {
         ),
         isFalse,
       );
+    });
+  });
+
+  group('TransitionEngine DSP, Camelot Wheel, and Pair Persistence', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('computes deterministic BPM, Camelot key, and harmonic compatibility', () {
+      final t1 = Track(
+        id: 'trans-1',
+        title: 'Keep You Safe',
+        artist: 'New West',
+        artwork: '',
+        duration: 192,
+      );
+      final t2 = Track(
+        id: 'trans-2',
+        title: 'Fall In Love Alone',
+        artist: 'Stacey Ryan',
+        artwork: '',
+        duration: 205,
+      );
+
+      final m1 = TransitionEngine.computeTrackBpmAndKey(t1);
+      final m2 = TransitionEngine.computeTrackBpmAndKey(t2);
+      expect(m1.bpm, 118);
+      expect(m1.camelot, '4B');
+      expect(m2.bpm, 115);
+      expect(m2.camelot, '4B');
+
+      final compat = TransitionEngine.computeCamelotCompatibility(m1.camelot, m2.camelot);
+      expect(compat.tier, 'perfect');
+      expect(compat.score, 99);
+    });
+
+    test('calculates musical 4/4 bar durations and evaluates DSP volume/EQ/filter envelopes', () {
+      final stats = TransitionEngine.computeBarDurationSec(120, 120, '2 bars');
+      expect(stats.barCount, 2);
+      expect(stats.beats, 8);
+      expect(stats.durationSec, 4.0);
+
+      const cfg = TransitionConfig(
+        volumeMode: 'crossfade',
+        eqMode: 'bass_swap',
+        effectsMode: 'high_pass',
+        syncTempo: true,
+        bpmA: 120,
+        bpmB: 126,
+      );
+
+      final startEnv = TransitionEngine.evaluateTransitionEnvelope(0.0, cfg);
+      final midEnv = TransitionEngine.evaluateTransitionEnvelope(0.5, cfg);
+      final endEnv = TransitionEngine.evaluateTransitionEnvelope(1.0, cfg);
+
+      expect(startEnv.outGain, closeTo(1.0, 0.01));
+      expect(startEnv.inGain, closeTo(0.0, 0.01));
+      expect(midEnv.outGain, closeTo(0.707, 0.02));
+      expect(midEnv.inGain, closeTo(0.707, 0.02));
+      expect(endEnv.outGain, closeTo(0.0, 0.01));
+      expect(endEnv.inGain, closeTo(1.0, 0.01));
+      expect(endEnv.outHighpassHz, greaterThan(1000.0));
+      expect(startEnv.inLowDb, lessThan(-10.0));
+      expect(endEnv.outLowDb, lessThan(-10.0));
+    });
+
+    test('persists and retrieves per-pair TransitionConfig in StorageService', () async {
+      final storage = StorageService();
+      final outgoing = Track(id: 'song-a', title: 'Keep You Safe', artist: 'New West', artwork: '');
+      final incoming = Track(id: 'song-b', title: 'Fall In Love Alone', artist: 'Stacey Ryan', artwork: '');
+
+      const custom = TransitionConfig(
+        bars: '4 bars',
+        durationSec: 8.2,
+        volumeMode: 'rise_drop',
+        eqMode: 'bass_swap',
+        effectsMode: 'echo_fade',
+        syncTempo: true,
+        outroOffsetSec: -2.0,
+        introOffsetSec: 3.0,
+      );
+
+      await storage.saveTransitionForPair(outgoing, incoming, custom);
+      final loaded = await storage.getTransitionForPair(outgoing, incoming);
+
+      expect(loaded.bars, '4 bars');
+      expect(loaded.volumeMode, 'rise_drop');
+      expect(loaded.eqMode, 'bass_swap');
+      expect(loaded.effectsMode, 'echo_fade');
+      expect(loaded.outroOffsetSec, -2.0);
+      expect(loaded.introOffsetSec, 3.0);
+      expect(loaded.pairKey, isNotNull);
     });
   });
 }

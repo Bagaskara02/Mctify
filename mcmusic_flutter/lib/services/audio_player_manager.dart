@@ -15,21 +15,43 @@ import 'equalizer_service.dart';
 import 'media_audio_handler.dart';
 import 'music_api_service.dart';
 import 'storage_service.dart';
+import 'transition_engine.dart';
 
 class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _nativeChannel = MethodChannel('com.mcmusic.app/wakelock');
-  final ja.AudioPlayer _player = ja.AudioPlayer(
-    handleInterruptions: true,
-    audioLoadConfiguration: const ja.AudioLoadConfiguration(
-      androidLoadControl: ja.AndroidLoadControl(
-        minBufferDuration: Duration(seconds: 15),
-        maxBufferDuration: Duration(seconds: 30),
-        bufferForPlaybackDuration: Duration(milliseconds: 250),
-        bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 350),
-        backBufferDuration: Duration(seconds: 60),
+  static ja.AudioPlayer _createNativeDeck({required bool handleInterruptions}) {
+    return ja.AudioPlayer(
+      handleInterruptions: handleInterruptions,
+      audioLoadConfiguration: const ja.AudioLoadConfiguration(
+        androidLoadControl: ja.AndroidLoadControl(
+          minBufferDuration: Duration(seconds: 15),
+          maxBufferDuration: Duration(seconds: 30),
+          bufferForPlaybackDuration: Duration(milliseconds: 250),
+          bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 350),
+          backBufferDuration: Duration(seconds: 60),
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  final List<ja.AudioPlayer> _decks = [
+    _createNativeDeck(handleInterruptions: true),
+    _createNativeDeck(handleInterruptions: false),
+  ];
+  int _activeDeckIndex = 0;
+  ja.AudioPlayer get _player => _decks[_activeDeckIndex];
+  ja.AudioPlayer get _standbyPlayer => _decks[1 - _activeDeckIndex];
+
+  // Live Dual-Deck Crossfade & Transition Engine state
+  TransitionConfig _activePairTransitionConfig = const TransitionConfig();
+  bool _isTransitioning = false;
+  double _transitionProgress = 0.0;
+  Timer? _transitionTimer;
+  Track? _transitionTargetTrack;
+  int _transitionTargetQueueIndex = -1;
+  bool _standbyDeckArmed = false;
+  String? _standbyArmedKey;
+  int _transitionSessionId = 0;
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
   final MediaAudioHandler? _mediaHandler;
@@ -169,6 +191,307 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
   // Audio Quality getter
   AudioQuality get audioQuality => _audioQuality;
+
+  // Transition & Next-in-Queue getters
+  bool get isTransitioning => _isTransitioning;
+  double get transitionProgress => _transitionProgress;
+  TransitionConfig get activePairTransitionConfig => _activePairTransitionConfig;
+  StorageService get storageService => _storageService;
+
+  Track? get nextTrackInQueue {
+    if (_queue.isEmpty || _currentTrack == null) return null;
+    final idx = _resolveActiveQueueIndex();
+    if (idx != -1 && idx + 1 < _queue.length) {
+      return _queue[idx + 1];
+    }
+    return null;
+  }
+
+  Future<void> _refreshPairTransitionConfig() async {
+    final outgoing = _currentTrack;
+    final incoming = nextTrackInQueue;
+    final config = await _storageService.getTransitionForPair(outgoing, incoming);
+    _activePairTransitionConfig = config;
+    notifyListeners();
+  }
+
+  Future<void> _cancelLiveTransition({bool resetVolumes = true}) async {
+    _transitionSessionId++;
+    _transitionTimer?.cancel();
+    _transitionTimer = null;
+    final wasTransitioning = _isTransitioning;
+    _isTransitioning = false;
+    _transitionProgress = 0.0;
+    _transitionTargetTrack = null;
+    _transitionTargetQueueIndex = -1;
+    _standbyDeckArmed = false;
+    _standbyArmedKey = null;
+
+    try {
+      await _standbyPlayer.pause();
+      await _standbyPlayer.setVolume(0.0);
+    } catch (_) {}
+
+    if (resetVolumes) {
+      try {
+        await _player.setVolume(1.0);
+        if (_playbackSpeed != 1.0) {
+          await _player.setSpeed(_playbackSpeed);
+        } else {
+          await _player.setSpeed(1.0);
+        }
+      } catch (_) {}
+    }
+
+    if (wasTransitioning) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _armStandbyDeckForNextTrack() async {
+    if (_isUsingYoutubeIframe) return;
+    final nextTrack = nextTrackInQueue;
+    if (nextTrack == null) return;
+    await _refreshPairTransitionConfig();
+    if (!_activePairTransitionConfig.enabled) return;
+
+    final key = '${nextTrack.id}_${nextTrack.videoId ?? nextTrack.title}_${_audioQuality.name}';
+    if (_standbyDeckArmed && _standbyArmedKey == key) return;
+
+    try {
+      await AudioProxyServer.instance.verifyOrRestartServer();
+      String? url = _apiService.getCachedStream(nextTrack, _audioQuality);
+      if (url == null || url.isEmpty) {
+        url = await _apiService.resolveDirectAudioStream(nextTrack, _audioQuality);
+      }
+      if (url == null || url.isEmpty || MusicApiService.isPreviewUrl(url)) return;
+
+      final introSec = _activePairTransitionConfig.introOffsetSec.clamp(0.0, 28.0);
+      final source = ja.AudioSource.uri(
+        Uri.parse(url),
+        headers: const {'Accept': '*/*'},
+      );
+      await _standbyPlayer
+          .setAudioSource(
+            source,
+            initialPosition: introSec > 0.1
+                ? Duration(milliseconds: (introSec * 1000).round())
+                : null,
+          )
+          .timeout(const Duration(seconds: 8));
+      await _standbyPlayer.setVolume(0.0);
+      _standbyDeckArmed = true;
+      _standbyArmedKey = key;
+      debugPrint('[AudioPlayerManager] Standby Deck armed for next track: "${nextTrack.title}" (intro=${introSec}s)');
+    } catch (e) {
+      debugPrint('[AudioPlayerManager] Standby Deck arm notice: $e');
+      _standbyDeckArmed = false;
+      _standbyArmedKey = null;
+    }
+  }
+
+  Future<void> _startLiveDualDeckTransition() async {
+    if (_isTransitioning || _isUsingYoutubeIframe || _isRepeat || _sleepTimerAtTrackEnd) return;
+    final outgoing = _currentTrack;
+    final nextIdx = _resolveActiveQueueIndex() + 1;
+    if (outgoing == null || nextIdx <= 0 || nextIdx >= _queue.length) return;
+    final incoming = _queue[nextIdx];
+    final config = _activePairTransitionConfig;
+    if (!config.enabled) return;
+
+    final sessionId = ++_transitionSessionId;
+    _isTransitioning = true;
+    _transitionProgress = 0.0;
+    _transitionTargetTrack = incoming;
+    _transitionTargetQueueIndex = nextIdx;
+    notifyListeners();
+
+    final expectedKey = '${incoming.id}_${incoming.videoId ?? incoming.title}_${_audioQuality.name}';
+    if (!_standbyDeckArmed || _standbyArmedKey != expectedKey) {
+      await _armStandbyDeckForNextTrack();
+      if (sessionId != _transitionSessionId || !_isTransitioning) return;
+    }
+
+    if (!_standbyDeckArmed) {
+      // Fallback cleanly to normal track completion if standby stream couldn't arm
+      _isTransitioning = false;
+      _transitionProgress = 0.0;
+      notifyListeners();
+      return;
+    }
+
+    final transDurMs = (config.durationSec.clamp(1.2, 22.0) * 1000).round();
+    final startedAt = DateTime.now();
+
+    try {
+      final introMs = (config.introOffsetSec.clamp(0.0, 28.0) * 1000).round();
+      if (introMs > 0) {
+        await _standbyPlayer.seek(Duration(milliseconds: introMs));
+      }
+      await _standbyPlayer.setVolume(0.01);
+      unawaited(_standbyPlayer.play());
+    } catch (e) {
+      debugPrint('[AudioPlayerManager] Standby play error: $e');
+      await _cancelLiveTransition();
+      return;
+    }
+
+    _transitionTimer?.cancel();
+    _transitionTimer = Timer.periodic(const Duration(milliseconds: 70), (timer) {
+      if (sessionId != _transitionSessionId || !_isTransitioning) {
+        timer.cancel();
+        return;
+      }
+      if (!_isPlaying || _userRequestedPause) return;
+
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      final p = (elapsedMs / transDurMs).clamp(0.0, 1.0);
+      _transitionProgress = p;
+
+      final env = TransitionEngine.evaluateTransitionEnvelope(p, config);
+      try {
+        _player.setVolume(env.effectiveOutVolume);
+        _standbyPlayer.setVolume(env.effectiveInVolume);
+        if (config.syncTempo && (_playbackSpeed - 1.0).abs() < 0.05) {
+          _player.setSpeed(env.outPlaybackRate);
+          _standbyPlayer.setSpeed(env.inPlaybackRate);
+        }
+      } catch (_) {}
+
+      notifyListeners();
+
+      if (p >= 1.0) {
+        timer.cancel();
+        unawaited(_completeLiveDualDeckTransition(sessionId));
+      }
+    });
+  }
+
+  Future<void> _completeLiveDualDeckTransition(int sessionId) async {
+    if (sessionId != _transitionSessionId || !_isTransitioning) return;
+    _transitionTimer?.cancel();
+    _transitionTimer = null;
+
+    final incoming = _transitionTargetTrack;
+    final nextIdx = _transitionTargetQueueIndex;
+    if (incoming == null || nextIdx < 0 || nextIdx >= _queue.length) {
+      await _cancelLiveTransition();
+      return;
+    }
+
+    final oldDeck = _player;
+    // Flip active deck pointer so the already-playing incoming deck becomes primary with 0ms gap!
+    _activeDeckIndex = 1 - _activeDeckIndex;
+    _isTransitioning = false;
+    _transitionProgress = 0.0;
+    _transitionTargetTrack = null;
+    _transitionTargetQueueIndex = -1;
+    _standbyDeckArmed = false;
+    _standbyArmedKey = null;
+
+    try {
+      await _player.setVolume(1.0);
+      await _player.setSpeed(_playbackSpeed);
+    } catch (_) {}
+
+    try {
+      await oldDeck.pause();
+      await oldDeck.setVolume(0.0);
+      await oldDeck.setSpeed(1.0);
+    } catch (_) {}
+
+    _currentTrack = incoming;
+    _currentQueueIndex = nextIdx;
+    _position = _player.position;
+    final liveDur = _player.duration;
+    _duration = (liveDur != null && liveDur > Duration.zero)
+        ? liveDur
+        : Duration(seconds: incoming.duration > 0 ? incoming.duration : 180);
+    _activeNativeStreamUrl = _apiService.getCachedStream(incoming, _audioQuality);
+    _isPlaying = true;
+    _isPreparingTrack = false;
+    _hasPrefetchedNextTrack = false;
+    _trackStartTime = DateTime.now().subtract(_position);
+
+    _mediaHandler?.updateTrack(incoming, _duration);
+    _syncMediaHandler();
+    notifyListeners();
+
+    unawaited(_storageService.recordPlay(incoming));
+    unawaited(_persistPlaybackSession(force: true));
+    unawaited(_refreshPairTransitionConfig());
+    _prefetchNextTrackStream();
+  }
+
+  /// Saves the custom [TransitionConfig] for `[outgoing -> incoming]`, aligns the active queue
+  /// so [incoming] plays right after [outgoing], and optionally jumps to the transition zone
+  /// (`testLiveInPlayer: true`) so the user immediately hears the live transition in the player.
+  Future<void> saveAndApplyTransition({
+    required Track outgoing,
+    required Track incoming,
+    required TransitionConfig config,
+    bool testLiveInPlayer = false,
+  }) async {
+    await _cancelLiveTransition();
+    final saved = await _storageService.saveTransitionForPair(outgoing, incoming, config);
+    _activePairTransitionConfig = saved;
+
+    // Align queue so [outgoing, incoming] are adjacent in _queue
+    if (_queue.isEmpty) {
+      _originalQueue = [outgoing, incoming];
+      _queue = [outgoing, incoming];
+      _currentQueueIndex = 0;
+    } else {
+      int outIdx = _queue.indexWhere((t) => t.id == outgoing.id);
+      if (outIdx == -1) {
+        final curIdx = _resolveActiveQueueIndex();
+        outIdx = curIdx >= 0 ? curIdx : 0;
+        _queue.insert(outIdx, outgoing);
+      }
+      // Remove duplicate incoming elsewhere (except outIdx)
+      for (int i = _queue.length - 1; i >= 0; i--) {
+        if (i != outIdx && _queue[i].id == incoming.id) {
+          _queue.removeAt(i);
+          if (i < outIdx) outIdx--;
+        }
+      }
+      final insertIncomingAt = (outIdx + 1).clamp(0, _queue.length);
+      _queue.insert(insertIncomingAt, incoming);
+      if (_currentTrack?.id == outgoing.id) {
+        _currentQueueIndex = outIdx;
+      }
+    }
+
+    _hasPrefetchedNextTrack = false;
+    _prefetchNextTrackStream();
+    notifyListeners();
+
+    if (testLiveInPlayer) {
+      final outIdx = _queue.indexWhere((t) => t.id == outgoing.id);
+      final totalSec = (_currentTrack?.id == outgoing.id && _duration.inSeconds > 20)
+          ? _duration.inSeconds
+          : (outgoing.duration > 20 ? outgoing.duration : 180);
+      final leadSec = (saved.durationSec.round() + saved.outroOffsetSec.round().abs() + 6).clamp(8, 30);
+      final targetSec = max(5, totalSec - leadSec);
+
+      if (_currentTrack?.id == outgoing.id && !_isPreparingTrack) {
+        await seek(Duration(seconds: targetSec));
+        if (!_isPlaying) {
+          await resumePlayback(reason: 'transition_test');
+        }
+        unawaited(_armStandbyDeckForNextTrack());
+      } else {
+        await _playTrackInternal(
+          outgoing,
+          queueIndex: outIdx >= 0 ? outIdx : 0,
+          initialPosition: Duration(seconds: targetSec),
+        );
+        unawaited(_armStandbyDeckForNextTrack());
+      }
+    } else {
+      unawaited(_armStandbyDeckForNextTrack());
+    }
+  }
 
   AudioPlayerManager({MediaAudioHandler? mediaHandler}) : _mediaHandler = mediaHandler {
     WidgetsBinding.instance.addObserver(this);
@@ -1027,86 +1350,116 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _initAudioListeners() {
-    _player.playerStateStream.listen((state) {
-      if (!_isUsingYoutubeIframe) {
-        // Ignore transient idle/stopped states while a new track is preparing (prevents lockscreen flicker & stutter)
-        if (_isPreparingTrack && state.processingState != ja.ProcessingState.ready && !state.playing) {
-          return;
-        }
-        if (state.processingState == ja.ProcessingState.ready && _isPreparingTrack) {
-          _isPreparingTrack = false;
-        }
-        _isPlaying = state.playing;
-        _syncMediaHandler();
-        notifyListeners();
+    for (int deckIdx = 0; deckIdx < _decks.length; deckIdx++) {
+      final deck = _decks[deckIdx];
 
-        if (!_isPreparingTrack && !_resumeInFlight && state.processingState == ja.ProcessingState.completed) {
-          debugPrint('[AudioPlayerManager] onPlayerComplete: Track finished naturally!');
-          if (_sleepTimerAtTrackEnd) {
-            _triggerSleepTimerStop();
-          } else if (_isRepeat) {
-            unawaited(seek(Duration.zero).then((_) {
-              return _player.play().catchError((e) {
-                debugPrint('[AudioPlayerManager] Repeat play() error: $e');
-              });
-            }));
-          } else {
-            next();
+      deck.playerStateStream.listen((state) {
+        if (deckIdx != _activeDeckIndex) return;
+        if (!_isUsingYoutubeIframe) {
+          // Ignore transient idle/stopped states while a new track is preparing (prevents lockscreen flicker & stutter)
+          if (_isPreparingTrack && state.processingState != ja.ProcessingState.ready && !state.playing) {
+            return;
           }
-        }
-      }
-    });
-
-    int lastNotifiedMs = -1;
-    _player.positionStream.listen((pos) {
-      if (!_isUsingYoutubeIframe) {
-        if (_isPreparingTrack && pos == Duration.zero && _position > const Duration(seconds: 2)) {
-          return;
-        }
-        _position = pos;
-        if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 250) {
-          lastNotifiedMs = pos.inMilliseconds;
+          if (state.processingState == ja.ProcessingState.ready && _isPreparingTrack) {
+            _isPreparingTrack = false;
+          }
+          _isPlaying = state.playing || (_isTransitioning && _standbyPlayer.playing);
           _syncMediaHandler();
           notifyListeners();
-          unawaited(_persistPlaybackSession());
+
+          if (!_isPreparingTrack && !_resumeInFlight && state.processingState == ja.ProcessingState.completed) {
+            if (_isTransitioning) {
+              unawaited(_completeLiveDualDeckTransition(_transitionSessionId));
+              return;
+            }
+            debugPrint('[AudioPlayerManager] onPlayerComplete: Track finished naturally!');
+            if (_sleepTimerAtTrackEnd) {
+              _triggerSleepTimerStop();
+            } else if (_isRepeat) {
+              unawaited(seek(Duration.zero).then((_) {
+                return _player.play().catchError((e) {
+                  debugPrint('[AudioPlayerManager] Repeat play() error: $e');
+                });
+              }));
+            } else {
+              next();
+            }
+          }
         }
+      });
 
-        // Gapless Pre-fetch
-        if (_duration.inSeconds > 25 &&
-            pos.inSeconds >= _duration.inSeconds - 25 &&
-            !_hasPrefetchedNextTrack) {
-          _hasPrefetchedNextTrack = true;
-          _prefetchNextTrackStream();
+      int lastNotifiedMs = -1;
+      deck.positionStream.listen((pos) {
+        if (deckIdx != _activeDeckIndex) return;
+        if (!_isUsingYoutubeIframe) {
+          if (_isPreparingTrack && pos == Duration.zero && _position > const Duration(seconds: 2)) {
+            return;
+          }
+          _position = pos;
+          if ((pos.inMilliseconds - lastNotifiedMs).abs() >= 250) {
+            lastNotifiedMs = pos.inMilliseconds;
+            _syncMediaHandler();
+            notifyListeners();
+            unawaited(_persistPlaybackSession());
+          }
+
+          // Gapless Pre-fetch & Standby Deck Arming (25s before track end)
+          if (_duration.inSeconds > 25 &&
+              pos.inSeconds >= _duration.inSeconds - 25 &&
+              !_hasPrefetchedNextTrack) {
+            _hasPrefetchedNextTrack = true;
+            _prefetchNextTrackStream();
+            unawaited(_armStandbyDeckForNextTrack());
+          }
+
+          // Live Dual-Deck Crossfade Trigger
+          if (!_isTransitioning &&
+              !_isRepeat &&
+              !_sleepTimerAtTrackEnd &&
+              _activePairTransitionConfig.enabled &&
+              _duration.inSeconds > 20 &&
+              nextTrackInQueue != null) {
+            final remainingSec = (_duration.inMilliseconds - pos.inMilliseconds) / 1000.0;
+            final triggerSec = (_activePairTransitionConfig.durationSec +
+                    max(0.0, -_activePairTransitionConfig.outroOffsetSec))
+                .clamp(1.2, 22.0);
+            if (remainingSec > 0.3 && remainingSec <= triggerSec) {
+              unawaited(_startLiveDualDeckTransition());
+            }
+          }
         }
-      }
-    });
+      });
 
-    _player.durationStream.listen((dur) {
-      if (!_isUsingYoutubeIframe && dur != null) {
-        _duration = dur;
-        if (_currentTrack != null) {
-          _mediaHandler?.updateTrack(_currentTrack!, dur);
+      deck.durationStream.listen((dur) {
+        if (deckIdx != _activeDeckIndex) return;
+        if (!_isUsingYoutubeIframe && dur != null) {
+          _duration = dur;
+          if (_currentTrack != null) {
+            _mediaHandler?.updateTrack(_currentTrack!, dur);
+          }
+          _syncMediaHandler();
+          notifyListeners();
         }
-        _syncMediaHandler();
-        notifyListeners();
-      }
-    });
+      });
 
-    _player.bufferedPositionStream.listen((buffered) {
-      if (!_isUsingYoutubeIframe) {
-        _mediaHandler?.updateBufferedPosition(buffered);
-      }
-    });
+      deck.bufferedPositionStream.listen((buffered) {
+        if (deckIdx != _activeDeckIndex) return;
+        if (!_isUsingYoutubeIframe) {
+          _mediaHandler?.updateBufferedPosition(buffered);
+        }
+      });
 
-    _player.playbackEventStream.listen((event) {
-      // Event stream monitoring
-    }, onError: (err) {
-      debugPrint('[AudioPlayerManager] Native ExoPlayer stream error: $err');
-      // Drop stale socket/interrupt errors while switching or preparing a different song
-      if (!_isUsingYoutubeIframe && !_isPreparingTrack && !_userRequestedPause && _currentTrack != null) {
-        _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err', _playGeneration);
-      }
-    });
+      deck.playbackEventStream.listen((event) {
+        // Event stream monitoring
+      }, onError: (err) {
+        if (deckIdx != _activeDeckIndex) return;
+        debugPrint('[AudioPlayerManager] Native ExoPlayer stream error: $err');
+        // Drop stale socket/interrupt errors while switching or preparing a different song
+        if (!_isUsingYoutubeIframe && !_isPreparingTrack && !_userRequestedPause && _currentTrack != null) {
+          _handlePlaybackNetworkError(_currentTrack, 'Native stream error: $err', _playGeneration);
+        }
+      });
+    }
   }
 
   // --- SLEEP TIMER METHODS ---
@@ -1304,6 +1657,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   DateTime? _lastPreviousActionTime;
 
   void _prefetchNextTrackStream() {
+    unawaited(_refreshPairTransitionConfig());
     if (_queue.isEmpty || _currentTrack == null) return;
     final currentIndex = _resolveActiveQueueIndex();
     if (currentIndex == -1) return;
@@ -1335,6 +1689,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     // Monotonic generation token: cancels any slower in-flight track switch / lockscreen skip immediately!
     final int gen = ++_playGeneration;
     _verifyResumeStartedTimer?.cancel();
+    await _cancelLiveTransition();
     _isPreparingTrack = true;
     _isRecovering = false;
     _networkRetryCount = 0;
@@ -1597,6 +1952,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     bool fromInterruption = false,
   }) async {
     _verifyResumeStartedTimer?.cancel();
+    await _cancelLiveTransition();
     _userRequestedPause = true;
     if (fromTwsDisconnect) {
       _pausedByTwsDisconnect = true;
@@ -1771,6 +2127,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> seek(Duration pos) async {
+    await _cancelLiveTransition();
     _position = pos;
     _trackStartTime = DateTime.now().subtract(pos);
     _syncMediaHandler();
@@ -2175,6 +2532,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _stopWatchdog();
+    _transitionTimer?.cancel();
     _networkReconnectTimer?.cancel();
     _twsReconnectDebounceTimer?.cancel();
     _verifyResumeStartedTimer?.cancel();
@@ -2184,7 +2542,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _releaseNativeLocks();
     _sleepTimer?.cancel();
     _ytController?.close();
-    _player.dispose();
+    for (final deck in _decks) {
+      deck.dispose();
+    }
     super.dispose();
   }
 }

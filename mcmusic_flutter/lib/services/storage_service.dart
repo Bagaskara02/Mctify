@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/track.dart';
 import '../models/playlist.dart';
+import 'transition_engine.dart';
 
 class StorageService {
   static const String _keyLiked = 'mcmusic_liked_tracks';
@@ -428,6 +429,115 @@ class StorageService {
       };
     } catch (_) {
       return null;
+    }
+  }
+
+  static const String _keyTransitionSettings = 'mcmusic_transition_settings_v1';
+  static const String _keyTransitionPairs = 'mcmusic_transition_pairs_v1';
+
+  static String _pairKey(Track? outgoing, Track? incoming) {
+    String norm(Track? t) {
+      if (t == null) return 'none';
+      if (t.id.isNotEmpty) return t.id.trim().toLowerCase();
+      return '${t.title.trim().toLowerCase()}|${t.artist.trim().toLowerCase()}';
+    }
+    return '${norm(outgoing)}__to__${norm(incoming)}';
+  }
+
+  Future<TransitionConfig> getTransitionSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_keyTransitionSettings);
+      if (raw == null || raw.isEmpty) return const TransitionConfig();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const TransitionConfig();
+      return TransitionConfig.fromJson(Map<String, dynamic>.from(decoded));
+    } catch (_) {
+      return const TransitionConfig();
+    }
+  }
+
+  Future<TransitionConfig> saveTransitionSettings(TransitionConfig config) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyTransitionSettings, jsonEncode(config.toJson()));
+    } catch (_) {}
+    return config;
+  }
+
+  Future<TransitionConfig> getTransitionForPair(Track? outgoing, Track? incoming) async {
+    final base = await getTransitionSettings();
+    final metaA = TransitionEngine.computeTrackBpmAndKey(outgoing);
+    final metaB = TransitionEngine.computeTrackBpmAndKey(incoming);
+
+    if (outgoing == null || incoming == null) {
+      return base.copyWith(bpmA: metaA.bpm, bpmB: metaB.bpm);
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_keyTransitionPairs);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final key = _pairKey(outgoing, incoming);
+          final pairEntry = decoded[key];
+          if (pairEntry is Map) {
+            return TransitionConfig.fromJson({
+              ...base.toJson(),
+              ...Map<String, dynamic>.from(pairEntry),
+              'bpmA': metaA.bpm,
+              'bpmB': metaB.bpm,
+              'pairKey': key,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    final barStats = TransitionEngine.computeBarDurationSec(metaA.bpm, metaB.bpm, base.bars);
+    return base.copyWith(
+      durationSec: barStats.durationSec,
+      bpmA: metaA.bpm,
+      bpmB: metaB.bpm,
+    );
+  }
+
+  Future<TransitionConfig> saveTransitionForPair(
+    Track? outgoing,
+    Track? incoming,
+    TransitionConfig config,
+  ) async {
+    final savedGlobal = await saveTransitionSettings(config);
+    if (outgoing == null || incoming == null) return savedGlobal;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      Map<String, dynamic> map = {};
+      final raw = prefs.getString(_keyTransitionPairs);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          map = Map<String, dynamic>.from(decoded);
+        }
+      }
+
+      final key = _pairKey(outgoing, incoming);
+      map[key] = {
+        ...savedGlobal.toJson(),
+        'pairKey': key,
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      final keys = map.keys.toList();
+      if (keys.length > 60) {
+        map.remove(keys.first);
+      }
+
+      await prefs.setString(_keyTransitionPairs, jsonEncode(map));
+      return savedGlobal.copyWith(pairKey: key);
+    } catch (_) {
+      return savedGlobal;
     }
   }
 }
