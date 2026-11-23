@@ -47,6 +47,190 @@ export default function YouTubePlayer({
     progress: 0,
   });
 
+  // Hybrid Web Audio DSP Bridge Refs (Real BiquadFilter Bass Swap + HPF S-Curve + Smooth Tempo Sync)
+  const dspBridgeRef = useRef({
+    active: false,
+    ctx: null,
+    outAudio: null,
+    inAudio: null,
+    outGain: null,
+    inGain: null,
+    outLow: null,
+    inLow: null,
+    outMid: null,
+    inMid: null,
+    outFilter: null,
+    inFilter: null,
+    masterGain: null,
+    preloadedKey: '',
+    preloadedOutAudio: null,
+    preloadedInAudio: null,
+  });
+
+  const teardownDspBridge = (keepPreloaded = false) => {
+    const b = dspBridgeRef.current;
+    b.active = false;
+    try { b.outAudio?.pause?.(); } catch {}
+    try { b.inAudio?.pause?.(); } catch {}
+    try {
+      if (b.ctx && b.ctx.state !== 'closed') {
+        b.ctx.close().catch(() => {});
+      }
+    } catch {}
+    b.ctx = null;
+    b.outAudio = null;
+    b.inAudio = null;
+    b.outGain = null;
+    b.inGain = null;
+    b.outLow = null;
+    b.inLow = null;
+    b.outMid = null;
+    b.inMid = null;
+    b.outFilter = null;
+    b.inFilter = null;
+    b.masterGain = null;
+    if (!keepPreloaded) {
+      try { b.preloadedOutAudio?.pause?.(); } catch {}
+      try { b.preloadedInAudio?.pause?.(); } catch {}
+      b.preloadedOutAudio = null;
+      b.preloadedInAudio = null;
+      b.preloadedKey = '';
+    }
+  };
+
+  const prewarmDspBridgeDecks = (outVid, inVid, startOutSec, introCueSec) => {
+    if (!outVid || !inVid || outVid === inVid) return;
+    const key = `${outVid}:::${inVid}`;
+    const b = dspBridgeRef.current;
+    if (b.preloadedKey === key && b.preloadedOutAudio && b.preloadedInAudio) return;
+
+    try { b.preloadedOutAudio?.pause?.(); } catch {}
+    try { b.preloadedInAudio?.pause?.(); } catch {}
+
+    try {
+      const outEl = new Audio(`/api/yt/stream?videoId=${encodeURIComponent(outVid)}`);
+      outEl.crossOrigin = 'anonymous';
+      outEl.preload = 'auto';
+      outEl.muted = false;
+      outEl.currentTime = Math.max(0, startOutSec);
+
+      const inEl = new Audio(`/api/yt/stream?videoId=${encodeURIComponent(inVid)}`);
+      inEl.crossOrigin = 'anonymous';
+      inEl.preload = 'auto';
+      inEl.muted = false;
+      inEl.currentTime = Math.max(0, introCueSec);
+
+      b.preloadedKey = key;
+      b.preloadedOutAudio = outEl;
+      b.preloadedInAudio = inEl;
+    } catch {}
+  };
+
+  const tryActivateDspBridge = async (outVid, inVid, currentOutSec, introCueSec) => {
+    const b = dspBridgeRef.current;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return false;
+
+    const key = `${outVid}:::${inVid}`;
+    if (b.preloadedKey !== key || !b.preloadedOutAudio || !b.preloadedInAudio) {
+      prewarmDspBridgeDecks(outVid, inVid, currentOutSec, introCueSec);
+    }
+
+    const outEl = b.preloadedOutAudio;
+    const inEl = b.preloadedInAudio;
+    if (!outEl || !inEl) return false;
+    // Require at least readyState >= 2 (HAVE_CURRENT_DATA) on both elements so DSP bridge starts with 0ms gap!
+    if (outEl.readyState < 2 || inEl.readyState < 2) {
+      return false;
+    }
+
+    try {
+      teardownDspBridge(true);
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const outSrc = ctx.createMediaElementSource(outEl);
+      const inSrc = ctx.createMediaElementSource(inEl);
+
+      const outLow = ctx.createBiquadFilter();
+      outLow.type = 'lowshelf';
+      outLow.frequency.value = 160;
+      const inLow = ctx.createBiquadFilter();
+      inLow.type = 'lowshelf';
+      inLow.frequency.value = 160;
+
+      const outMid = ctx.createBiquadFilter();
+      outMid.type = 'peaking';
+      outMid.frequency.value = 1250;
+      outMid.Q.value = 1.0;
+      const inMid = ctx.createBiquadFilter();
+      inMid.type = 'peaking';
+      inMid.frequency.value = 1250;
+      inMid.Q.value = 1.0;
+
+      const outFilter = ctx.createBiquadFilter();
+      outFilter.type = 'allpass';
+      const inFilter = ctx.createBiquadFilter();
+      inFilter.type = 'allpass';
+
+      const outGain = ctx.createGain();
+      outGain.gain.value = 1.0;
+      const inGain = ctx.createGain();
+      inGain.gain.value = 0.0;
+
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = isMutedRef.current ? 0 : Math.max(0, Math.min(1, volumeRef.current ?? 0.8));
+
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -4;
+      comp.ratio.value = 4;
+
+      outSrc.connect(outLow);
+      outLow.connect(outMid);
+      outMid.connect(outFilter);
+      outFilter.connect(outGain);
+      outGain.connect(masterGain);
+
+      inSrc.connect(inLow);
+      inLow.connect(inMid);
+      inMid.connect(inFilter);
+      inFilter.connect(inGain);
+      inGain.connect(masterGain);
+
+      masterGain.connect(comp);
+      comp.connect(ctx.destination);
+
+      outEl.currentTime = Math.max(0, currentOutSec);
+      inEl.currentTime = Math.max(0, introCueSec);
+
+      await Promise.all([outEl.play(), inEl.play()]);
+
+      b.active = true;
+      b.ctx = ctx;
+      b.outAudio = outEl;
+      b.inAudio = inEl;
+      b.outGain = outGain;
+      b.inGain = inGain;
+      b.outLow = outLow;
+      b.inLow = inLow;
+      b.outMid = outMid;
+      b.inMid = inMid;
+      b.outFilter = outFilter;
+      b.inFilter = inFilter;
+      b.masterGain = masterGain;
+      b.preloadedOutAudio = null;
+      b.preloadedInAudio = null;
+      b.preloadedKey = '';
+      return true;
+    } catch (e) {
+      console.warn('[YouTubePlayer] Hybrid Web Audio DSP bridge fallback to IFrame:', e);
+      teardownDspBridge(false);
+      return false;
+    }
+  };
+
   const [isReady, setIsReady] = useState(false);
   const [activeDeckState, setActiveDeckState] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
@@ -137,6 +321,7 @@ export default function YouTubePlayer({
   const cancelActiveTransition = (pauseStandby = true) => {
     if (!transitionStateRef.current.active) return;
     const toDeck = transitionStateRef.current.toDeck;
+    teardownDspBridge(false);
     transitionStateRef.current = {
       active: false,
       fromDeck: activeDeckIdxRef.current,
@@ -173,7 +358,10 @@ export default function YouTubePlayer({
     const oldDeckIdx = tr.fromDeck;
     const newDeckIdx = tr.toDeck;
     const incomingVid = tr.incomingVid;
+    const wasDspBridge = dspBridgeRef.current.active;
+    const dspIncomingTime = wasDspBridge ? (dspBridgeRef.current.inAudio?.currentTime || 0) : 0;
 
+    teardownDspBridge(false);
     transitionStateRef.current = {
       active: false,
       fromDeck: newDeckIdx,
@@ -202,6 +390,12 @@ export default function YouTubePlayer({
     if (newActivePlayer) {
       window.__mctify_yt_player = newActivePlayer;
       try {
+        if (wasDspBridge && dspIncomingTime > 0.2) {
+          const curYt = newActivePlayer.getCurrentTime?.() || 0;
+          if (Math.abs(curYt - dspIncomingTime) > 0.6) {
+            newActivePlayer.seekTo?.(dspIncomingTime, true);
+          }
+        }
         if (isMutedRef.current) {
           newActivePlayer.mute?.();
         } else {
@@ -725,6 +919,24 @@ export default function YouTubePlayer({
         const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
         const remainingSec = dur - current;
 
+        // 0. Pre-warm Hybrid Web Audio DSP Bridge 16s before transition window
+        if (
+          transitionEnabled &&
+          !transitionStateRef.current.active &&
+          dur > overlapSec + 10 &&
+          remainingSec <= triggerRemainingSec + 16 &&
+          remainingSec > triggerRemainingSec &&
+          nextVideoIdRef.current &&
+          nextVideoIdRef.current !== activeVid
+        ) {
+          prewarmDspBridgeDecks(
+            activeVid,
+            nextVideoIdRef.current,
+            Math.max(0, dur - triggerRemainingSec),
+            Math.max(0, Number(cfg?.introOffsetSec) || 0)
+          );
+        }
+
         // 1. Trigger Dual-Deck Overlap when entering the transition window
         if (
           transitionEnabled &&
@@ -736,6 +948,20 @@ export default function YouTubePlayer({
           nextVideoIdRef.current !== activeVid
         ) {
           startLiveDualDeckTransition(current, dur);
+          // Attempt seamless upgrade to Hybrid Web Audio DSP Bridge (real Bass Swap + Filter S-Curve!)
+          tryActivateDspBridge(
+            activeVid,
+            nextVideoIdRef.current,
+            current,
+            Math.max(0, Number(cfg?.introOffsetSec) || 0)
+          ).then((ok) => {
+            if (ok && transitionStateRef.current.active) {
+              // Mute both YouTube IFrames while Hybrid Web Audio DSP Engine drives real EQ/Filter audio!
+              try { decksRef.current[transitionStateRef.current.fromDeck]?.setVolume?.(0); } catch {}
+              try { decksRef.current[transitionStateRef.current.toDeck]?.setVolume?.(0); } catch {}
+              transitionStateRef.current.standbyRolling = true;
+            }
+          });
         }
 
         // 2. Drive Dual-Deck Envelope during active transition
@@ -775,22 +1001,64 @@ export default function YouTubePlayer({
 
           const env = evaluateTransitionEnvelope(p, cfg || {});
           const masterVol = computeMasterCeilingVol();
-          let outVol = Math.round((env.effectiveOutIframeVol / 100) * masterVol);
-          let inVol = Math.round((env.effectiveInIframeVol / 100) * masterVol);
 
-          // Anti-clipping headroom balance when Mashup/Overlap runs both decks at full energy
-          if (outVol + inVol > masterVol * 1.35) {
-            const scale = (masterVol * 1.35) / Math.max(1, outVol + inVol);
-            outVol = Math.round(outVol * scale);
-            inVol = Math.round(inVol * scale);
-          }
-
-          if (!isMutedRef.current) {
-            try { fromPlayer?.setVolume?.(outVol); } catch {}
+          // If Hybrid Web Audio DSP Bridge is active, drive REAL BiquadFilter Bass Swap, HPF S-Curve & Smooth Tempo Sync!
+          const b = dspBridgeRef.current;
+          if (b.active && b.ctx && b.outGain && b.inGain) {
+            const now = b.ctx.currentTime;
             try {
-              toPlayer?.unMute?.();
-              toPlayer?.setVolume?.(inVol);
+              b.masterGain?.gain?.setTargetAtTime(
+                isMutedRef.current ? 0 : Math.max(0, Math.min(1, volumeRef.current ?? 0.8)),
+                now,
+                0.04
+              );
+              b.outGain.gain.setTargetAtTime(env.outGain, now, 0.04);
+              b.inGain.gain.setTargetAtTime(env.inGain, now, 0.04);
+              b.outLow.gain.setTargetAtTime(env.outLowDb, now, 0.03);
+              b.inLow.gain.setTargetAtTime(env.inLowDb, now, 0.03);
+              b.outMid.gain.setTargetAtTime(env.outMidDb, now, 0.04);
+              b.inMid.gain.setTargetAtTime(env.inMidDb, now, 0.04);
+              if (env.outFilterType && b.outFilter.type !== env.outFilterType) {
+                b.outFilter.type = env.outFilterType;
+              }
+              if (env.outFilterFreqHz) {
+                b.outFilter.frequency.setTargetAtTime(env.outFilterFreqHz, now, 0.04);
+                b.outFilter.Q.setTargetAtTime(env.outFilterQ || 1.0, now, 0.04);
+              }
+              if (env.inFilterType && b.inFilter.type !== env.inFilterType) {
+                b.inFilter.type = env.inFilterType;
+              }
+              if (env.inFilterFreqHz) {
+                b.inFilter.frequency.setTargetAtTime(env.inFilterFreqHz, now, 0.04);
+              }
+              if (b.outAudio && Number.isFinite(env.outPlaybackRate)) {
+                b.outAudio.playbackRate = env.outPlaybackRate;
+              }
+              if (b.inAudio && Number.isFinite(env.inPlaybackRate)) {
+                b.inAudio.playbackRate = env.inPlaybackRate;
+              }
+              // Keep YouTube IFrames silent while Web Audio DSP Bridge is outputting
+              try { fromPlayer?.setVolume?.(0); } catch {}
+              try { toPlayer?.setVolume?.(0); } catch {}
             } catch {}
+          } else {
+            let outVol = Math.round((env.effectiveOutIframeVol / 100) * masterVol);
+            let inVol = Math.round((env.effectiveInIframeVol / 100) * masterVol);
+
+            // Anti-clipping headroom balance when Mashup/Overlap runs both decks at full energy
+            if (outVol + inVol > masterVol * 1.35) {
+              const scale = (masterVol * 1.35) / Math.max(1, outVol + inVol);
+              outVol = Math.round(outVol * scale);
+              inVol = Math.round(inVol * scale);
+            }
+
+            if (!isMutedRef.current) {
+              try { fromPlayer?.setVolume?.(outVol); } catch {}
+              try {
+                toPlayer?.unMute?.();
+                toPlayer?.setVolume?.(inVol);
+              } catch {}
+            }
           }
 
           // Apply gentle Tempo-Sync playback rate on YouTube IFrame when available
