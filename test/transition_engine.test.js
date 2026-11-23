@@ -134,4 +134,54 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.ok(analysis.introDropSec >= 1.8 && analysis.introDropSec <= 2.2, `Expected ~2.0s introDropSec, got ${analysis.introDropSec}`);
     assert.ok(analysis.detectedBpm >= 116 && analysis.detectedBpm <= 124, `Expected ~120 BPM, got ${analysis.detectedBpm}`);
   });
+
+  it('matches authentic TikTok Spotify Mix blueprint (Ain\'t In LA -> Close To Me) with 8 bars, 100% cyan volume, midpoint bass swap, and +14s drop cue', () => {
+    const trackA = { title: "Ain't In LA", artist: "ADÉLA" };
+    const trackB = { title: "Close To Me", artist: "Ellie Goulding, Diplo, Swae Lee" };
+
+    const metaA = computeTrackBpmAndKey(trackA);
+    const metaB = computeTrackBpmAndKey(trackB);
+    assert.equal(metaA.bpm, 139, 'Ain\'t In LA studio BPM should be 139');
+    assert.equal(metaA.key, '12B', 'Ain\'t In LA Camelot key should be 12B');
+    assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
+    assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
+
+    const preset = computeSmartAutomixPreset(trackA, trackB);
+    assert.equal(preset.bars, '8 bars');
+    assert.equal(preset.volume, 'mashup');
+    assert.equal(preset.eq, 'bass_swap');
+    assert.equal(preset.effect, 'high_pass');
+    assert.equal(preset.tempoSync, true);
+    assert.equal(preset.introOffsetSec, 14.0, 'Must cue Close To Me at its 14.0s beat drop');
+    assert.equal(preset.outroOffsetSec, -3.0, 'Must cue Ain\'t In LA during its active vocal outro at ~2:48');
+    assert.ok(preset.durationSec >= 13.5 && preset.durationSec <= 14.0);
+
+    // Verify Spotify Mix 3-curve automation envelope
+    // 1. Cyan volume curve: both tracks are at 100% volume throughout bars 1-7 (p < 0.94)
+    const envBar1 = evaluateTransitionEnvelope(0.1, preset);
+    const envBar4 = evaluateTransitionEnvelope(0.48, preset);
+    const envBar6 = evaluateTransitionEnvelope(0.70, preset);
+    const envBar8End = evaluateTransitionEnvelope(1.0, preset);
+
+    assert.equal(envBar1.outGain, 1.0);
+    assert.equal(envBar1.inGain, 1.0);
+    assert.equal(envBar4.outGain, 1.0);
+    assert.equal(envBar4.inGain, 1.0);
+    assert.equal(envBar6.outGain, 1.0);
+    assert.equal(envBar6.inGain, 1.0);
+    assert.equal(envBar8End.outGain, 0.0, 'Outgoing track drops vertically to 0 at bar 8 end');
+    assert.equal(envBar8End.inGain, 1.0);
+
+    // 2. Yellow bass swap curve: step swap at p = 0.50
+    assert.equal(envBar4.outLowDb, 0);
+    assert.equal(envBar4.inLowDb, -20);
+    assert.equal(envBar6.outLowDb, -20);
+    assert.ok(envBar6.inLowDb >= 1.0);
+
+    // 3. Pink filter S-curve: flat 28Hz before midpoint, sweeps to ~1850Hz across bars 5-6
+    assert.equal(envBar4.outFilterFreqHz, 28);
+    assert.ok(envBar6.outFilterFreqHz >= 600 && envBar6.outFilterFreqHz <= 1400);
+    const envBar7 = evaluateTransitionEnvelope(0.78, preset);
+    assert.equal(envBar7.outFilterFreqHz, 1850);
+  });
 });

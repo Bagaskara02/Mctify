@@ -27,7 +27,13 @@ export default async function handler(req, res) {
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const id = (url.searchParams.get('id') || req.query?.id || '').trim();
+    const id = (
+      url.searchParams.get('id') ||
+      url.searchParams.get('videoId') ||
+      req.query?.id ||
+      req.query?.videoId ||
+      ''
+    ).trim();
 
     if (!isValidVideoId(id)) {
       res.statusCode = 400;

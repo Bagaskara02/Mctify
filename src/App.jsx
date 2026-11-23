@@ -1562,7 +1562,9 @@ export default function App() {
     );
     const outDur = Number(outTrack.duration) || 180;
     const overlapSec = Number(saved.durationSec) || 5.5;
-    const testStartSec = Math.max(5, Math.floor(outDur - (overlapSec + 6)));
+    const outroOffset = Number(saved.outroOffsetSec) || 0;
+    const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
+    const testStartSec = Math.max(0, Math.floor(outDur - triggerRemainingSec - 4.5));
 
     await handlePlayTrack(outTrack, updatedQueue, testStartSec);
     setSmartToast(

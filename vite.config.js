@@ -70,7 +70,7 @@ function musicBackendPlugin() {
       server.middlewares.use('/api/yt/stream', async (req, res) => {
         try {
           const url = new URL(req.url, 'http://localhost');
-          const id = url.searchParams.get('id');
+          const id = (url.searchParams.get('id') || url.searchParams.get('videoId') || '').trim();
           if (!id) {
             res.statusCode = 400;
             return res.end(JSON.stringify({ error: 'Missing video id' }));
@@ -327,7 +327,7 @@ function musicBackendPlugin() {
       server.middlewares.use('/api/yt/artist', async (req, res) => {
         try {
           const url = new URL(req.url, 'http://localhost');
-          const id = url.searchParams.get('id');
+          const id = (url.searchParams.get('id') || url.searchParams.get('videoId') || '').trim();
           const name = url.searchParams.get('name') || '';
           if (!id && !name) {
             res.statusCode = 400;

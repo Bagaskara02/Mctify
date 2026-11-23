@@ -382,7 +382,7 @@ export default function SpotifyTransitionModal({
       };
 
       if (usingYtFallbackRef.current.out) {
-        const outCue = Math.max(10, (outgoing.duration || 180) - (durationSec + 8) + (Number(activeCfg.outroOffsetSec) || 0));
+        const outCue = Math.max(0, (outgoing.duration || 180) - (durationSec + 1.6) + (Number(activeCfg.outroOffsetSec) || 0));
         await ensureYtFallbackDeck('out', outgoing.videoId, outCue);
       }
       if (usingYtFallbackRef.current.in) {

@@ -400,6 +400,8 @@ class TransitionEngine {
     (match: RegExp(r'hati-hati di jalan|tulus', caseSensitive: false), bpm: 73, camelot: '7B', keyName: 'F Major', energy: 0.56),
     (match: RegExp(r'gala bunga matahari|sal priadi', caseSensitive: false), bpm: 112, camelot: '6B', keyName: 'Bb Major', energy: 0.65),
     (match: RegExp(r'untungnya|bernadya', caseSensitive: false), bpm: 108, camelot: '8B', keyName: 'C Major', energy: 0.64),
+    (match: RegExp(r"ain'?t in la|ad[eé]la", caseSensitive: false), bpm: 139, camelot: '12B', keyName: 'E Major', energy: 0.88),
+    (match: RegExp(r'close to me|ellie goulding|diplo', caseSensitive: false), bpm: 72, camelot: '12B', keyName: 'E Major', energy: 0.85),
   ];
 
   /// Computes deterministic BPM, Camelot key (`1A-12B`), musical key name, and energy for a [Track].
@@ -566,9 +568,10 @@ class TransitionEngine {
 
     switch (volumeMode) {
       case 'mashup':
-        // Authentic Spotify Mix 8-Bar Blend: full energy overlap + vertical bass swap at midpoint
-        outGain = p < 0.92 ? 1.0 : math.cos(((p - 0.92) / 0.08) * (math.pi / 2.0));
-        inGain = p < 0.06 ? math.sin((p / 0.06) * (math.pi / 2.0)) : 1.0;
+        // Authentic Spotify Mix 8-Bar Blend (matches TikTok @rollingwithlana reference):
+        // In Spotify Mix, BOTH Cyan Volume lines stay flat at 100% across the transition grid!
+        outGain = p < 0.94 ? 1.0 : math.cos(((p - 0.94) / 0.06) * (math.pi / 2.0));
+        inGain = 1.0;
         break;
       case 'overlap':
         outGain = p < 0.45 ? 1.0 : math.cos(((p - 0.45) / 0.55) * (math.pi / 2.0));
@@ -703,6 +706,41 @@ class TransitionEngine {
     final harmonic = computeCamelotCompatibility(metaA.camelot, metaB.camelot);
     final initialStats = computeBarDurationSec(metaA.bpm, metaB.bpm, '2 bars');
     final bpmDelta = initialStats.bpmDelta;
+
+    // Specific Curated Blueprint: ADÉLA - Ain't In LA ➔ Ellie Goulding - Close To Me (TikTok Spotify Mix)
+    final titleA = (outgoingTrack?.title ?? '').toLowerCase();
+    final titleB = (incomingTrack?.title ?? '').toLowerCase();
+    final isAintInLaToCloseToMe =
+        (titleA.contains("ain't in la") && titleB.contains('close to me')) ||
+        (titleA.contains('close to me') && titleB.contains("ain't in la"));
+
+    if (isAintInLaToCloseToMe) {
+      final barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, '8 bars');
+      final config = TransitionConfig(
+        enabled: true,
+        bars: '8 bars',
+        durationSec: barStats.durationSec,
+        volumeMode: 'mashup',
+        eqMode: 'bass_swap',
+        effectsMode: 'high_pass',
+        syncTempo: true,
+        outroOffsetSec: -3.0, // starts at ~2:48 during Ain't In LA's active outro phrase
+        introOffsetSec: 14.0, // skips 14s acoustic intro and drops on Diplo's beat
+        bpmA: metaA.bpm,
+        bpmB: metaB.bpm,
+      );
+      return SmartAutomixPreset(
+        config: config,
+        metaA: metaA,
+        metaB: metaB,
+        compatibilityScore: 99,
+        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 8 Bars Mashup Blend dengan Bass Swap di Bar 4➔5 dan Pink S-Curve HPF. Outro di-cue pada 2:48 & intro langsung pada beat drop +14s.',
+        bars: '8 bars',
+        volumeMode: 'mashup',
+        eqMode: 'bass_swap',
+        effectsMode: 'high_pass',
+      );
+    }
 
     String bars = '2 bars';
     String volumeMode = 'overlap';

@@ -34,6 +34,8 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /sanctuary/i, bpm: 84, key: '11B' },
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
+  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 168.0, totalDurSec: 185 },
+  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 14.0, totalDurSec: 183 },
 ];
 
 export const TRANSITION_BAR_OPTIONS = [
@@ -225,22 +227,14 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inGain = 0.0;
 
   if (volumeMode === 'mashup') {
-    // Balanced Spotify Mix 8-Bar Blend:
-    // Avoids "both songs blaring at 100% at the same time" muddiness!
-    // Bars 1-4 (p=0..0.48): Outgoing leads (100% -> 82%), Incoming sneaks in smoothly underneath (0% -> 72%)
-    // Exact Midpoint (p=0.48..0.54): Bass Swap + Lead Handoff! Incoming rises to 100% while Outgoing ducks to 58%
-    // Bars 5-8 (p=0.54..1.0): Incoming owns the track (100%) while Outgoing glides out smoothly behind HPF (58% -> 0%)
-    if (p < 0.48) {
-      outGain = 1.0 - 0.16 * (p / 0.48);
-      inGain = 0.72 * Math.sin((p / 0.48) * (Math.PI / 2));
-    } else if (p < 0.56) {
-      const t = (p - 0.48) / 0.08;
-      outGain = 0.84 - 0.26 * t;
-      inGain = 0.72 + 0.28 * t;
-    } else {
-      outGain = 0.58 * Math.cos(((p - 0.56) / 0.44) * (Math.PI / 2));
-      inGain = 1.0;
-    }
+    // Authentic Spotify Mix 8-Bar Blend (Matches TikTok @rollingwithlana reference):
+    // In Spotify Mix, BOTH Cyan Volume lines stay flat at 100% across the transition grid!
+    // Outgoing stays at 100% until 94% (end of Bar 8), then vertically drops to 0%.
+    // Incoming is at 100% from the very first downbeat!
+    // Separation is achieved through Bass Swap (yellow line) and High-Pass Filter (pink S-curve),
+    // creating that seamless "single song" mashup sensation!
+    outGain = p < 0.94 ? 1.0 : Math.cos(((p - 0.94) / 0.06) * (Math.PI / 2));
+    inGain = 1.0;
   } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
     // Incoming fades in over 0..55% and stays at 100%
@@ -455,26 +449,58 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
   const barStats2 = computeBarDurationSec(metaA.bpm, metaB.bpm, '2 bars');
   const deltaBpm = barStats2.deltaBpm;
 
+  // Specific Curated Reference Blueprint: ADÉLA - Ain't In LA ➔ Ellie Goulding - Close To Me (from TikTok @rollingwithlana)
+  const isAintInLaToCloseToMe =
+    (/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
+    (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || ''));
+
+  if (isAintInLaToCloseToMe) {
+    const bars = '8 bars';
+    const finalStats = computeBarDurationSec(metaA.bpm, metaB.bpm, bars);
+    return {
+      bars,
+      durationSec: finalStats.durationSec, // 13.8s
+      beats: finalStats.beats,
+      volume: 'mashup',
+      eq: 'bass_swap',
+      effect: 'high_pass',
+      tempoSync: true,
+      outroOffsetSec: -3.0, // starts at ~2:48 on Ain't In LA's active vocal outro phrase
+      introOffsetSec: 14.0, // skips 14s quiet acoustic guitar intro to drop on Diplo's beat
+      bpmA: metaA.bpm,
+      bpmB: metaB.bpm,
+      keyA: metaA.key,
+      keyB: metaB.key,
+      deltaBpm,
+      compatibility: compat,
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 8 Bars Mashup Blend dengan Bass Swap di Bar 4➔5 dan Pink S-Curve HPF. Outro di-cue pada 2:48 & intro langsung pada beat drop +14s.',
+    };
+  }
+
   let bars = '2 bars';
   let volume = 'overlap';
   let eq = 'bass_swap';
   let effect = 'high_pass';
   let tempoSync = deltaBpm <= 12;
   let explanation = '';
+  let introOffsetSec = 0;
+  let outroOffsetSec = 0;
 
-  if (deltaBpm <= 4 && compat.score >= 90) {
-    bars = '4 bars';
+  if (deltaBpm <= 6 && compat.score >= 90) {
+    bars = '8 bars';
     volume = 'mashup';
     eq = 'bass_swap';
     effect = 'high_pass';
     tempoSync = true;
-    explanation = `Harmoni & Tempo Sempurna (${metaA.bpm} → ${metaB.bpm} BPM, ${metaA.key} → ${metaB.key} • ${compat.label}). Menggunakan Mashup Blend 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Bass Swap & High-Pass Filter agar beat dan vokal menyatu seperti remix DJ.`;
+    introOffsetSec = metaB.introDropSec || 0;
+    explanation = `Harmoni & Tempo Sempurna (${metaA.bpm} → ${metaB.bpm} BPM, ${metaA.key} → ${metaB.key} • ${compat.label}). Menggunakan Mashup Blend 8 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '8 bars').durationSec}s) dengan Bass Swap & High-Pass Filter agar beat dan vokal menyatu seperti remix DJ.`;
   } else if (deltaBpm <= 10) {
     bars = '4 bars';
     volume = compat.score >= 80 ? 'mashup' : 'overlap';
     eq = compat.score >= 80 ? 'bass_swap' : 'smooth_blend';
     effect = compat.score >= 80 ? 'high_pass' : 'echo_fade';
     tempoSync = true;
+    introOffsetSec = metaB.introDropSec || 0;
     explanation = `Beatmatch Mashup (${metaA.bpm} → ${metaB.bpm} BPM, selisih ${deltaBpm} BPM • ${compat.label}). Menggunakan ${volume === 'mashup' ? 'Mashup Blend' : 'Overlap'} 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Tempo Sync aktif & ${effect === 'high_pass' ? 'High-Pass Sweep' : 'Tempo Echo Fade'}.`;
   } else if (deltaBpm <= 20) {
     bars = '2 bars';
@@ -501,8 +527,8 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     eq,
     effect,
     tempoSync,
-    outroOffsetSec: 0,
-    introOffsetSec: 0,
+    outroOffsetSec,
+    introOffsetSec,
     bpmA: metaA.bpm,
     bpmB: metaB.bpm,
     keyA: metaA.key,
@@ -597,15 +623,23 @@ export async function resolveTransitionTrackAudio(track) {
     return previewAudioCache.get(cacheKey);
   }
 
+  // Tier 1: Local/Vercel same-origin YouTube Audio Stream Proxy (/api/yt/stream)
+  // FULL TRACK TIMELINE (0:00 to 3:00+): Prioritized when videoId is present so waveform,
+  // cue timestamps, and preview playback match the exact full-song timeline of the main player!
+  if (track.videoId && /^[a-zA-Z0-9_-]{11}$/.test(track.videoId.trim())) {
+    const proxyUrl = `/api/yt/stream?videoId=${encodeURIComponent(track.videoId.trim())}`;
+    const resolved = { url: proxyUrl, sourceType: 'yt_proxy', isPreview30s: false };
+    previewAudioCache.set(cacheKey, resolved);
+    return resolved;
+  }
+
   const cleanTitle = cleanSearchTitle(track.title || '');
   const cleanArtist = String(track.artist || '')
     .split(',')[0]
     .replace(/\s*-\s*Topic$/i, '')
     .trim();
 
-  // Tier 1: iTunes high-availability CORS AAC preview (supports Web Audio API BiquadFilter/Convolver directly!)
-  // STRICT MATCHING: Require strong title + artist match so indie/Indonesian tracks (e.g. Tenxi - mejikuhibiniu / Bintang 5)
-  // NEVER accidentally play a completely different song from iTunes!
+  // Tier 2: iTunes high-availability CORS AAC preview (fallback when track has no videoId)
   if (cleanTitle && typeof fetch === 'function') {
     try {
       const q = `${cleanTitle} ${cleanArtist}`.trim();
@@ -680,14 +714,6 @@ export async function resolveTransitionTrackAudio(track) {
         }
       }
     } catch (_) {}
-  }
-
-  // Tier 2: Local/Vercel same-origin YouTube Audio Stream Proxy (/api/yt/stream)
-  if (track.videoId && /^[a-zA-Z0-9_-]{11}$/.test(track.videoId.trim())) {
-    const proxyUrl = `/api/yt/stream?videoId=${encodeURIComponent(track.videoId.trim())}`;
-    const resolved = { url: proxyUrl, sourceType: 'yt_proxy', isPreview30s: false };
-    previewAudioCache.set(cacheKey, resolved);
-    return resolved;
   }
 
   return null;
