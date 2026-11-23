@@ -196,11 +196,18 @@ export default function SpotifyTransitionModal({
         ...pairCfg,
         durationSec: calc.durationSec,
       });
+      if (!pairCfg?.isCustomPair) {
+        const smart = computeSmartAutomixPreset(outgoing, incoming);
+        if (smart) {
+          setSmartAutomixInsight(smart);
+        }
+      } else {
+        setSmartAutomixInsight(null);
+      }
       setPickerTarget(null);
       setIsPlayingPreview(false);
       setPreviewProgress(0);
       setLiveTelemetry(null);
-      setSmartAutomixInsight(null);
     } else {
       stopPreview();
     }
@@ -545,6 +552,8 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
+      activeOutroSec: settings.activeOutroSec ?? (outgoing.activeOutroSec || null),
+      targetOutroSec: settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -561,6 +570,8 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
+      activeOutroSec: settings.activeOutroSec ?? (outgoing.activeOutroSec || null),
+      targetOutroSec: settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);

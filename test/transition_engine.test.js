@@ -11,6 +11,7 @@ import {
   generateMusicalWaveformBars,
   analyzePcmBeatGrid,
 } from '../src/services/transitionEngine.js';
+import { storageService } from '../src/services/storageService.js';
 
 describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
   it('resolves verified studio BPM & Camelot keys and deterministic genre estimates', () => {
@@ -143,6 +144,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const metaB = computeTrackBpmAndKey(trackB);
     assert.equal(metaA.bpm, 139, 'Ain\'t In LA studio BPM should be 139');
     assert.equal(metaA.key, '12B', 'Ain\'t In LA Camelot key should be 12B');
+    assert.equal(metaA.activeOutroSec, 168.0, 'Ain\'t In LA active outro must cue at 168s (2:48)');
     assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
     assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
 
@@ -154,7 +156,15 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(preset.tempoSync, true);
     assert.equal(preset.introOffsetSec, 14.0, 'Must cue Close To Me at its 14.0s beat drop');
     assert.equal(preset.outroOffsetSec, -3.0, 'Must cue Ain\'t In LA during its active vocal outro at ~2:48');
+    assert.equal(preset.activeOutroSec, 168.0, 'Preset must explicitly carry 168.0s (2:48) trigger point');
     assert.ok(preset.durationSec >= 13.5 && preset.durationSec <= 14.0);
+
+    // Verify storageService automatically resolves the TikTok Smart Automix blueprint
+    const autoPairCfg = storageService.getTransitionForPair(trackA, trackB);
+    assert.equal(autoPairCfg.bars, '8 bars');
+    assert.equal(autoPairCfg.volume, 'mashup');
+    assert.equal(autoPairCfg.introOffsetSec, 14.0);
+    assert.equal(autoPairCfg.activeOutroSec, 168.0);
 
     // Verify Spotify Mix 3-curve automation envelope
     // 1. Cyan volume curve: both tracks are at 100% volume throughout bars 1-7 (p < 0.94)

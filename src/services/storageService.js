@@ -1,3 +1,5 @@
+import { computeSmartAutomixPreset } from './transitionEngine.js';
+
 const STORAGE_KEYS = {
   PLAYLISTS: 'mcmusic_playlists_v2',
   LIKED_TRACKS: 'mcmusic_liked_tracks_v2',
@@ -624,15 +626,33 @@ export const storageService = {
   getTransitionForPair(outgoingTrack, incomingTrack) {
     const base = this.getTransitionSettings();
     const pairKey = this._makeTransitionPairKey(outgoingTrack, incomingTrack);
-    if (!pairKey) return base;
-    try {
-      const raw = localStorage.getItem('mcmusic_transition_pairs_v1');
-      if (!raw) return base;
-      const map = JSON.parse(raw);
-      if (map && typeof map === 'object' && map[pairKey]) {
-        return { ...base, ...map[pairKey], isCustomPair: true };
-      }
-    } catch (_) {}
+    if (pairKey) {
+      try {
+        const raw = localStorage.getItem('mcmusic_transition_pairs_v1');
+        if (raw) {
+          const map = JSON.parse(raw);
+          if (map && typeof map === 'object' && map[pairKey]) {
+            return { ...base, ...map[pairKey], isCustomPair: true };
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Default to intelligent Smart Automix preset if available for this specific pair
+    if (outgoingTrack && incomingTrack) {
+      try {
+        const smart = computeSmartAutomixPreset(outgoingTrack, incomingTrack);
+        if (smart) {
+          return {
+            ...base,
+            ...smart,
+            isCustomPair: false,
+            isSmartPreset: true,
+          };
+        }
+      } catch (_) {}
+    }
+
     return base;
   },
 
@@ -646,6 +666,8 @@ export const storageService = {
       tempoSync: settings.tempoSync !== false,
       outroOffsetSec: Number(settings.outroOffsetSec) || 0,
       introOffsetSec: Number(settings.introOffsetSec) || 0,
+      activeOutroSec: typeof settings.activeOutroSec === 'number' ? settings.activeOutroSec : null,
+      targetOutroSec: typeof settings.targetOutroSec === 'number' ? settings.targetOutroSec : null,
       enabled: settings.enabled !== false,
       updatedAt: Date.now(),
     };

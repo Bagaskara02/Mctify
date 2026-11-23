@@ -91,18 +91,22 @@ export function computeTrackBpmAndKey(track) {
     ? track.key.trim().toUpperCase()
     : null;
 
-  if (Number.isFinite(existingBpm) && existingBpm >= 50 && existingBpm <= 210 && existingKey) {
-    return { bpm: Math.round(existingBpm), key: existingKey };
-  }
-
   const combined = `${track.title || ''} ${track.artist || ''}`.trim();
   for (const entry of VERIFIED_TRACK_BPM_KEY) {
     if (entry.match.test(combined)) {
       return {
-        bpm: existingBpm >= 50 && existingBpm <= 210 ? Math.round(existingBpm) : entry.bpm,
+        bpm: Number.isFinite(existingBpm) && existingBpm >= 50 && existingBpm <= 210 ? Math.round(existingBpm) : entry.bpm,
         key: existingKey || entry.key,
+        introDropSec: entry.introDropSec,
+        activeOutroSec: entry.activeOutroSec,
+        targetOutroSec: entry.activeOutroSec,
+        totalDurSec: entry.totalDurSec,
       };
     }
+  }
+
+  if (Number.isFinite(existingBpm) && existingBpm >= 50 && existingBpm <= 210 && existingKey) {
+    return { bpm: Math.round(existingBpm), key: existingKey };
   }
 
   const str = `${track.title || ''} ${track.artist || ''} ${track.genre || ''}`.toLowerCase();
@@ -467,6 +471,8 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       tempoSync: true,
       outroOffsetSec: -3.0, // starts at ~2:48 on Ain't In LA's active vocal outro phrase
       introOffsetSec: 14.0, // skips 14s quiet acoustic guitar intro to drop on Diplo's beat
+      activeOutroSec: 168.0, // Exact target trigger timestamp: 2:48 (168s)
+      targetOutroSec: 168.0,
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
       keyA: metaA.key,

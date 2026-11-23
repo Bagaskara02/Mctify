@@ -924,25 +924,45 @@ export default function YouTubePlayer({
         const triggerRemainingSec = Math.max(2.0, overlapSec + smartOutroLeadSec - outroOffset);
         const remainingSec = dur - current;
 
+        // Honor explicit activeOutroSec / targetOutroSec (e.g. 168.0s = 2:48 for Ain't In LA)
+        // so transition triggers at the designated musical phrase cue, NOT just at the tail end of the video!
+        const explicitOutroCue =
+          typeof cfg?.activeOutroSec === 'number' && cfg.activeOutroSec > 10
+            ? cfg.activeOutroSec
+            : (typeof cfg?.targetOutroSec === 'number' && cfg.targetOutroSec > 10
+                ? cfg.targetOutroSec
+                : null);
+
+        const targetTriggerSec = explicitOutroCue != null
+          ? explicitOutroCue
+          : Math.max(2.0, dur - triggerRemainingSec);
+
+        const isAtTriggerPoint =
+          current >= targetTriggerSec || (remainingSec <= triggerRemainingSec && remainingSec > 0.7);
+
         // Honor explicit introOffsetSec (e.g. +14s for Close To Me drop)
         const effectiveIntroCueSec = typeof cfg?.introOffsetSec === 'number'
           ? Math.max(0, cfg.introOffsetSec)
           : (Number(cfg?.introOffsetSec) || 0);
 
         // 0. Pre-warm Hybrid Web Audio DSP Bridge 16s before transition window
+        const prewarmTriggerSec = Math.max(0, targetTriggerSec - 16.0);
+        const shouldPrewarm =
+          (current >= prewarmTriggerSec && current < targetTriggerSec) ||
+          (remainingSec <= triggerRemainingSec + 16 && remainingSec > triggerRemainingSec);
+
         if (
           transitionEnabled &&
           !transitionStateRef.current.active &&
-          dur > overlapSec + 10 &&
-          remainingSec <= triggerRemainingSec + 16 &&
-          remainingSec > triggerRemainingSec &&
+          dur > overlapSec + 6 &&
+          shouldPrewarm &&
           nextVideoIdRef.current &&
           nextVideoIdRef.current !== activeVid
         ) {
           prewarmDspBridgeDecks(
             activeVid,
             nextVideoIdRef.current,
-            Math.max(0, dur - triggerRemainingSec),
+            targetTriggerSec,
             effectiveIntroCueSec
           );
         }
@@ -951,8 +971,8 @@ export default function YouTubePlayer({
         if (
           transitionEnabled &&
           !transitionStateRef.current.active &&
-          dur > overlapSec + 8 &&
-          remainingSec <= triggerRemainingSec &&
+          dur > overlapSec + 6 &&
+          isAtTriggerPoint &&
           remainingSec > 0.7 &&
           nextVideoIdRef.current &&
           nextVideoIdRef.current !== activeVid

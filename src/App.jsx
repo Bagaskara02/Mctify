@@ -1434,6 +1434,9 @@ export default function App() {
       bpmB: metaB.bpm,
       keyA: metaA.key,
       keyB: metaB.key,
+      activeOutroSec: pairCfg.activeOutroSec ?? metaA.activeOutroSec ?? null,
+      targetOutroSec: pairCfg.targetOutroSec ?? metaA.targetOutroSec ?? null,
+      activeIntroSec: pairCfg.introOffsetSec ?? metaB.introDropSec ?? null,
     };
   })();
 
@@ -1560,15 +1563,23 @@ export default function App() {
       saved.outgoingTrack,
       saved.incomingTrack
     );
-    const outDur = Number(outTrack.duration) || 180;
+    const outDur = Number(outTrack.duration) || 185;
     const overlapSec = Number(saved.durationSec) || 5.5;
     const outroOffset = Number(saved.outroOffsetSec) || 0;
     const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
-    const testStartSec = Math.max(0, Math.floor(outDur - triggerRemainingSec - 4.5));
+
+    // If an explicit activeOutroSec is designated (e.g. 168.0 = 2:48 for Ain't In LA), jump directly to 4.5s before that cue!
+    const targetOutroCue =
+      typeof saved.activeOutroSec === 'number' && saved.activeOutroSec > 10
+        ? saved.activeOutroSec
+        : (typeof saved.targetOutroSec === 'number' && saved.targetOutroSec > 10
+            ? saved.targetOutroSec
+            : Math.max(0, outDur - triggerRemainingSec));
+    const testStartSec = Math.max(0, Math.floor(targetOutroCue - 4.5));
 
     await handlePlayTrack(outTrack, updatedQueue, testStartSec);
     setSmartToast(
-      `Menguji Transisi Live (${saved.bars} • ${saved.volume}): Transisi dimulai dalam ~6 detik...`
+      `Menguji Transisi Live (${saved.bars} • ${saved.volume}): Mulai di ${formatPlaybackSeconds(testStartSec)} → Transisi di ${formatPlaybackSeconds(targetOutroCue)}...`
     );
     setTimeout(() => setSmartToast(null), 4500);
   };

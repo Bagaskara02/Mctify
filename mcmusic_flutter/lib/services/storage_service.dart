@@ -495,6 +495,15 @@ class StorageService {
       }
     } catch (_) {}
 
+    final smartPreset = TransitionEngine.computeSmartAutomixPreset(outgoing, incoming);
+    final titleA = outgoing.title.toLowerCase();
+    final titleB = incoming.title.toLowerCase();
+    final isCuratedBlueprint = (titleA.contains("ain't in la") && titleB.contains("close to me")) ||
+        (titleA.contains("close to me") && titleB.contains("ain't in la"));
+    if (isCuratedBlueprint || smartPreset.compatibilityScore >= 90) {
+      return smartPreset.config;
+    }
+
     final barStats = TransitionEngine.computeBarDurationSec(metaA.bpm, metaB.bpm, base.bars);
     return base.copyWith(
       durationSec: barStats.durationSec,
