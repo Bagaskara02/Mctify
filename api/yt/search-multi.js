@@ -1,4 +1,9 @@
 import { Innertube } from 'youtubei.js';
+import {
+  applyApiSecurity,
+  sanitizeQuery,
+  sendSafeError,
+} from '../_security.js';
 
 let ytPromise = null;
 async function getYT() {
@@ -69,19 +74,13 @@ const formatFans = (n) => {
 };
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
-  }
+  if (!applyApiSecurity(req, res)) return;
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const q = (url.searchParams.get('q') || req.query?.q || '').trim();
-    const mode = url.searchParams.get('mode') || req.query?.mode || 'full';
+    const q = sanitizeQuery(url.searchParams.get('q') || req.query?.q || '', 150);
+    const rawMode = (url.searchParams.get('mode') || req.query?.mode || 'full').trim();
+    const mode = rawMode === 'suggest' ? 'suggest' : 'full';
 
     if (!q) {
       res.statusCode = 400;
@@ -252,9 +251,6 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
     return res.end(JSON.stringify({ songs, artists, albums, suggestions }));
   } catch (e) {
-    console.error('API /api/yt/search-multi error:', e);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: e.message }));
+    return sendSafeError(res, 500, 'Gagal mencari katalog musik', e);
   }
 }

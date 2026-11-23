@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { playlistImporter } from '../services/playlistImporter';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
+import { sanitizeMediaUrl } from '../services/storageService';
 import { extractPaletteFromImage } from '../utils/colorExtractor';
 
 function cleanTrackTitle(title) {
@@ -682,10 +683,14 @@ export default function PlaylistView({
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {
+                        if (!file.type.startsWith('image/') || file.type === 'image/svg+xml' || file.size > 2 * 1024 * 1024) {
+                          return;
+                        }
                         const reader = new FileReader();
                         reader.onload = (evt) => {
-                          if (evt.target?.result) {
-                            setEditCover(evt.target.result);
+                          if (typeof evt.target?.result === 'string') {
+                            const safeUrl = sanitizeMediaUrl(evt.target.result, '');
+                            if (safeUrl) setEditCover(safeUrl);
                           }
                         };
                         reader.readAsDataURL(file);
@@ -740,11 +745,12 @@ export default function PlaylistView({
               <button 
                 onClick={() => {
                   if (editName.trim()) {
+                    const safeCover = sanitizeMediaUrl(editCover.trim(), '') || playlist.cover || DEFAULT_ARTWORK;
                     onUpdatePlaylist?.({
                       ...playlist,
-                      name: editName.trim(),
-                      description: editDesc.trim(),
-                      cover: editCover.trim() || playlist.cover || DEFAULT_ARTWORK,
+                      name: editName.trim().slice(0, 120),
+                      description: editDesc.trim().slice(0, 400),
+                      cover: safeCover,
                     });
                     setIsEditModalOpen(false);
                   }

@@ -1,4 +1,10 @@
 import { Innertube } from 'youtubei.js';
+import {
+  applyApiSecurity,
+  isValidVideoId,
+  isValidYoutubePlaylistId,
+  sendSafeError,
+} from '../_security.js';
 
 let ytPromise = null;
 async function getYT() {
@@ -8,126 +14,275 @@ async function getYT() {
   return ytPromise;
 }
 
-const toHighResUrl = (url, fallbackVideoId = '') => {
-  if (fallbackVideoId) {
-    return `https://i.ytimg.com/vi/${fallbackVideoId}/hqdefault.jpg`;
+const VERSION_SUFFIX_REGEX =
+  /^(acoustic|remix|live|radio\s*edit|official|remaster|version|instrumental|sped\s*up|slowed|reverb|feat\.?|ft\.?|edit|mix|demo|extended|explicit|clean|deluxe|session|pt\.?\s*\d|part\s*\d|bonus|original|audio|lyric|video|mv|hd|4k|mono|stereo|unplugged|stripped)/i;
+
+function parseDurationText(text) {
+  if (!text || typeof text !== 'string') return 0;
+  const parts = text
+    .trim()
+    .split(':')
+    .map((p) => parseInt(p, 10));
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
+export function parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor = '') {
+  let title = (rawTitle || '').trim();
+  let artist = (rawArtist || '')
+    .replace(/\s*-\s*Topic$/i, '')
+    .replace(/\s*VEVO$/i, '')
+    .trim();
+  const cleanPlaylistAuthor = (playlistAuthor || '').trim();
+
+  if (title.includes(' - ')) {
+    const parts = title.split(' - ');
+    const p0 = (parts[0] || '').trim();
+    const p1 = parts.slice(1).join(' - ').trim();
+    const isVersionSuffix = VERSION_SUFFIX_REGEX.test(p1);
+    const artistLower = artist.toLowerCase();
+    const p0Lower = p0.toLowerCase();
+    const authorIsGeneric =
+      !artist ||
+      artistLower === cleanPlaylistAuthor.toLowerCase() ||
+      artistLower === 'youtube';
+    const p0MatchesArtist =
+      artistLower &&
+      (p0Lower.includes(artistLower) || artistLower.includes(p0Lower));
+
+    if (parts.length >= 2 && p0 && p1 && !isVersionSuffix && (authorIsGeneric || p0MatchesArtist)) {
+      if (authorIsGeneric) {
+        artist = p0.replace(/\s*-\s*Topic$/i, '').replace(/\s*VEVO$/i, '').trim();
+      }
+      title = p1;
+    }
   }
-  if (!url || typeof url !== 'string') return '';
-  if (url.includes('googleusercontent.com')) {
-    if (/=w\d+-h\d+/i.test(url)) {
-      return url.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj');
+
+  return {
+    title: title || (rawTitle || '').trim(),
+    artist: artist || cleanPlaylistAuthor || 'YouTube',
+  };
+}
+
+export function toHighResUrl(url, fallbackVideoId = '') {
+  const cleanUrl = typeof url === 'string' ? url.trim() : '';
+  const hasBadPlaceholder =
+    !cleanUrl ||
+    cleanUrl.includes('no_thumbnail') ||
+    cleanUrl.includes('default_playlist');
+
+  if (!hasBadPlaceholder && cleanUrl.includes('googleusercontent.com')) {
+    if (/=w\d+-h\d+/i.test(cleanUrl)) {
+      return cleanUrl.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj');
     }
-    if (/=s\d+/i.test(url)) {
-      return url.replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
+    if (/=s\d+/i.test(cleanUrl)) {
+      return cleanUrl.replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
     }
-    if (!url.includes('=')) {
-      return `${url}=w544-h544-l90-rj`;
+    if (!cleanUrl.includes('=')) {
+      return `${cleanUrl}=w544-h544-l90-rj`;
     }
+    return cleanUrl;
   }
-  if (url.includes('ytimg.com')) {
-    const viMatch = url.match(/\/vi\/([a-zA-Z0-9_-]+)\//);
+
+  if (isValidVideoId(fallbackVideoId)) {
+    return `https://i.ytimg.com/vi/${fallbackVideoId.trim()}/hqdefault.jpg`;
+  }
+
+  if (!hasBadPlaceholder && cleanUrl.includes('ytimg.com')) {
+    const viMatch = cleanUrl.match(/\/vi(?:_webp)?\/([a-zA-Z0-9_-]{11})\//);
     if (viMatch) {
       return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
     }
-    return url.split('?')[0].replace(/(hqdefault|mqdefault|sddefault|maxresdefault|default)\.jpg/i, 'hqdefault.jpg');
+    return cleanUrl
+      .split('?')[0]
+      .replace(
+        /(hqhq720|hq720|maxresdefault|sddefault|mqdefault|hqdefault|default)\.(jpg|webp)/i,
+        'hqdefault.jpg'
+      );
   }
-  return url;
-};
+
+  if (hasBadPlaceholder) return '';
+  return cleanUrl.startsWith('https://') ? cleanUrl : '';
+}
+
+function isUnavailableTitle(title) {
+  const t = (title || '').trim().toLowerCase();
+  return t === '[deleted video]' || t === '[private video]' || t === 'deleted video' || t === 'private video';
+}
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
-  }
+  if (!applyApiSecurity(req, res)) return;
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    let playlistId = url.searchParams.get('id') || req.query?.id || '';
-    const rawUrl = url.searchParams.get('url') || req.query?.url || '';
+    let playlistId = (url.searchParams.get('id') || req.query?.id || '').trim();
+    const rawUrl = (url.searchParams.get('url') || req.query?.url || '').trim();
 
     if (!playlistId && rawUrl) {
       const match = rawUrl.match(/[?&]list=([^#&?]+)/);
-      if (match) playlistId = match[1];
+      if (match) playlistId = match[1].trim();
     }
 
-    if (!playlistId) {
+    if (!isValidYoutubePlaylistId(playlistId)) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Missing YouTube playlist ID or list parameter' }));
+      return res.end(JSON.stringify({ error: 'Invalid or missing YouTube playlist ID or list parameter' }));
     }
 
     const yt = await getYT();
-    const pl = await yt.getPlaylist(playlistId);
+    let playlistTitle = 'YouTube Playlist';
+    let playlistAuthor = 'YouTube';
+    let playlistCover = '';
+    const tracks = [];
+    const seenVideoIds = new Set();
+    const MAX_TRACKS = 200;
 
-    const playlistTitle = pl.info?.title || 'YouTube Playlist';
-    const playlistAuthor = pl.info?.author?.name || 'YouTube';
-    const rawThumb = (pl.info?.thumbnails && pl.info.thumbnails.length > 0)
-      ? pl.info.thumbnails[pl.info.thumbnails.length - 1]?.url || pl.info.thumbnails[0]?.url
-      : '';
-    let playlistCover = toHighResUrl(rawThumb);
+    // Tier 1: YouTube Music getPlaylist with continuation pagination (up to 200 tracks)
+    try {
+      let current = await yt.music.getPlaylist(playlistId);
+      playlistTitle = current.header?.title?.text || current.header?.title?.toString() || playlistTitle;
+      playlistAuthor =
+        current.header?.author?.name ||
+        current.header?.subtitle?.text ||
+        playlistAuthor;
+      const musicHeaderThumb =
+        current.header?.thumbnail?.contents?.[current.header.thumbnail.contents.length - 1]?.url ||
+        current.header?.thumbnails?.[current.header.thumbnails.length - 1]?.url ||
+        '';
+      playlistCover = toHighResUrl(musicHeaderThumb);
 
-    const rawVideos = pl.videos || [];
-    const tracks = rawVideos.map((v, idx) => {
-      const videoId = v.content_id || v.id || v.videoId || '';
-      let title = v.metadata?.title?.text || v.title?.text || v.title?.toString() || '';
-      let artist = v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text || 
-                   v.author?.name || v.author?.toString() || playlistAuthor;
-      
-      if (title.includes(' - ')) {
-        const parts = title.split(' - ');
-        if (!artist || artist === playlistAuthor) {
-          artist = parts[0].trim();
+      for (let page = 0; page < 10 && tracks.length < MAX_TRACKS; page++) {
+        const items = current.items || current.contents || [];
+        for (const item of items) {
+          if (tracks.length >= MAX_TRACKS) break;
+          const videoId = (item.id || item.video_id || '').trim();
+          if (!isValidVideoId(videoId) || seenVideoIds.has(videoId)) continue;
+
+          const rawTitle = typeof item.title === 'string' ? item.title : (item.title?.text || item.title?.toString() || '');
+          if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
+
+          const rawArtist =
+            item.artists?.map((a) => a.name).filter(Boolean).join(', ') ||
+            item.author?.name ||
+            '';
+          const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+          const durationSec = item.duration?.seconds || parseDurationText(item.duration?.text) || 200;
+          const rawThumb =
+            item.thumbnail?.contents?.[item.thumbnail.contents.length - 1]?.url ||
+            item.thumbnails?.[item.thumbnails.length - 1]?.url ||
+            '';
+
+          seenVideoIds.add(videoId);
+          tracks.push({
+            id: `yt_${videoId}`,
+            videoId,
+            title,
+            artist,
+            album: playlistTitle,
+            duration: durationSec,
+            artwork: toHighResUrl(rawThumb, videoId),
+          });
         }
-        title = parts.slice(1).join(' - ').trim();
+
+        if (!current.has_continuation || tracks.length >= MAX_TRACKS) break;
+        current = await current.getContinuation();
       }
-
-      // Duration
-      let durationSec = 200;
-      if (v.duration?.seconds) {
-        durationSec = v.duration.seconds;
-      } else if (v.duration?.text) {
-        const parts = v.duration.text.split(':').map(Number);
-        durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
-      }
-
-      const thumbUrl = v.content_image?.image?.[0]?.url || 
-                       v.thumbnails?.[v.thumbnails.length - 1]?.url || 
-                       v.thumbnails?.[0]?.url || 
-                       (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
-
-      return {
-        id: videoId || `yt-track-${idx}-${Date.now()}`,
-        videoId,
-        title: title.trim(),
-        artist: artist.trim(),
-        album: playlistTitle,
-        duration: durationSec,
-        artwork: toHighResUrl(thumbUrl, videoId),
-      };
-    }).filter(t => t.title && t.videoId);
-
-    if ((!playlistCover || playlistCover.includes('default.jpg') || playlistCover.includes('sqp=')) && tracks.length > 0) {
-      playlistCover = tracks[0].artwork || (tracks[0].videoId ? `https://i.ytimg.com/vi/${tracks[0].videoId}/hqdefault.jpg` : '');
+    } catch (musicErr) {
+      console.warn('yt.music.getPlaylist fallback triggered:', musicErr?.message);
     }
 
+    // Tier 2: Standard YouTube getPlaylist fallback (supports LockupView & PlaylistVideo + pagination)
+    if (tracks.length === 0) {
+      let pl = await yt.getPlaylist(playlistId);
+      playlistTitle = pl.info?.title || playlistTitle;
+      playlistAuthor = pl.info?.author?.name || playlistAuthor;
+      const rawHeaderThumb =
+        pl.info?.thumbnails && pl.info.thumbnails.length > 0
+          ? pl.info.thumbnails[pl.info.thumbnails.length - 1]?.url || pl.info.thumbnails[0]?.url
+          : '';
+      playlistCover = toHighResUrl(rawHeaderThumb);
+
+      for (let page = 0; page < 10 && tracks.length < MAX_TRACKS; page++) {
+        const rawVideos = pl.videos || [];
+        for (const v of rawVideos) {
+          if (tracks.length >= MAX_TRACKS) break;
+          const videoId = (v.content_id || v.id || v.videoId || '').trim();
+          if (!isValidVideoId(videoId) || seenVideoIds.has(videoId)) continue;
+
+          const rawTitle =
+            v.metadata?.title?.text ||
+            v.title?.text ||
+            (typeof v.title === 'string' ? v.title : '') ||
+            '';
+          if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
+
+          const rawArtist =
+            v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text ||
+            v.author?.name ||
+            '';
+          const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+
+          const durationSec =
+            v.duration?.seconds ||
+            parseDurationText(v.duration?.text) ||
+            parseDurationText(v.content_image?.overlays?.[0]?.badges?.[0]?.text) ||
+            200;
+
+          const thumbUrl =
+            v.content_image?.image?.[v.content_image.image.length - 1]?.url ||
+            v.thumbnails?.[v.thumbnails.length - 1]?.url ||
+            v.thumbnails?.[0]?.url ||
+            '';
+
+          seenVideoIds.add(videoId);
+          tracks.push({
+            id: `yt_${videoId}`,
+            videoId,
+            title,
+            artist,
+            album: playlistTitle,
+            duration: durationSec,
+            artwork: toHighResUrl(thumbUrl, videoId),
+          });
+        }
+
+        if (!pl.has_continuation || tracks.length >= MAX_TRACKS) break;
+        pl = await pl.getContinuation();
+      }
+    }
+
+    if (
+      (!playlistCover ||
+        playlistCover.includes('default.jpg') ||
+        playlistCover.includes('sqp=') ||
+        playlistCover.includes('no_thumbnail') ||
+        playlistCover.includes('default_playlist')) &&
+      tracks.length > 0
+    ) {
+      playlistCover =
+        tracks[0].artwork ||
+        (tracks[0].videoId ? `https://i.ytimg.com/vi/${tracks[0].videoId}/hqdefault.jpg` : '');
+    }
+
+    const isDynamicMix = playlistId.startsWith('RD') && !playlistId.startsWith('RDCLAK');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=43200');
-    return res.end(JSON.stringify({
-      id: playlistId,
-      name: playlistTitle,
-      author: playlistAuthor,
-      cover: playlistCover,
-      totalTracks: tracks.length,
-      tracks,
-    }));
+    res.setHeader(
+      'Cache-Control',
+      isDynamicMix ? 'no-store' : 'public, s-maxage=3600, stale-while-revalidate=86400'
+    );
+    return res.end(
+      JSON.stringify({
+        id: playlistId,
+        name: playlistTitle,
+        author: playlistAuthor,
+        cover: playlistCover,
+        totalTracks: tracks.length,
+        tracks,
+      })
+    );
   } catch (e) {
-    console.error('API /api/yt/playlist error:', e);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: e.message || 'Gagal memproses YouTube playlist' }));
+    return sendSafeError(res, 500, 'Gagal memproses YouTube playlist', e);
   }
 }

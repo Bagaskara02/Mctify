@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/track.dart';
 
 /// Ultra-lightweight image widget optimized for low-end / "hp kentang" devices.
 ///
@@ -34,7 +35,8 @@ class OptimizedImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (imageUrl.trim().isEmpty) {
+    final effectiveUrl = Track.toHighResArtwork(imageUrl);
+    if (effectiveUrl.isEmpty) {
       return _buildPlaceholder();
     }
 
@@ -44,7 +46,7 @@ class OptimizedImage extends StatelessWidget {
     final targetH = memCacheHeight ?? (height != null ? (height! * dpr).clamp(48.0, 600.0).toInt() : null);
 
     Widget imageWidget = Image.network(
-      imageUrl,
+      effectiveUrl,
       width: width,
       height: height,
       fit: fit,
@@ -62,7 +64,7 @@ class OptimizedImage extends StatelessWidget {
     );
 
     // Crop 16:9 YouTube letterbox black bars if source is from YouTube
-    final isYouTube = imageUrl.contains('ytimg.com') || imageUrl.contains('youtube.com');
+    final isYouTube = effectiveUrl.contains('ytimg.com') || effectiveUrl.contains('youtube.com');
     if (isYouTube) {
       imageWidget = Transform.scale(
         scale: 1.35,

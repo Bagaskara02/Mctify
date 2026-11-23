@@ -24,27 +24,37 @@ class _ProxyStreamEntry {
 
 /// High-speed in-memory loopback HTTP Range proxy for YouTube DASH audio streams.
 ///
-/// Why this exists:
-/// 1. YouTube `androidSdkless` googlevideo URLs return HTTP 403 to ExoPlayer when opened
-///    with an unranged GET (byte 0) or open-ended `Range: bytes=0-`, forcing slow WebView fallback.
-/// 2. This proxy translates ExoPlayer's standard HTTP/Range reads into bounded 256 KB chunk
-///    requests (`Range: bytes=start-end`) that googlevideo serves in ~120-160ms with HTTP 206.
-/// 3. Keeps an LRU RAM cache + automatic 1-chunk read-ahead so:
-///    - Pre-warmed next tracks & Quick Cards start playing in < 20ms (0ms network wait).
-///    - Rewinding or seeking backward hits RAM cache instantaneously (< 1ms).
+/// Security & Resilience guarantees:
+/// 1. Bound strictly to 127.0.0.1 loopback and rejects non-loopback remote sockets.
+/// 2. Protected by a per-session cryptographically random 256-bit bearer token
+///    (verified via constant-time comparison) so no local process can hijack streams.
+/// 3. Validates upstream URLs to permit HTTPS (or loopback HTTP for tests only).
+/// 4. Translates player HTTP/Range reads into bounded 256 KB chunk requests with
+///    LRU RAM cache, automatic socket refresh after OS sleep, and seamless 403/socket recovery.
 class AudioProxyServer {
-  AudioProxyServer._();
+  AudioProxyServer._() : _authToken = _generateSessionToken();
 
   static final AudioProxyServer instance = AudioProxyServer._();
 
   static const int chunkSize = 262144; // 256 KB (~16s of 128kbps AAC audio)
   static const int maxCacheBytes = 48 * 1024 * 1024; // 48 MB bounded RAM LRU
 
-  final HttpClient _httpClient = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 6)
-    ..idleTimeout = const Duration(seconds: 25)
-    ..maxConnectionsPerHost = 6
-    ..autoUncompress = false;
+  final String _authToken;
+  HttpClient _httpClient = _createHttpClient();
+
+  static String _generateSessionToken() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  static HttpClient _createHttpClient() {
+    return HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..idleTimeout = const Duration(seconds: 20)
+      ..maxConnectionsPerHost = 6
+      ..autoUncompress = false;
+  }
 
   final Map<String, _ProxyStreamEntry> _entries = <String, _ProxyStreamEntry>{};
   final LinkedHashMap<String, Uint8List> _chunkCache = LinkedHashMap<String, Uint8List>();
@@ -54,9 +64,38 @@ class AudioProxyServer {
   HttpServer? _server;
   int? _port;
   Future<int>? _startingFuture;
+  Future<int>? _verifyingFuture;
 
   int? get port => _port;
   bool hasEntry(String key) => _entries.containsKey(key);
+
+  bool _isValidToken(String? provided) {
+    if (provided == null || provided.length != _authToken.length) return false;
+    int diff = 0;
+    for (int i = 0; i < _authToken.length; i++) {
+      diff |= provided.codeUnitAt(i) ^ _authToken.codeUnitAt(i);
+    }
+    return diff == 0;
+  }
+
+  static bool isSafeUpstreamUrl(String urlStr) {
+    final trimmed = urlStr.trim();
+    if (trimmed.isEmpty) return false;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || !uri.hasAuthority || uri.host.isEmpty) return false;
+    if (uri.scheme == 'https') return true;
+    if (uri.scheme == 'http' && (uri.host == '127.0.0.1' || uri.host == 'localhost')) {
+      return true;
+    }
+    return false;
+  }
+
+  void resetHttpClient() {
+    try {
+      _httpClient.close(force: true);
+    } catch (_) {}
+    _httpClient = _createHttpClient();
+  }
 
   Future<int> ensureStarted({bool forceRestartIfBroken = false}) async {
     if (!forceRestartIfBroken && _port != null && _server != null) return _port!;
@@ -97,26 +136,37 @@ class AudioProxyServer {
   }
 
   /// Verifies that the loopback socket is actually responding to HTTP requests.
-  /// On iOS, the OS suspends and tears down background sockets when the device sleeps.
-  /// If the ping fails or times out, this force-restarts the loopback server.
-  Future<int> verifyOrRestartServer() async {
-    if (_port != null && _server != null) {
-      try {
-        final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 200);
-        final req = await client.getUrl(Uri.parse('http://127.0.0.1:$_port/ping')).timeout(const Duration(milliseconds: 250));
-        final res = await req.close().timeout(const Duration(milliseconds: 250));
-        client.close(force: true);
-        if (res.statusCode == HttpStatus.ok) {
-          return _port!;
+  /// Both Android Doze and iOS background suspension can tear down background sockets.
+  /// Uses a concurrency lock so parallel callers do not spawn duplicate servers.
+  Future<int> verifyOrRestartServer() {
+    if (_verifyingFuture != null) return _verifyingFuture!;
+    _verifyingFuture = () async {
+      if (_port != null && _server != null) {
+        final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 250);
+        try {
+          final pingUri = Uri.parse('http://127.0.0.1:$_port/ping?token=$_authToken');
+          final req = await client.getUrl(pingUri).timeout(const Duration(milliseconds: 300));
+          final res = await req.close().timeout(const Duration(milliseconds: 300));
+          await res.drain<void>();
+          if (res.statusCode == HttpStatus.ok) {
+            return _port!;
+          }
+        } catch (e) {
+          debugPrint('[AudioProxyServer] Socket health check failed ($e). Force-restarting loopback server...');
+        } finally {
+          client.close(force: true);
         }
-      } catch (e) {
-        debugPrint('[AudioProxyServer] Socket health check failed ($e). Force-restarting loopback server...');
       }
-    }
-    return ensureStarted(forceRestartIfBroken: true);
+      resetHttpClient();
+      return ensureStarted(forceRestartIfBroken: true);
+    }();
+
+    return _verifyingFuture!.whenComplete(() {
+      _verifyingFuture = null;
+    });
   }
 
-  /// Registers or updates a stream and returns its local proxy URL (`http://127.0.0.1:<port>/stream?id=...`).
+  /// Registers or updates a stream and returns its local proxy URL with bearer token.
   Future<String> registerStream({
     required String key,
     required String upstreamUrl,
@@ -124,6 +174,9 @@ class AudioProxyServer {
     String contentType = 'audio/mp4',
     Future<String?> Function()? refreshUrl,
   }) async {
+    if (!isSafeUpstreamUrl(upstreamUrl)) {
+      throw ArgumentError('Rejected unsafe upstream URL scheme/host for proxy');
+    }
     final port = await verifyOrRestartServer();
     final existing = _entries[key];
     if (existing != null) {
@@ -142,7 +195,7 @@ class AudioProxyServer {
     final ext = (contentType.contains('mp4') || contentType.contains('m4a') || contentType.contains('aac'))
         ? '.m4a'
         : (contentType.contains('webm') ? '.webm' : '.mp3');
-    return 'http://127.0.0.1:$port/stream$ext?id=${Uri.encodeQueryComponent(key)}';
+    return 'http://127.0.0.1:$port/stream$ext?id=${Uri.encodeQueryComponent(key)}&token=$_authToken';
   }
 
   String? getRegisteredProxyUrl(String key) {
@@ -151,7 +204,7 @@ class AudioProxyServer {
     final ext = (entry?.contentType.contains('mp4') == true || entry?.contentType.contains('m4a') == true)
         ? '.m4a'
         : (entry?.contentType.contains('webm') == true ? '.webm' : '.mp3');
-    return 'http://127.0.0.1:$_port/stream$ext?id=${Uri.encodeQueryComponent(key)}';
+    return 'http://127.0.0.1:$_port/stream$ext?id=${Uri.encodeQueryComponent(key)}&token=$_authToken';
   }
 
   bool hasHeadCached(String key) => _chunkCache.containsKey('$key:0');
@@ -165,22 +218,54 @@ class AudioProxyServer {
     } catch (_) {}
   }
 
-  void clearCache() {
+  void invalidateEntry(String key) {
+    _entries.remove(key);
+    final prefix = '$key:';
+    final keysToRemove = _chunkCache.keys.where((k) => k.startsWith(prefix)).toList();
+    for (final k in keysToRemove) {
+      final removed = _chunkCache.remove(k);
+      if (removed != null) {
+        _cachedBytes -= removed.length;
+      }
+    }
+    if (_cachedBytes < 0) _cachedBytes = 0;
+  }
+
+  void invalidateAllUpstreamEntries() {
     _entries.clear();
     _chunkCache.clear();
     _cachedBytes = 0;
+  }
+
+  void clearCache() {
+    invalidateAllUpstreamEntries();
   }
 
   Future<void> dispose() async {
     await _server?.close(force: true);
     _server = null;
     _port = null;
+    try {
+      _httpClient.close(force: true);
+    } catch (_) {}
     clearCache();
   }
 
   Future<void> _handleRequest(HttpRequest req) async {
     try {
+      final isLoopback = req.connectionInfo?.remoteAddress.isLoopback ?? true;
+      if (!isLoopback) {
+        req.response.statusCode = HttpStatus.forbidden;
+        await req.response.close();
+        return;
+      }
+
       if (req.uri.path == '/ping') {
+        if (!_isValidToken(req.uri.queryParameters['token'])) {
+          req.response.statusCode = HttpStatus.forbidden;
+          await req.response.close();
+          return;
+        }
         req.response.statusCode = HttpStatus.ok;
         req.response.headers.set(HttpHeaders.contentTypeHeader, 'text/plain');
         req.response.write('pong');
@@ -190,6 +275,12 @@ class AudioProxyServer {
 
       if (req.uri.path != '/stream' && !req.uri.path.startsWith('/stream.')) {
         req.response.statusCode = HttpStatus.notFound;
+        await req.response.close();
+        return;
+      }
+
+      if (!_isValidToken(req.uri.queryParameters['token'])) {
+        req.response.statusCode = HttpStatus.forbidden;
         await req.response.close();
         return;
       }
@@ -371,7 +462,14 @@ class AudioProxyServer {
     Uint8List data;
     try {
       data = await _fetchChunkUpstream(entry, chunkStart, chunkEnd, allowRefresh: true);
-    } catch (_) {
+    } catch (e) {
+      final isSocketStale = e is SocketException || e is HandshakeException || e is TimeoutException || e is HttpException;
+      if (isSocketStale) {
+        resetHttpClient();
+        if (entry.refreshUrl != null) {
+          await _refreshEntryUrl(entry).catchError((_) => null);
+        }
+      }
       await Future.delayed(const Duration(milliseconds: 100));
       data = await _fetchChunkUpstream(entry, chunkStart, chunkEnd, allowRefresh: true);
     }
@@ -387,11 +485,11 @@ class AudioProxyServer {
     int chunkEnd, {
     required bool allowRefresh,
   }) async {
-    final request = await _httpClient.getUrl(Uri.parse(entry.upstreamUrl));
+    final request = await _httpClient.getUrl(Uri.parse(entry.upstreamUrl)).timeout(const Duration(seconds: 10));
     request.headers.set(HttpHeaders.rangeHeader, 'bytes=$chunkStart-$chunkEnd');
     request.headers.set(HttpHeaders.acceptHeader, '*/*');
 
-    final response = await request.close();
+    final response = await request.close().timeout(const Duration(seconds: 10));
     if ((response.statusCode == 403 || response.statusCode == 410) &&
         allowRefresh &&
         entry.refreshUrl != null) {
@@ -443,10 +541,11 @@ class AudioProxyServer {
       return entry.refreshInFlight;
     }
     final completer = entry.refreshUrl!().then((newUrl) {
-      if (newUrl != null && newUrl.isNotEmpty) {
+      if (newUrl != null && newUrl.isNotEmpty && isSafeUpstreamUrl(newUrl)) {
         entry.upstreamUrl = newUrl;
+        return newUrl;
       }
-      return newUrl;
+      return null;
     }).whenComplete(() {
       entry.refreshInFlight = null;
     });

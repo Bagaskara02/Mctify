@@ -1,4 +1,10 @@
 import { Innertube } from 'youtubei.js';
+import {
+  applyApiSecurity,
+  isValidVideoId,
+  sanitizeQuery,
+  sendSafeError,
+} from '../_security.js';
 
 let ytPromise = null;
 async function getYT() {
@@ -42,23 +48,22 @@ const getBestThumbnail = (item) => {
 };
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (!applyApiSecurity(req, res)) return;
   res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
-  }
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const q = url.searchParams.get('q') || req.query?.q || '';
-    const rawTitle = url.searchParams.get('title') || req.query?.title || '';
-    const rawArtist = url.searchParams.get('artist') || req.query?.artist || '';
+    const q = sanitizeQuery(url.searchParams.get('q') || req.query?.q || '', 200);
+    const rawTitle = sanitizeQuery(url.searchParams.get('title') || req.query?.title || '', 200);
+    const rawArtist = sanitizeQuery(url.searchParams.get('artist') || req.query?.artist || '', 200);
     const excludeParam = url.searchParams.get('exclude') || req.query?.exclude || '';
-    const excludeIds = new Set(excludeParam.split(',').map((s) => s.trim()).filter(Boolean));
+    const excludeIds = new Set(
+      excludeParam
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => isValidVideoId(s))
+        .slice(0, 20)
+    );
     if (!q && !rawTitle) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
@@ -66,7 +71,8 @@ export default async function handler(req, res) {
     }
 
     const yt = await getYT();
-    const targetDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
+    const rawDuration = parseInt(url.searchParams.get('duration') || req.query?.duration || '0', 10);
+    const targetDuration = Number.isFinite(rawDuration) ? Math.max(0, Math.min(7200, rawDuration)) : 0;
     const cleanText = (s) => s
       .replace(/[\u00a0\u2000-\u200b\u202f\u205f\u3000]/g, ' ')
       .replace(/◐/g, '')
@@ -242,14 +248,14 @@ export default async function handler(req, res) {
       }).sort((a, b) => b.score - a.score);
     };
 
-    const pickBestPlayable = (items, minScore = -200) => {
+    const pickBestPlayable = (items, minScore = (rawTitle || rawArtist) ? 400 : -200) => {
       if (!items || items.length === 0) return null;
       const ranked = rankCandidates(items).filter((entry) => {
         const id = entry?.item?.id;
         return id && !excludeIds.has(id);
       });
       if (ranked.length === 0) return null;
-      return ranked[0].score >= minScore ? ranked[0].item : ranked[0].item;
+      return ranked[0].score >= minScore ? ranked[0].item : null;
     };
 
     // Search YouTube Music first
@@ -307,9 +313,6 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ error: 'Song not found' }));
   } catch (e) {
-    console.error('API /api/yt/search error:', e);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: e.message }));
+    return sendSafeError(res, 500, 'Gagal mencari lagu', e);
   }
 }

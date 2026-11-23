@@ -9,7 +9,7 @@ import AVFoundation
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     do {
-      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.allowBluetooth, .allowAirPlay])
+      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.allowAirPlay])
       try AVAudioSession.sharedInstance().setActive(true)
     } catch {
       print("AVAudioSession error: \(error)")
@@ -62,7 +62,7 @@ import AVFoundation
   static func applyIosAudioProfile(enabled: Bool) {
     do {
       let session = AVAudioSession.sharedInstance()
-      try session.setCategory(.playback, mode: enabled ? .moviePlayback : .default, options: [.allowBluetooth, .allowAirPlay])
+      try session.setCategory(.playback, mode: enabled ? .moviePlayback : .default, options: [.allowAirPlay])
       try session.setActive(true)
     } catch {
       print("AVAudioSession apply profile error: \(error)")

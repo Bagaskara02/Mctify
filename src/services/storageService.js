@@ -7,6 +7,33 @@ const STORAGE_KEYS = {
   COMPLETES: 'mcmusic_completes_v2',
 };
 
+const MAX_DATA_IMAGE_URL_BYTES = 2.5 * 1024 * 1024;
+const SAFE_DATA_IMAGE_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i;
+
+export function sanitizeMediaUrl(url, fallback = '') {
+  if (typeof url !== 'string') return fallback;
+  const trimmed = url.trim();
+  if (!trimmed) return fallback;
+  if (SAFE_DATA_IMAGE_RE.test(trimmed)) {
+    return trimmed.length <= MAX_DATA_IMAGE_URL_BYTES ? trimmed : fallback;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+    if (
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+    ) {
+      return parsed.toString();
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 const DEFAULT_PLAYLISTS = [
   {
     id: 'pl-favorites',
@@ -36,12 +63,12 @@ export const storageService = {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           return parsed.map((pl) => {
-            let cover = pl.cover || '';
+            let cover = sanitizeMediaUrl(pl.cover || '', '');
             if (cover && (cover.includes('hqhq720.jpg') || cover.includes('hq720.jpg'))) {
               cover = cover.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
             }
             const tracks = Array.isArray(pl.tracks) ? pl.tracks.map((t) => {
-              let art = t.artwork || '';
+              let art = sanitizeMediaUrl(t.artwork || '', '');
               if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
                 art = art.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
               } else if (!art && t.videoId) {
@@ -74,11 +101,12 @@ export const storageService = {
 
   addPlaylist(playlist) {
     const playlists = this.getPlaylists();
+    const defaultCover = 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=400';
     const newPlaylist = {
       id: playlist.id || 'pl-' + Date.now(),
       name: playlist.name || 'New Playlist',
       description: playlist.description || '',
-      cover: playlist.cover || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=400',
+      cover: sanitizeMediaUrl(playlist.cover || '', defaultCover) || defaultCover,
       source: playlist.source || 'custom',
       tracks: playlist.tracks || [],
       createdAt: Date.now(),
@@ -95,9 +123,13 @@ export const storageService = {
   },
 
   updatePlaylist(playlistId, updates) {
+    const safeUpdates = { ...updates };
+    if (Object.prototype.hasOwnProperty.call(safeUpdates, 'cover')) {
+      safeUpdates.cover = sanitizeMediaUrl(safeUpdates.cover, '');
+    }
     const playlists = this.getPlaylists().map(p => {
       if (p.id === playlistId) {
-        return { ...p, ...updates };
+        return { ...p, ...safeUpdates, cover: safeUpdates.cover || p.cover };
       }
       return p;
     });
@@ -134,7 +166,7 @@ export const storageService = {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
         return parsed.map((t) => {
-          let art = t.artwork || '';
+          let art = sanitizeMediaUrl(t.artwork || '', '');
           if (art && (art.includes('hqhq720.jpg') || art.includes('hq720.jpg'))) {
             art = art.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
           } else if (!art && t.videoId) {

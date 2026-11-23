@@ -148,6 +148,11 @@ class PlaylistImporterService {
     );
   }
 
+  static final RegExp _versionSuffixRe = RegExp(
+    r'^(acoustic|remix|live|radio\s*edit|official|remaster|version|instrumental|sped\s*up|slowed|reverb|feat\.?|ft\.?|edit|mix|demo|extended|explicit|clean|deluxe|session|pt\.?\s*\d|part\s*\d|bonus|original|audio|lyric|video|mv|hd|4k|mono|stereo|unplugged|stripped)',
+    caseSensitive: false,
+  );
+
   /// Import playlist from YouTube or YouTube Music URL
   Future<Playlist> importFromYouTube(
     String url, {
@@ -159,54 +164,70 @@ class PlaylistImporterService {
     final match = regExp.firstMatch(url);
     String playlistId = '';
     if (match != null) {
-      playlistId = match.group(1)!;
-    } else if (RegExp(r'^[a-zA-Z0-9_-]{12,}$').hasMatch(url.trim())) {
+      playlistId = match.group(1)!.trim();
+    } else if (RegExp(r'^[a-zA-Z0-9_-]{10,120}$').hasMatch(url.trim())) {
       playlistId = url.trim();
     } else {
       throw Exception('Link YouTube tidak valid. URL harus memiliki parameter ?list=...');
     }
 
+    if (!RegExp(r'^[a-zA-Z0-9_-]{10,120}$').hasMatch(playlistId)) {
+      throw Exception('Format ID playlist YouTube tidak valid.');
+    }
+
     String playlistName = 'YouTube Playlist';
     String cover = MusicApiService.defaultArtwork;
     List<Track> resolvedTracks = [];
+    final Set<String> seenVideoIds = {};
 
-    // Method 1: Internal McMusic Backend Proxy (/api/yt/playlist) - 100% reliable with LockupView support
+    // Method 1: Internal McMusic Backend Proxy (/api/yt/playlist) - 100% reliable with LockupView & Music support
     try {
       onProgress?.call(0, 1, 'Menghubungkan ke API YouTube...');
-      final apiUrl = Uri.parse('https://mctify.vercel.app/api/yt/playlist?id=$playlistId');
-      final res = await http.get(apiUrl).timeout(const Duration(seconds: 12));
+      final apiUrl = Uri.parse('https://mctify.vercel.app/api/yt/playlist?id=${Uri.encodeQueryComponent(playlistId)}');
+      final res = await http.get(apiUrl).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {
-          playlistName = data['name']?.toString() ?? playlistName;
-          cover = data['cover']?.toString() ?? cover;
-          if (cover.contains('hqhq720.jpg')) {
-            cover = cover.replaceAll('hqhq720.jpg', 'hqdefault.jpg');
-          }
+          playlistName = data['name']?.toString().trim().isNotEmpty == true ? data['name'].toString().trim() : playlistName;
+          final rawCover = data['cover']?.toString() ?? '';
+          final safeBackendCover = Track.toHighResArtwork(rawCover);
+
           final rawTracks = data['tracks'] as List;
           for (final t in rawTracks) {
             if (t is Map) {
-              final vId = t['videoId']?.toString() ?? '';
-              final title = t['title']?.toString() ?? 'Lagu';
-              final artist = t['artist']?.toString() ?? 'Artis';
-              var art = t['artwork']?.toString() ?? cover;
-              if (art.contains('hqhq720.jpg') || art.contains('hq720.jpg') || (art.isEmpty && vId.isNotEmpty)) {
-                art = 'https://i.ytimg.com/vi/$vId/hqdefault.jpg';
-              }
+              final vId = (t['videoId']?.toString() ?? '').trim();
+              if (vId.isEmpty || !Track.isValidVideoId(vId) || seenVideoIds.contains(vId)) continue;
+              seenVideoIds.add(vId);
+
+              final title = (t['title']?.toString() ?? 'Lagu').trim();
+              final artist = (t['artist']?.toString() ?? 'Artis').trim();
+              final rawArt = (t['artwork']?.toString() ?? '').trim();
+              final art = rawArt.contains('googleusercontent.com')
+                  ? Track.toHighResArtwork(rawArt, fallbackVideoId: vId)
+                  : 'https://i.ytimg.com/vi/$vId/hqdefault.jpg';
               final dur = int.tryParse(t['duration']?.toString() ?? '180') ?? 180;
               resolvedTracks.add(Track(
-                id: vId.isNotEmpty ? vId : 'yt-${DateTime.now().millisecondsSinceEpoch}-${resolvedTracks.length}',
+                id: 'yt_$vId',
                 title: title,
                 artist: artist,
                 album: playlistName,
-                artwork: art.isNotEmpty ? art : MusicApiService.defaultArtwork,
+                artwork: art,
                 audioUrl: '',
-                videoId: vId.isNotEmpty ? vId : null,
+                videoId: vId,
                 duration: dur,
                 streamCount: '1.000.000',
                 isExplicit: false,
               ));
             }
+          }
+
+          if (safeBackendCover.isNotEmpty &&
+              !safeBackendCover.contains('no_thumbnail') &&
+              !safeBackendCover.contains('default_playlist') &&
+              !safeBackendCover.endsWith('/default.jpg')) {
+            cover = safeBackendCover;
+          } else if (resolvedTracks.isNotEmpty) {
+            cover = resolvedTracks.first.artwork;
           }
         }
       }
@@ -217,54 +238,70 @@ class PlaylistImporterService {
     if (resolvedTracks.isNotEmpty) {
       onProgress?.call(resolvedTracks.length, resolvedTracks.length, 'Selesai mengimpor $playlistName!');
       return Playlist(
-        id: 'pl-yt-${DateTime.now().millisecondsSinceEpoch}',
+        id: 'pl-yt-$playlistId',
         name: playlistName,
         cover: cover,
         tracks: resolvedTracks,
       );
     }
 
-    // Method 2: Direct YoutubeExplode fallback
+    // Method 2: Direct YoutubeExplode fallback (preserves EXACT videoId & order without iTunes re-matching!)
     final yt = YoutubeExplode();
     try {
       onProgress?.call(0, 1, 'Mengambil data playlist langsung dari YouTube...');
-      final ytPlaylist = await yt.playlists.get(playlistId);
+      final ytPlaylist = await yt.playlists.get(playlistId).timeout(const Duration(seconds: 12));
       playlistName = ytPlaylist.title.isNotEmpty ? ytPlaylist.title : playlistName;
-      if (ytPlaylist.thumbnails.highResUrl.isNotEmpty) {
-        cover = ytPlaylist.thumbnails.highResUrl;
-      }
 
-      final List<Map<String, String>> rawTracks = [];
       await for (final video in yt.playlists.getVideos(playlistId)) {
-        var title = video.title;
-        var artist = video.author;
+        final vId = video.id.value.trim();
+        if (vId.isEmpty || !Track.isValidVideoId(vId) || seenVideoIds.contains(vId)) continue;
+        seenVideoIds.add(vId);
+
+        final rawTitle = video.title.trim();
+        var title = rawTitle;
+        var artist = video.author.replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '').trim();
 
         if (title.contains(' - ')) {
           final parts = title.split(' - ');
-          artist = parts[0].trim();
-          title = parts.sublist(1).join(' - ').trim();
+          final p0 = parts[0].trim();
+          final p1 = parts.sublist(1).join(' - ').trim();
+          if (parts.length >= 2 && p0.isNotEmpty && p1.isNotEmpty && !_versionSuffixRe.hasMatch(p1)) {
+            if (artist.isEmpty || artist.toLowerCase() == p0.toLowerCase() || p0.toLowerCase().contains(artist.toLowerCase()) || artist.toLowerCase().contains(p0.toLowerCase()) || artist == ytPlaylist.author) {
+              artist = p0.replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '').trim();
+              title = p1;
+            }
+          }
         }
 
-        rawTracks.add({
-          'title': title,
-          'artist': artist,
-          'videoId': video.id.value,
-          'duration': (video.duration?.inSeconds ?? 200).toString(),
-          'artwork': 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg',
-        });
+        final art = 'https://i.ytimg.com/vi/$vId/hqdefault.jpg';
+        resolvedTracks.add(Track(
+          id: 'yt_$vId',
+          title: title,
+          artist: artist.isNotEmpty ? artist : 'YouTube',
+          album: playlistName,
+          artwork: art,
+          audioUrl: '',
+          videoId: vId,
+          duration: video.duration?.inSeconds ?? 200,
+          streamCount: '1.000.000',
+          isExplicit: false,
+        ));
 
-        if (rawTracks.length >= 100) break; // Limit to 100 tracks max for performance
+        onProgress?.call(resolvedTracks.length, resolvedTracks.length + 1, 'Mengambil lagu (${resolvedTracks.length}): "$title"...');
+        if (resolvedTracks.length >= 200) break;
       }
 
-      if (rawTracks.isEmpty) {
+      if (resolvedTracks.isEmpty) {
         throw Exception('Tidak ada video yang ditemukan di dalam playlist YouTube ini.');
       }
 
-      return await _resolveTrackList(
-        rawTracks,
-        playlistName: playlistName,
+      cover = resolvedTracks.first.artwork;
+      onProgress?.call(resolvedTracks.length, resolvedTracks.length, 'Selesai mengimpor $playlistName!');
+      return Playlist(
+        id: 'pl-yt-$playlistId',
+        name: playlistName,
         cover: cover,
-        onProgress: onProgress,
+        tracks: resolvedTracks,
       );
     } catch (e) {
       if (e is Exception) rethrow;
@@ -328,6 +365,9 @@ class PlaylistImporterService {
   /// Import from Backup JSON string
   Playlist importFromJson(String jsonContent) {
     try {
+      if (jsonContent.length > 2 * 1024 * 1024) {
+        throw Exception('Ukuran file JSON melebihi batas keamanan 2 MB.');
+      }
       final dynamic data = jsonDecode(jsonContent);
       if (data is! Map) {
         throw Exception('Format JSON harus berupa objek playlist.');
@@ -335,27 +375,34 @@ class PlaylistImporterService {
 
       final rawTracks = data['tracks'] as List? ?? [];
       final List<Track> tracks = [];
-      for (final t in rawTracks) {
+      for (final t in rawTracks.take(500)) {
         if (t is Map) {
+          final vId = t['videoId']?.toString();
+          final safeVid = Track.isValidVideoId(vId) ? vId!.trim() : null;
+          final rawArt = (t['artwork'] ?? '').toString();
+          final safeArt = Track.toHighResArtwork(rawArt, fallbackVideoId: safeVid);
           tracks.add(Track(
-            id: t['id']?.toString() ?? 't-${DateTime.now().millisecondsSinceEpoch}',
+            id: (t['id']?.toString() ?? 't-${DateTime.now().millisecondsSinceEpoch}-${tracks.length}'),
             title: t['title']?.toString() ?? 'Lagu',
             artist: t['artist']?.toString() ?? 'Artis',
             album: t['album']?.toString() ?? 'Album',
-            artwork: t['artwork']?.toString() ?? MusicApiService.defaultArtwork,
-            audioUrl: MusicApiService.isPreviewUrl(t['audioUrl']?.toString() ?? '') ? '' : (t['audioUrl']?.toString() ?? ''),
-            videoId: t['videoId']?.toString(),
-            duration: int.tryParse(t['duration']?.toString() ?? '180') ?? 180,
+            artwork: safeArt.isNotEmpty ? safeArt : MusicApiService.defaultArtwork,
+            audioUrl: '',
+            videoId: safeVid,
+            duration: (int.tryParse(t['duration']?.toString() ?? '180') ?? 180).clamp(1, 7200),
             streamCount: t['streamCount']?.toString() ?? '1.000.000',
             isExplicit: t['isExplicit'] == true,
           ));
         }
       }
 
+      final rawCover = (data['cover'] ?? '').toString();
+      final safeCover = Track.toHighResArtwork(rawCover);
+
       return Playlist(
         id: 'pl-json-${DateTime.now().millisecondsSinceEpoch}',
         name: data['name']?.toString() ?? 'Playlist Impor',
-        cover: data['cover']?.toString() ?? MusicApiService.defaultArtwork,
+        cover: safeCover.startsWith('https://') ? safeCover : (tracks.isNotEmpty ? tracks.first.artwork : MusicApiService.defaultArtwork),
         tracks: tracks,
       );
     } catch (e) {
@@ -438,8 +485,10 @@ class PlaylistImporterService {
           final candTitle = cand.title.toLowerCase();
           final candArtist = cand.artist.toLowerCase();
 
-          final artistMatch = candArtist.contains(targetArtist) || targetArtist.contains(candArtist) ||
-              targetArtist.split(',').any((a) => candArtist.contains(a.trim()));
+          final artistMatch = targetArtist.isNotEmpty &&
+              (candArtist.contains(targetArtist) ||
+                  targetArtist.contains(candArtist) ||
+                  targetArtist.split(',').any((a) => a.trim().isNotEmpty && candArtist.contains(a.trim())));
 
           final candWords = candTitle.replaceAll(RegExp(r'[^\w\s]'), '').split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
           final overlap = targetWords.intersection(candWords).length;

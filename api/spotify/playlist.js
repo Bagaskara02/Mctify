@@ -1,25 +1,24 @@
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+import {
+  applyApiSecurity,
+  isValidSpotifyPlaylistId,
+  sendSafeError,
+} from '../_security.js';
 
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
-  }
+export default async function handler(req, res) {
+  if (!applyApiSecurity(req, res)) return;
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    let playlistId = url.searchParams.get('id') || req.query?.id || '';
+    let playlistId = (url.searchParams.get('id') || req.query?.id || '').trim();
     
     // Extract playlist ID if full URL passed
     const matchId = playlistId.match(/playlist[\/:]([a-zA-Z0-9]+)/);
     if (matchId) playlistId = matchId[1];
 
-    if (!playlistId) {
+    if (!isValidSpotifyPlaylistId(playlistId)) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Missing Spotify playlist ID' }));
+      return res.end(JSON.stringify({ error: 'Invalid or missing Spotify playlist ID' }));
     }
 
     const targetUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
@@ -84,9 +83,6 @@ export default async function handler(req, res) {
       tracks,
     }));
   } catch (e) {
-    console.error('API /api/spotify/playlist error:', e);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: e.message }));
+    return sendSafeError(res, 500, 'Gagal memproses playlist Spotify', e);
   }
 }

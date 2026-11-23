@@ -10,8 +10,18 @@
 
 import { extractPrimaryArtist, scoreLyricCandidate } from '../src/utils/lyricsMatcher.js';
 import { attachRomanizationToLines } from '../src/utils/romanizer.js';
+import { applyApiSecurity, sanitizeQuery, sendSafeError } from './_security.js';
 
 const memoryCache = new Map();
+const MAX_LYRICS_CACHE_SIZE = 500;
+
+function setBoundedCache(key, value) {
+  if (memoryCache.size >= MAX_LYRICS_CACHE_SIZE && !memoryCache.has(key)) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey !== undefined) memoryCache.delete(oldestKey);
+  }
+  memoryCache.set(key, value);
+}
 
 export const VERIFIED_STUDIO_LRC = {
   'muria:::brangkat': `[00:21.40]Mungkin esok atau lusa
@@ -938,7 +948,7 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
       matchScore: 10000,
       lines,
     };
-    memoryCache.set(cacheKey, result);
+    setBoundedCache(cacheKey, result);
     return result;
   }
 
@@ -972,7 +982,7 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
   }
 
   if (best) {
-    memoryCache.set(cacheKey, best);
+    setBoundedCache(cacheKey, best);
     return best;
   }
 
@@ -981,10 +991,12 @@ export async function getLyrics(rawTitle, rawArtist, duration) {
 
 // Vercel Serverless Function Handler
 export default async function handler(req, res) {
+  if (!applyApiSecurity(req, res)) return;
   try {
-    const title = req.query?.title || '';
-    const artist = req.query?.artist || '';
-    const duration = parseInt(req.query?.duration || '0', 10);
+    const title = sanitizeQuery(req.query?.title || '', 200);
+    const artist = sanitizeQuery(req.query?.artist || '', 200);
+    const rawDuration = parseInt(req.query?.duration || '0', 10);
+    const duration = Number.isFinite(rawDuration) ? Math.max(0, Math.min(7200, rawDuration)) : 0;
 
     if (!title) {
       return res.status(400).json({ error: 'Missing title query parameter' });
@@ -994,7 +1006,6 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
     return res.status(200).json(lyrics);
   } catch (err) {
-    console.error('Lyrics API Error:', err);
-    return res.status(500).json({ error: 'Internal server error resolving lyrics' });
+    return sendSafeError(res, 500, 'Internal server error resolving lyrics', err);
   }
 }

@@ -1,9 +1,10 @@
-import { Innertube, Platform } from 'youtubei.js';
-
-Platform.shim.eval = (script) => {
-  const code = typeof script === 'string' ? script : script?.output;
-  return new Function(code + '\nreturn exportedVars;')();
-};
+import { Innertube } from 'youtubei.js';
+import {
+  applyApiSecurity,
+  isValidVideoId,
+  isSafeUpstreamHost,
+  sendSafeError,
+} from '../_security.js';
 
 let ytPromise = null;
 async function getYT() {
@@ -14,23 +15,24 @@ async function getYT() {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
+  if (
+    !applyApiSecurity(req, res, {
+      methods: 'GET, HEAD, OPTIONS',
+      allowHeaders: 'Range, Content-Type',
+      rateLimit: 60,
+    })
+  ) {
+    return;
   }
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const id = url.searchParams.get('id') || req.query?.id;
+    const id = (url.searchParams.get('id') || req.query?.id || '').trim();
 
-    if (!id) {
+    if (!isValidVideoId(id)) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Missing video id' }));
+      return res.end(JSON.stringify({ error: 'Invalid or missing YouTube video ID' }));
     }
 
     const yt = await getYT();
@@ -45,18 +47,20 @@ export default async function handler(req, res) {
 
     const streamUrl = await format.decipher(yt.session.player);
 
-    if (!streamUrl) {
-      res.statusCode = 500;
+    if (!streamUrl || !isSafeUpstreamHost(streamUrl, ['.googlevideo.com'])) {
+      res.statusCode = 502;
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: 'Failed to decipher stream' }));
+      return res.end(JSON.stringify({ error: 'Upstream stream source rejected' }));
     }
 
     const forwardHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     };
 
-    if (req.headers.range) {
-      forwardHeaders['Range'] = req.headers.range;
+    const rawRange = req.headers.range;
+    if (typeof rawRange === 'string' && /^bytes=\d*-\d*$/.test(rawRange.trim())) {
+      forwardHeaders['Range'] = rawRange.trim();
     }
 
     const streamRes = await fetch(streamUrl, { headers: forwardHeaders });
@@ -85,12 +89,6 @@ export default async function handler(req, res) {
     }
     return res.end();
   } catch (e) {
-    console.error('API /api/yt/stream error:', e);
-    if (!res.headersSent) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: e.message }));
-    }
-    return res.end();
+    return sendSafeError(res, 500, 'Gagal memuat stream audio', e);
   }
 }

@@ -1,4 +1,5 @@
 import { musicApi, DEFAULT_ARTWORK } from './musicApi.js';
+import { sanitizeMediaUrl } from './storageService.js';
 
 /**
  * Multi-Platform Playlist Importer
@@ -102,38 +103,59 @@ export const playlistImporter = {
     }
 
     const playlistTitle = data.name || 'YouTube Playlist';
-    const playlistCover = data.cover || data.tracks[0]?.artwork || DEFAULT_ARTWORK;
+    const seenVids = new Set();
+    const mappedTracks = [];
+    for (let idx = 0; idx < data.tracks.length; idx++) {
+      const t = data.tracks[idx];
+      const vid = typeof t.videoId === 'string' ? t.videoId.trim() : '';
+      if (vid) {
+        if (seenVids.has(vid)) continue;
+        seenVids.add(vid);
+      }
+      let art = sanitizeMediaUrl(t.artwork || '', '');
+      if (art && art.includes('googleusercontent.com') && !art.includes('no_thumbnail') && !art.includes('default_playlist')) {
+        art = art.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj').replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
+      } else if (vid) {
+        art = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+      } else if (art) {
+        art = art.split('?')[0].replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg');
+      } else {
+        art = DEFAULT_ARTWORK;
+      }
+      mappedTracks.push({
+        id: t.id || (vid ? `yt_${vid}` : `yt-${idx}`),
+        videoId: vid || null,
+        title: t.title,
+        artist: t.artist,
+        album: t.album || playlistTitle,
+        duration: t.duration || 180,
+        artwork: art || DEFAULT_ARTWORK,
+        audioUrl: '',
+        genre: 'Music',
+        releaseYear: '2024',
+      });
+    }
 
-    onProgress({ status: 'done', message: `Berhasil mengambil ${data.tracks.length} lagu!` });
+    let playlistCover = sanitizeMediaUrl(data.cover || '', '');
+    if (
+      !playlistCover ||
+      playlistCover.includes('no_thumbnail') ||
+      playlistCover.includes('default_playlist') ||
+      playlistCover.includes('sqp=') ||
+      playlistCover.includes('default.jpg')
+    ) {
+      playlistCover = mappedTracks[0]?.artwork || DEFAULT_ARTWORK;
+    }
+
+    onProgress({ status: 'done', message: `Berhasil mengambil ${mappedTracks.length} lagu!` });
 
     return {
-      id: 'pl-' + Date.now(),
+      id: 'pl-yt-' + playlistId,
       name: playlistTitle,
-      description: `Diimpor dari YouTube Playlist (${data.tracks.length} lagu)`,
+      description: `Diimpor dari YouTube Playlist (${mappedTracks.length} lagu)`,
       cover: playlistCover,
       source: 'youtube',
-      tracks: data.tracks.map((t, idx) => {
-        let art = t.artwork;
-        if (t.videoId) {
-          art = `https://i.ytimg.com/vi/${t.videoId}/hqdefault.jpg`;
-        } else if (art) {
-          art = art.split('?')[0].replace(/hq(hq)?720\.jpg/, 'hqdefault.jpg');
-        } else {
-          art = playlistCover || DEFAULT_ARTWORK;
-        }
-        return {
-          id: t.id || `yt-${t.videoId || idx}`,
-          videoId: t.videoId,
-          title: t.title,
-          artist: t.artist,
-          album: t.album || playlistTitle,
-          duration: t.duration || 180,
-          artwork: art || DEFAULT_ARTWORK,
-          audioUrl: '',
-          genre: 'Music',
-          releaseYear: '2024',
-        };
-      }),
+      tracks: mappedTracks,
       createdAt: Date.now(),
     };
   },
@@ -185,17 +207,39 @@ export const playlistImporter = {
    */
   importFromJson(jsonContent) {
     try {
+      if (typeof jsonContent === 'string' && jsonContent.length > 2 * 1024 * 1024) {
+        throw new Error('Backup JSON file exceeds 2 MB safety limit.');
+      }
       const data = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
-      if (!data || !Array.isArray(data.tracks)) {
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.tracks)) {
         throw new Error('Invalid playlist JSON format. Expected object with "tracks" array.');
       }
+      const safeTracks = data.tracks
+        .filter((t) => t && typeof t === 'object' && !Array.isArray(t))
+        .slice(0, 500)
+        .map((t, idx) => {
+          const vid = typeof t.videoId === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(t.videoId.trim()) ? t.videoId.trim() : null;
+          const fallbackArt = vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : DEFAULT_ARTWORK;
+          return {
+            id: typeof t.id === 'string' && t.id.trim() ? t.id.trim().slice(0, 128) : `imp-json-${Date.now()}-${idx}`,
+            videoId: vid,
+            title: typeof t.title === 'string' ? t.title.slice(0, 200) : 'Imported Track',
+            artist: typeof t.artist === 'string' ? t.artist.slice(0, 200) : 'Unknown Artist',
+            album: typeof t.album === 'string' ? t.album.slice(0, 200) : 'Single',
+            duration: Number.isFinite(Number(t.duration)) ? Math.max(1, Math.min(7200, Math.round(Number(t.duration)))) : 180,
+            artwork: sanitizeMediaUrl(t.artwork, fallbackArt) || fallbackArt,
+            audioUrl: '',
+            genre: typeof t.genre === 'string' ? t.genre.slice(0, 64) : 'Music',
+            releaseYear: typeof t.releaseYear === 'string' ? t.releaseYear.slice(0, 16) : '2024',
+          };
+        });
       return {
         id: 'pl-json-' + Date.now(),
-        name: data.name || 'Imported Playlist',
-        description: data.description || 'Imported from JSON backup',
-        cover: data.cover || DEFAULT_ARTWORK,
+        name: typeof data.name === 'string' && data.name.trim() ? data.name.trim().slice(0, 120) : 'Imported Playlist',
+        description: typeof data.description === 'string' ? data.description.trim().slice(0, 400) : 'Imported from JSON backup',
+        cover: sanitizeMediaUrl(data.cover, safeTracks[0]?.artwork || DEFAULT_ARTWORK) || safeTracks[0]?.artwork || DEFAULT_ARTWORK,
         source: 'json',
-        tracks: data.tracks,
+        tracks: safeTracks,
         createdAt: Date.now(),
       };
     } catch (e) {

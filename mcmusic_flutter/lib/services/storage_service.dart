@@ -89,28 +89,33 @@ class StorageService {
       final list = jsonDecode(raw) as List;
       final rawPlaylists = list.map((e) => Playlist.fromJson(e)).toList();
 
-      final Map<String, Playlist> uniqueByName = {};
+      final Map<String, Playlist> uniqueById = {};
       bool needsRewrite = false;
 
       for (final p in rawPlaylists) {
         final seenTracks = <String>{};
         final cleanedTracks = <Track>[];
         for (final t in p.tracks) {
-          final trackKey = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+          final hasVid = t.videoId != null && t.videoId!.trim().isNotEmpty;
+          final trackKey = hasVid
+              ? 'vid_${t.videoId!.trim()}'
+              : '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
           if (!seenTracks.contains(trackKey)) {
             seenTracks.add(trackKey);
             final hasPreview = t.audioUrl.contains('preview') ||
                 t.audioUrl.contains('p.scdn.co') ||
                 t.audioUrl.contains('mzstatic.com');
-            if (hasPreview) {
+            final sanitizedArt = Track.toHighResArtwork(t.artwork, fallbackVideoId: t.videoId);
+            final artWasBroken = sanitizedArt != t.artwork;
+            if (hasPreview || artWasBroken) {
               needsRewrite = true;
               cleanedTracks.add(Track(
                 id: t.id,
                 title: t.title,
                 artist: t.artist,
                 album: t.album,
-                artwork: t.artwork,
-                audioUrl: '', // Stripped 30-second preview so full song plays!
+                artwork: sanitizedArt,
+                audioUrl: hasPreview ? '' : t.audioUrl,
                 videoId: t.videoId,
                 duration: t.duration,
                 streamCount: t.streamCount,
@@ -124,27 +129,32 @@ class StorageService {
           }
         }
 
+        final healedCover = Playlist.sanitizeCover(p.cover, cleanedTracks);
+        if (healedCover != p.cover) {
+          needsRewrite = true;
+        }
+
         final cleanedPlaylist = Playlist(
           id: p.id,
           name: p.name,
           description: p.description,
-          cover: p.cover,
+          cover: healedCover,
           tracks: cleanedTracks,
         );
 
-        final normName = p.name.trim().toLowerCase();
-        if (!uniqueByName.containsKey(normName)) {
-          uniqueByName[normName] = cleanedPlaylist;
+        final idKey = p.id.trim().isNotEmpty ? p.id.trim() : p.name.trim().toLowerCase();
+        if (!uniqueById.containsKey(idKey)) {
+          uniqueById[idKey] = cleanedPlaylist;
         } else {
           needsRewrite = true;
-          final existing = uniqueByName[normName]!;
+          final existing = uniqueById[idKey]!;
           if (cleanedTracks.length > existing.tracks.length) {
-            uniqueByName[normName] = cleanedPlaylist;
+            uniqueById[idKey] = cleanedPlaylist;
           }
         }
       }
 
-      final result = uniqueByName.values.toList();
+      final result = uniqueById.values.toList();
       if (needsRewrite || result.length != rawPlaylists.length) {
         savePlaylists(result);
       }
@@ -165,10 +175,13 @@ class StorageService {
     final idx = all.indexWhere((p) => p.id == playlistId);
     if (idx != -1) {
       final old = all[idx];
+      final sanitizedCover = (cover != null && cover.trim().isNotEmpty)
+          ? Track.toHighResArtwork(cover.trim())
+          : old.cover;
       final updated = Playlist(
         id: old.id,
         name: (name != null && name.trim().isNotEmpty) ? name.trim() : old.name,
-        cover: (cover != null && cover.trim().isNotEmpty) ? cover.trim() : old.cover,
+        cover: sanitizedCover.isNotEmpty ? sanitizedCover : old.cover,
         description: description ?? old.description,
         tracks: old.tracks,
       );
@@ -347,5 +360,74 @@ class StorageService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyRecentSearches);
     } catch (_) {}
+  }
+
+  static const String _keyLastSession = 'mcmusic_last_playback_session_v1';
+
+  Future<void> savePlaybackSession({
+    required Track currentTrack,
+    required Duration position,
+    required List<Track> queue,
+    required int queueIndex,
+    required bool isShuffle,
+    required bool isRepeat,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Cap saved queue to at most 50 tracks centered around active track
+      List<Track> trimmedQueue = queue;
+      int adjustedIndex = queueIndex;
+      if (queue.length > 50) {
+        final safeIdx = queueIndex.clamp(0, queue.length - 1);
+        final start = (safeIdx - 20).clamp(0, queue.length - 50);
+        final end = (start + 50).clamp(start, queue.length);
+        trimmedQueue = queue.sublist(start, end);
+        adjustedIndex = (safeIdx - start).clamp(0, trimmedQueue.length - 1);
+      }
+
+      final payload = {
+        'track': currentTrack.toJson(),
+        'positionMs': position.inMilliseconds < 0 ? 0 : position.inMilliseconds,
+        'queue': trimmedQueue.map((t) => t.toJson()).toList(),
+        'queueIndex': adjustedIndex,
+        'isShuffle': isShuffle,
+        'isRepeat': isRepeat,
+        'savedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await prefs.setString(_keyLastSession, jsonEncode(payload));
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> loadPlaybackSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_keyLastSession);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final trackRaw = decoded['track'];
+      if (trackRaw is! Map) return null;
+      final track = Track.fromJson(Map<String, dynamic>.from(trackRaw));
+      if (track.title.isEmpty) return null;
+
+      final queueRaw = decoded['queue'] as List? ?? [];
+      final queue = queueRaw
+          .whereType<Map>()
+          .map((m) => Track.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      final posMs = (decoded['positionMs'] as num?)?.toInt() ?? 0;
+      final qIdx = (decoded['queueIndex'] as num?)?.toInt() ?? 0;
+
+      return {
+        'track': track,
+        'positionMs': posMs < 0 ? 0 : posMs,
+        'queue': queue.isNotEmpty ? queue : <Track>[track],
+        'queueIndex': qIdx,
+        'isShuffle': decoded['isShuffle'] == true,
+        'isRepeat': decoded['isRepeat'] == true,
+      };
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -26,7 +26,7 @@ class Track {
     this.popularity = 0,
     this.genre = 'Pop',
   })  : title = cleanTitle(title),
-        artwork = toHighResArtwork(artwork);
+        artwork = toHighResArtwork(artwork, fallbackVideoId: videoId);
 
   /// Yugen-inspired clean title sanitizer: strips [videoId], bracket video noise, quotes, and uploader noise
   static String cleanTitle(String rawTitle) {
@@ -48,28 +48,59 @@ class Track {
 
   String get displayTitle => cleanTitle(title);
 
-  static String toHighResArtwork(String url) {
-    if (url.isEmpty) return url;
-    var clean = url.trim();
+  static final RegExp _validVideoIdRe = RegExp(r'^[a-zA-Z0-9_-]{11}$');
 
-    // 1. Google User Content (YouTube Music 60x60 / 120x120 -> 800x800 HD)
-    if (clean.contains('googleusercontent.com')) {
-      if (RegExp(r'=w\d+-h\d+').hasMatch(clean)) {
-        return clean.replaceAll(RegExp(r'=w\d+-h\d+[^?#]*'), '=w800-h800-l90-rj');
-      }
-      if (RegExp(r'=s\d+').hasMatch(clean)) {
-        return clean.replaceAll(RegExp(r'=s\d+[^?#]*'), '=w800-h800-l90-rj');
-      }
-      if (!clean.contains('=')) {
-        return '$clean=w800-h800-l90-rj';
-      }
+  static bool isValidVideoId(String? id) =>
+      id != null && _validVideoIdRe.hasMatch(id.trim());
+
+  static String toHighResArtwork(String url, {String? fallbackVideoId}) {
+    final clean = url.trim();
+    final safeVid = isValidVideoId(fallbackVideoId) ? fallbackVideoId!.trim() : null;
+
+    if (clean.isEmpty) {
+      return safeVid != null ? 'https://i.ytimg.com/vi/$safeVid/hqdefault.jpg' : '';
     }
 
-    // 2. YouTube Video Thumbnails
-    if (clean.contains('ytimg.com')) {
-      if (clean.contains('default.jpg')) {
-        return clean.replaceAll(RegExp(r'(default|mqdefault|sddefault)\.jpg'), 'hq720.jpg').split('?')[0];
+    // Reject unsafe schemes (javascript:, file:, data:, etc.)
+    if (!clean.startsWith('https://') && !clean.startsWith('http://')) {
+      return safeVid != null ? 'https://i.ytimg.com/vi/$safeVid/hqdefault.jpg' : '';
+    }
+
+    final lower = clean.toLowerCase();
+    final isBadPlaceholder = lower.contains('no_thumbnail') ||
+        lower.contains('default_playlist');
+
+    if (isBadPlaceholder) {
+      return safeVid != null ? 'https://i.ytimg.com/vi/$safeVid/hqdefault.jpg' : '';
+    }
+
+    // 1. Google User Content (YouTube Music square studio album art -> 544x544 HD)
+    if (clean.contains('googleusercontent.com')) {
+      if (RegExp(r'=w\d+-h\d+').hasMatch(clean)) {
+        return clean.replaceAll(RegExp(r'=w\d+-h\d+[^?#]*'), '=w544-h544-l90-rj');
       }
+      if (RegExp(r'=s\d+').hasMatch(clean)) {
+        return clean.replaceAll(RegExp(r'=s\d+[^?#]*'), '=w544-h544-l90-rj');
+      }
+      if (!clean.contains('=')) {
+        return '$clean=w544-h544-l90-rj';
+      }
+      return clean;
+    }
+
+    // 2. YouTube Video Thumbnails -> always normalize to reliable unsigned hqdefault.jpg
+    if (clean.contains('ytimg.com')) {
+      final viMatch = RegExp(r'/vi(?:_webp)?/([a-zA-Z0-9_-]{11})/').firstMatch(clean);
+      if (viMatch != null) {
+        return 'https://i.ytimg.com/vi/${viMatch.group(1)}/hqdefault.jpg';
+      }
+      if (safeVid != null) {
+        return 'https://i.ytimg.com/vi/$safeVid/hqdefault.jpg';
+      }
+      return clean.split('?')[0].replaceAll(
+        RegExp(r'(hqhq720|hq720|maxresdefault|sddefault|mqdefault|hqdefault|default)\.(jpg|webp)', caseSensitive: false),
+        'hqdefault.jpg',
+      );
     }
 
     // 3. Apple Music / iTunes
@@ -99,7 +130,9 @@ class Track {
       title: title ?? this.title,
       artist: artist ?? this.artist,
       album: album ?? this.album,
-      artwork: artwork != null ? toHighResArtwork(artwork) : this.artwork,
+      artwork: artwork != null
+          ? toHighResArtwork(artwork, fallbackVideoId: videoId ?? this.videoId)
+          : toHighResArtwork(this.artwork, fallbackVideoId: videoId ?? this.videoId),
       audioUrl: audioUrl ?? this.audioUrl,
       duration: duration ?? this.duration,
       videoId: videoId ?? this.videoId,
@@ -125,18 +158,22 @@ class Track {
     'genre': genre,
   };
 
-  factory Track.fromJson(Map<String, dynamic> json) => Track(
-    id: json['id'] ?? '',
-    title: json['title'] ?? '',
-    artist: json['artist'] ?? '',
-    album: json['album'] ?? 'Single',
-    artwork: json['artwork'] ?? '',
-    audioUrl: json['audioUrl'] ?? '',
-    duration: json['duration'] ?? 180,
-    videoId: json['videoId'],
-    streamCount: json['streamCount'] ?? '120.450.000',
-    isExplicit: json['isExplicit'] ?? false,
-    popularity: (json['popularity'] as num?)?.toInt() ?? 0,
-    genre: json['genre'] as String? ?? 'Pop',
-  );
+  factory Track.fromJson(Map<String, dynamic> json) {
+    final vid = json['videoId']?.toString();
+    final rawArt = (json['artwork'] ?? '').toString();
+    return Track(
+      id: json['id'] ?? '',
+      title: json['title'] ?? '',
+      artist: json['artist'] ?? '',
+      album: json['album'] ?? 'Single',
+      artwork: toHighResArtwork(rawArt, fallbackVideoId: vid),
+      audioUrl: json['audioUrl'] ?? '',
+      duration: json['duration'] ?? 180,
+      videoId: vid,
+      streamCount: json['streamCount'] ?? '120.450.000',
+      isExplicit: json['isExplicit'] ?? false,
+      popularity: (json['popularity'] as num?)?.toInt() ?? 0,
+      genre: json['genre'] as String? ?? 'Pop',
+    );
+  }
 }

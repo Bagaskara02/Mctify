@@ -1,4 +1,10 @@
 import { Innertube } from 'youtubei.js';
+import {
+  applyApiSecurity,
+  isValidChannelId,
+  sanitizeQuery,
+  sendSafeError,
+} from '../_security.js';
 
 let ytPromise = null;
 async function getYT() {
@@ -29,19 +35,18 @@ const toHighResUrl = (url) => {
 };
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 200;
-    return res.end();
-  }
+  if (!applyApiSecurity(req, res)) return;
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
-    const id = url.searchParams.get('id') || req.query?.id;
-    const name = url.searchParams.get('name') || req.query?.name || '';
+    const rawId = (url.searchParams.get('id') || req.query?.id || '').trim();
+    const id = rawId && rawId.startsWith('UC') ? (isValidChannelId(rawId) ? rawId : '') : sanitizeQuery(rawId, 64);
+    const name = sanitizeQuery(url.searchParams.get('name') || req.query?.name || '', 120);
+    if (rawId && rawId.startsWith('UC') && !isValidChannelId(rawId)) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ error: 'Invalid channel ID' }));
+    }
     if (!id && !name) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
@@ -137,9 +142,6 @@ export default async function handler(req, res) {
       allSongs: finalSongs,
     }));
   } catch (e) {
-    console.error('API /api/yt/artist error:', e);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: e.message }));
+    return sendSafeError(res, 500, 'Gagal memuat profil artis', e);
   }
 }

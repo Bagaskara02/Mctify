@@ -72,12 +72,15 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
         }
       });
     }
-    // Auto-clean any duplicate tracks that might exist in storage
+    // Auto-clean any duplicate tracks that might exist in storage (preferring videoId for YouTube imports)
     final seen = <String>{};
     final uniqueTracks = <Track>[];
     bool hadDuplicates = false;
     for (final t in widget.playlist.tracks) {
-      final key = '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
+      final hasVid = t.videoId != null && t.videoId!.trim().isNotEmpty;
+      final key = hasVid
+          ? 'vid_${t.videoId!.trim()}'
+          : '${t.title.trim().toLowerCase()}_${t.artist.trim().toLowerCase()}';
       if (!seen.contains(key)) {
         seen.add(key);
         uniqueTracks.add(t);
@@ -419,13 +422,16 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                   ),
                   onPressed: () async {
                     final newName = nameCtrl.text.trim();
-                    final newCover = coverCtrl.text.trim();
+                    final rawCover = coverCtrl.text.trim();
                     if (newName.isEmpty) return;
+
+                    final sanitizedCover = rawCover.isNotEmpty ? Track.toHighResArtwork(rawCover) : '';
+                    final effectiveCover = sanitizedCover.isNotEmpty ? sanitizedCover : _currentPlaylist.cover;
 
                     final updated = await _storage.updatePlaylistDetails(
                       _currentPlaylist.id,
                       name: newName,
-                      cover: newCover.isNotEmpty ? newCover : _currentPlaylist.cover,
+                      cover: effectiveCover,
                     );
 
                     if (updated != null && mounted) {

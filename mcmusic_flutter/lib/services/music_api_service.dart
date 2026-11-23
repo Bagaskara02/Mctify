@@ -12,10 +12,32 @@ import 'storage_service.dart';
 
 class MusicApiService {
   static const String defaultArtwork = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=600';
-  static final Map<String, String> _streamCache = {};
+  static const Duration _streamCacheTtl = Duration(minutes: 20);
+  static final Map<String, ({String value, DateTime cachedAt})> _streamCache = {};
   static final Map<String, List<Track>> _searchCache = {};
-  static final YoutubeExplode _sharedYt = YoutubeExplode();
+  static YoutubeExplode _sharedYt = YoutubeExplode();
   final StorageService _storageService = StorageService();
+
+  static void resetHttpClients() {
+    try {
+      _sharedYt.close();
+    } catch (_) {}
+    _sharedYt = YoutubeExplode();
+  }
+
+  static String? _getCacheValue(String key) {
+    final entry = _streamCache[key];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.cachedAt) >= _streamCacheTtl) {
+      _streamCache.remove(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  static void _setCacheValue(String key, String value) {
+    _streamCache[key] = (value: value, cachedAt: DateTime.now());
+  }
 
   /// Selects the best audio stream matching requested quality tier.
   static AudioStreamInfo _pickStreamByQuality(
@@ -69,45 +91,25 @@ class MusicApiService {
   /// Fast stream manifest resolver prioritizing progressive `muxed` (itag 18 MP4+AAC)
   /// which streams 100% from 0:00 to end without YouTube's 1 MB (~50s) adaptive `audioOnly` 403 cutoff.
   Future<List<AudioStreamInfo>> _getFastAudioStreams(String videoId) async {
-    try {
-      final manifest = await _sharedYt.videos.streamsClient
-          .getManifest(
-            videoId,
-            ytClients: [YoutubeApiClient.androidSdkless],
-            requireWatchPage: false,
-          )
-          .timeout(const Duration(seconds: 3));
-      if (manifest.muxed.isNotEmpty) {
-        return manifest.muxed.toList();
-      }
-      if (manifest.audioOnly.isNotEmpty) {
-        return manifest.audioOnly.toList();
-      }
-    } catch (_) {}
-
-    try {
-      final tvManifest = await _sharedYt.videos.streamsClient
-          .getManifest(
-            videoId,
-            ytClients: [YoutubeApiClient.tv],
-            requireWatchPage: false,
-          )
-          .timeout(const Duration(seconds: 3));
-      if (tvManifest.muxed.isNotEmpty) return tvManifest.muxed.toList();
-      if (tvManifest.audioOnly.isNotEmpty) return tvManifest.audioOnly.toList();
-    } catch (_) {}
-
-    try {
-      final vrManifest = await _sharedYt.videos.streamsClient
-          .getManifest(
-            videoId,
-            ytClients: [YoutubeApiClient.androidVr],
-            requireWatchPage: false,
-          )
-          .timeout(const Duration(seconds: 4));
-      if (vrManifest.muxed.isNotEmpty) return vrManifest.muxed.toList();
-      if (vrManifest.audioOnly.isNotEmpty) return vrManifest.audioOnly.toList();
-    } catch (_) {}
+    final clients = [
+      YoutubeApiClient.androidSdkless,
+      YoutubeApiClient.tv,
+      YoutubeApiClient.androidVr,
+      if (!kIsWeb && Platform.isIOS) YoutubeApiClient.ios,
+    ];
+    for (final client in clients) {
+      try {
+        final manifest = await _sharedYt.videos.streamsClient
+            .getManifest(
+              videoId,
+              ytClients: [client],
+              requireWatchPage: false,
+            )
+            .timeout(const Duration(seconds: 5));
+        if (manifest.muxed.isNotEmpty) return manifest.muxed.toList();
+        if (manifest.audioOnly.isNotEmpty) return manifest.audioOnly.toList();
+      } catch (_) {}
+    }
 
     return const [];
   }
@@ -159,21 +161,64 @@ class MusicApiService {
     return null;
   }
 
+  /// Invalidates cached stream URLs and local proxy entries for a track.
+  void invalidateTrackStream(Track track, [AudioQuality? quality]) {
+    final qualities = quality != null ? [quality] : AudioQuality.values;
+    for (final q in qualities) {
+      if (track.videoId != null && track.videoId!.isNotEmpty) {
+        final vid = track.videoId!.trim();
+        _streamCache.remove('stream_${vid}_${q.name}');
+        AudioProxyServer.instance.invalidateEntry('${vid}_${q.name}');
+      }
+      final titleKey = '${track.title} ${track.artist} ${q.name}'.toLowerCase().trim();
+      _streamCache.remove(titleKey);
+    }
+  }
+
+  String? _validateLiveProxyUrl(String? rawUrl, String? matchedKey) {
+    if (rawUrl == null || rawUrl.isEmpty) return null;
+    if (rawUrl.contains('127.0.0.1:')) {
+      final currentPort = AudioProxyServer.instance.port;
+      final uri = Uri.tryParse(rawUrl);
+      final id = uri?.queryParameters['id'];
+      if (currentPort == null || id == null || !AudioProxyServer.instance.hasEntry(id)) {
+        if (matchedKey != null) _streamCache.remove(matchedKey);
+        return null;
+      }
+      if (uri != null && uri.port != currentPort) {
+        final freshProxyUrl = AudioProxyServer.instance.getRegisteredProxyUrl(id);
+        if (freshProxyUrl != null) {
+          if (matchedKey != null) _setCacheValue(matchedKey, freshProxyUrl);
+          return freshProxyUrl;
+        }
+        final correctedUrl = rawUrl.replaceFirst('127.0.0.1:${uri.port}', '127.0.0.1:$currentPort');
+        if (matchedKey != null) _setCacheValue(matchedKey, correctedUrl);
+        return correctedUrl;
+      }
+    }
+    return rawUrl;
+  }
+
   /// Resolves direct, full-length YouTube audio stream from videoId
   Future<String?> resolveStreamUrlFromVideoId(
     String videoId, [
     AudioQuality quality = AudioQuality.high,
+    bool forceFresh = false,
   ]) async {
     final cleanKey = 'stream_${videoId}_${quality.name}';
-    if (_streamCache.containsKey(cleanKey)) {
-      return _streamCache[cleanKey];
+    if (!forceFresh) {
+      final cached = _validateLiveProxyUrl(_getCacheValue(cleanKey), cleanKey);
+      if (cached != null) return cached;
+    } else {
+      _streamCache.remove(cleanKey);
+      AudioProxyServer.instance.invalidateEntry('${videoId}_${quality.name}');
     }
     try {
       final allAudio = await _getFastAudioStreams(videoId);
       if (allAudio.isNotEmpty) {
         final chosen = _pickStreamByQuality(allAudio, quality);
         final proxyUrl = await _registerProxyStream(videoId, chosen, quality);
-        _streamCache[cleanKey] = proxyUrl;
+        _setCacheValue(cleanKey, proxyUrl);
         return proxyUrl;
       }
     } catch (e) {
@@ -182,46 +227,17 @@ class MusicApiService {
     return null;
   }
 
-  /// Returns cached stream URL if already resolved (guaranteeing it's never a 30s preview)
+  /// Returns cached stream URL if already resolved (guaranteeing it's never a 30s preview or stale cross-track hit)
   String? getCachedStream(Track track, [AudioQuality quality = AudioQuality.high]) {
     if (track.audioUrl.isNotEmpty && !isPreviewUrl(track.audioUrl)) {
       return track.audioUrl;
     }
-    String? rawUrl;
-    String? matchedKey;
     if (track.videoId != null && track.videoId!.isNotEmpty) {
       final key = 'stream_${track.videoId}_${quality.name}';
-      if (_streamCache.containsKey(key)) {
-        rawUrl = _streamCache[key];
-        matchedKey = key;
-      }
+      return _validateLiveProxyUrl(_getCacheValue(key), key);
     }
-    if (rawUrl == null) {
-      final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
-      if (_streamCache.containsKey(cleanKey)) {
-        rawUrl = _streamCache[cleanKey];
-        matchedKey = cleanKey;
-      }
-    }
-    if (rawUrl == null) return null;
-
-    // Validate loopback proxy URLs against active server port & entries
-    if (rawUrl.contains('127.0.0.1:')) {
-      final currentPort = AudioProxyServer.instance.port;
-      final uri = Uri.tryParse(rawUrl);
-      final id = uri?.queryParameters['id'];
-      if (currentPort == null || id == null || !AudioProxyServer.instance.hasEntry(id)) {
-        // Stale or dead entry — evict from cache so fresh stream resolves reliably!
-        if (matchedKey != null) _streamCache.remove(matchedKey);
-        return null;
-      }
-      if (uri != null && uri.port != currentPort) {
-        final correctedUrl = rawUrl.replaceFirst('127.0.0.1:${uri.port}', '127.0.0.1:$currentPort');
-        if (matchedKey != null) _streamCache[matchedKey] = correctedUrl;
-        return correctedUrl;
-      }
-    }
-    return rawUrl;
+    final cleanKey = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
+    return _validateLiveProxyUrl(_getCacheValue(cleanKey), cleanKey);
   }
 
   /// Pre-warms top Quick Card / top tracks silently on startup so first Play is instant
@@ -264,39 +280,41 @@ class MusicApiService {
     Track track, [
     AudioQuality quality = AudioQuality.high,
     Set<String>? excludeVideoIds,
+    bool forceFresh = false,
   ]) async {
-    final cached = getCachedStream(track, quality);
-    if (cached != null) return cached;
-
-    // 1. Try resolving direct stream via videoId if already present on track and not excluded
-    String? vid = track.videoId;
-    if (vid == null || vid.isEmpty || (excludeVideoIds != null && excludeVideoIds.contains(vid))) {
-      vid = await resolveVideoId(track.title, track.artist, track.duration, excludeVideoIds);
+    if (forceFresh) {
+      invalidateTrackStream(track, quality);
+    } else {
+      final cached = getCachedStream(track, quality);
+      if (cached != null) return cached;
     }
 
+    // 1. Strict videoId binding: when track already has a non-excluded videoId,
+    // ONLY resolve that exact videoId so it NEVER silently swaps to a different song!
+    final vid = track.videoId;
     if (vid != null && vid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-      final url = await resolveStreamUrlFromVideoId(vid, quality);
+      var url = await resolveStreamUrlFromVideoId(vid, quality, forceFresh);
+      if (url == null || url.isEmpty) {
+        // Transient dead TCP socket after OS sleep: reset client once and retry exact videoId
+        resetHttpClients();
+        url = await resolveStreamUrlFromVideoId(vid, quality, true);
+      }
+      // Return null cleanly on failure so AudioPlayerManager falls back to Step C YouTube Player with THIS exact videoId!
+      return (url != null && url.isNotEmpty) ? url : null;
+    }
+
+    // 2. Only when track has NO videoId (or its videoId failed/excluded): resolve by metadata
+    final resolvedVid = await resolveVideoId(track.title, track.artist, track.duration, excludeVideoIds);
+    if (resolvedVid != null && resolvedVid.isNotEmpty && (excludeVideoIds == null || !excludeVideoIds.contains(resolvedVid))) {
+      final url = await resolveStreamUrlFromVideoId(resolvedVid, quality, forceFresh);
       if (url != null && url.isNotEmpty) {
         final key = '${track.title} ${track.artist} ${quality.name}'.toLowerCase().trim();
-        _streamCache[key] = url;
+        _setCacheValue(key, url);
         return url;
       }
     }
 
-    // 2. Resolve direct audio stream from YouTube Explode (full 3-5+ minute song!)
-    final stream = await resolveFullAudioStream(
-      track.title,
-      track.artist,
-      quality,
-      track.duration,
-      excludeVideoIds,
-    );
-    if (stream != null && stream.isNotEmpty) {
-      return stream;
-    }
-
     // CRITICAL: NEVER fall back to 30-second previews!
-    // Return null so AudioPlayerManager falls back to Tier 2 (YouTube Player Engine) for full-length playback.
     return null;
   }
 
@@ -317,11 +335,9 @@ class MusicApiService {
         .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
         .trim();
     final cleanKey = 'vid_${sanitizedTitle.toLowerCase()}_${firstArtist.toLowerCase()}';
-    if (_streamCache.containsKey(cleanKey)) {
-      final cached = _streamCache[cleanKey];
-      if (cached != null && (excludeVideoIds == null || !excludeVideoIds.contains(cached))) {
-        return cached;
-      }
+    final cachedVid = _getCacheValue(cleanKey);
+    if (cachedVid != null && (excludeVideoIds == null || !excludeVideoIds.contains(cachedVid))) {
+      return cachedVid;
     }
 
     // 1 & 2 RACED IN PARALLEL: Race Vercel Backend (~114ms warm / slow cold start)
@@ -399,7 +415,7 @@ class MusicApiService {
 
     final racedVid = await raceCompleter.future;
     if (racedVid != null && racedVid.isNotEmpty) {
-      _streamCache[cleanKey] = racedVid;
+      _setCacheValue(cleanKey, racedVid);
       return racedVid;
     }
 
@@ -425,7 +441,7 @@ class MusicApiService {
           scored.sort((a, b) => b.value.compareTo(a.value));
           if (scored.first.value >= 400) {
             final bestId = scored.first.key;
-            _streamCache[cleanKey] = bestId;
+            _setCacheValue(cleanKey, bestId);
             return bestId;
           }
         }
@@ -434,7 +450,7 @@ class MusicApiService {
       debugPrint('resolveVideoId search-multi error: $e');
     }
 
-    // 3. Fallback: YouTube Music WEB_REMIX API
+    // 3. Fallback: YouTube Music WEB_REMIX API with strict candidate scoring (NO blind regex grab!)
     try {
       final url = Uri.parse('https://music.youtube.com/youtubei/v1/search');
       final body = jsonEncode({
@@ -446,7 +462,7 @@ class MusicApiService {
             'gl': 'ID',
           }
         },
-        'query': '$title $artist',
+        'query': '$sanitizedTitle $firstArtist',
       });
 
       final res = await http.post(
@@ -460,12 +476,51 @@ class MusicApiService {
       ).timeout(const Duration(seconds: 5));
 
       if (res.statusCode == 200) {
-        final matches = RegExp(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"').allMatches(res.body);
-        for (final m in matches) {
-          final vid = m.group(1);
-          if (vid != null && (excludeVideoIds == null || !excludeVideoIds.contains(vid))) {
-            _streamCache[cleanKey] = vid;
-            return vid;
+        final decoded = jsonDecode(res.body);
+        final candidates = <Map<String, dynamic>>[];
+        void collectItems(dynamic node) {
+          if (node is Map) {
+            final item = node['musicResponsiveListItemRenderer'];
+            if (item is Map) {
+              final vid = item['playlistItemData']?['videoId']?.toString() ?? '';
+              if (Track.isValidVideoId(vid)) {
+                final cols = item['flexColumns'] as List? ?? [];
+                String cTitle = '';
+                String cArtist = '';
+                if (cols.isNotEmpty) {
+                  final runs0 = cols[0]?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List? ?? [];
+                  cTitle = runs0.map((r) => r['text']?.toString() ?? '').join('');
+                }
+                if (cols.length > 1) {
+                  final runs1 = cols[1]?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] as List? ?? [];
+                  cArtist = runs1.map((r) => r['text']?.toString() ?? '').join('');
+                }
+                candidates.add({'videoId': vid, 'title': cTitle, 'artist': cArtist});
+              }
+            }
+            for (final v in node.values) {
+              collectItems(v);
+            }
+          } else if (node is List) {
+            for (final el in node) {
+              collectItems(el);
+            }
+          }
+        }
+        collectItems(decoded);
+        final scored = <MapEntry<String, int>>[];
+        for (final c in candidates) {
+          final vid = c['videoId'] as String;
+          if (excludeVideoIds != null && excludeVideoIds.contains(vid)) continue;
+          final s = _scoreCandidate(c['title'] as String, c['artist'] as String, sanitizedTitle, firstArtist, null, expectedDuration);
+          scored.add(MapEntry(vid, s));
+        }
+        if (scored.isNotEmpty) {
+          scored.sort((a, b) => b.value.compareTo(a.value));
+          if (scored.first.value >= 400) {
+            final bestVid = scored.first.key;
+            _setCacheValue(cleanKey, bestVid);
+            return bestVid;
           }
         }
       }
@@ -487,7 +542,7 @@ class MusicApiService {
         .replaceAll(RegExp(r'[\u00a0\u2000-\u200b\u202f\u205f\u3000]'), ' ')
         .trim();
     final cleanKey = 'vid_${sanitizedTitle.toLowerCase()}_${firstArtist.toLowerCase()}';
-    if (_streamCache[cleanKey] == failedVideoId) {
+    if (_getCacheValue(cleanKey) == failedVideoId) {
       _streamCache.remove(cleanKey);
     }
   }
@@ -502,9 +557,8 @@ class MusicApiService {
     Set<String>? excludeVideoIds,
   ]) async {
     final cleanKey = '$title $artist ${quality.name}'.toLowerCase().trim();
-    if (_streamCache.containsKey(cleanKey)) {
-      return _streamCache[cleanKey];
-    }
+    final cached = _validateLiveProxyUrl(_getCacheValue(cleanKey), cleanKey);
+    if (cached != null) return cached;
 
     final excluded = Set<String>.from(excludeVideoIds ?? const {});
     try {
@@ -517,8 +571,8 @@ class MusicApiService {
           if (allStreams.isNotEmpty) {
             final chosenStream = _pickStreamByQuality(allStreams, quality);
             final proxyUrl = await _registerProxyStream(bestVideoId, chosenStream, quality);
-            _streamCache[cleanKey] = proxyUrl;
-            _streamCache['stream_${bestVideoId}_${quality.name}'] = proxyUrl;
+            _setCacheValue(cleanKey, proxyUrl);
+            _setCacheValue('stream_${bestVideoId}_${quality.name}', proxyUrl);
             return proxyUrl;
           }
         } catch (e) {
@@ -1486,7 +1540,7 @@ class MusicApiService {
             title: title.isNotEmpty ? title : 'YouTube Track',
             artist: artist.isNotEmpty ? artist : 'YouTube',
             album: 'YouTube Import',
-            artwork: 'https://i.ytimg.com/vi/$videoId/hq720.jpg',
+            artwork: 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
             audioUrl: '',
             videoId: videoId,
             duration: 210,
@@ -1521,7 +1575,7 @@ class MusicApiService {
           title: title,
           artist: artist,
           album: 'YouTube Import',
-          artwork: video.thumbnails.highResUrl.isNotEmpty ? video.thumbnails.highResUrl : 'https://i.ytimg.com/vi/$videoId/hq720.jpg',
+          artwork: 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg',
           audioUrl: '',
           videoId: video.id.value,
           duration: video.duration?.inSeconds ?? 210,
