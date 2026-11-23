@@ -79,3 +79,20 @@ jobs:
               --title "McTify Mobile ${TAG} (iOS IPA & Android APK)" \
               --notes "Rilis ${TAG}: Tersedia paket iOS .ipa unsigned untuk iPhone (sideload via AltStore / Sideloadly / TrollStore / Scarlet / Feather) serta Android APK terbaru."
           fi
+
+      - name: Sync Built IPA to Web Public Downloads on Main Branch
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name || 'v1.4.14' }}"
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          cp mcmusic_flutter/build/McTify.ipa public/McTify.ipa
+          cp mcmusic_flutter/build/McTify.ipa public/downloads/McTify.ipa
+          cp mcmusic_flutter/build/McTify.ipa "public/downloads/McTify-${TAG}.ipa"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/McTify.ipa public/downloads/McTify.ipa "public/downloads/McTify-${TAG}.ipa"
+          if ! git diff --cached --quiet; then
+            git commit -m "Update built iOS IPA package (${TAG}) in public/downloads"
+            git push origin main
+          fi
