@@ -741,17 +741,49 @@ export default function YouTubePlayer({
         // 2. Drive Dual-Deck Envelope during active transition
         if (transitionStateRef.current.active) {
           const tr = transitionStateRef.current;
+          const fromPlayer = decksRef.current[tr.fromDeck];
+          const toPlayer = decksRef.current[tr.toDeck];
+
+          // Wait until standby deck is actually PLAYING before advancing the transition clock
+          // so YouTube IFrame buffering never eats up the first 1-2s of the Mashup/Drop transition!
+          const toState = toPlayer?.getPlayerState?.();
+          if (!tr.standbyRolling) {
+            if (toState === window.YT?.PlayerState?.PLAYING) {
+              tr.standbyRolling = true;
+              tr.startedAtMs = performance.now();
+            } else {
+              // Ensure standby deck is nudged to play; timeout fallback after 2.2s
+              if (
+                toState === window.YT?.PlayerState?.CUED ||
+                toState === window.YT?.PlayerState?.PAUSED ||
+                toState === -1
+              ) {
+                try { toPlayer?.playVideo?.(); } catch {}
+              }
+              if (performance.now() - tr.startedAtMs > 2200) {
+                tr.standbyRolling = true;
+                tr.startedAtMs = performance.now();
+              } else {
+                return;
+              }
+            }
+          }
+
           const elapsedSec = (performance.now() - tr.startedAtMs) / 1000;
           const p = Math.max(0, Math.min(1, elapsedSec / Math.max(1.5, tr.durationSec)));
           tr.progress = p;
 
           const env = evaluateTransitionEnvelope(p, cfg || {});
           const masterVol = computeMasterCeilingVol();
-          const outVol = Math.round((env.effectiveOutIframeVol / 100) * masterVol);
-          const inVol = Math.round((env.effectiveInIframeVol / 100) * masterVol);
+          let outVol = Math.round((env.effectiveOutIframeVol / 100) * masterVol);
+          let inVol = Math.round((env.effectiveInIframeVol / 100) * masterVol);
 
-          const fromPlayer = decksRef.current[tr.fromDeck];
-          const toPlayer = decksRef.current[tr.toDeck];
+          // Anti-clipping headroom balance when Mashup/Overlap runs both decks at full energy
+          if (outVol + inVol > masterVol * 1.35) {
+            const scale = (masterVol * 1.35) / Math.max(1, outVol + inVol);
+            outVol = Math.round(outVol * scale);
+            inVol = Math.round(inVol * scale);
+          }
 
           if (!isMutedRef.current) {
             try { fromPlayer?.setVolume?.(outVol); } catch {}
@@ -761,13 +793,27 @@ export default function YouTubePlayer({
             } catch {}
           }
 
-          // Ensure standby deck is actively rolling
+          // Apply gentle Tempo-Sync playback rate on YouTube IFrame when available
+          if (cfg?.tempoSync !== false && !tr.tempoApplied) {
+            tr.tempoApplied = true;
+            try {
+              const rates = toPlayer?.getAvailablePlaybackRates?.() || [];
+              if (rates.length > 0 && env.inPlaybackRate && Math.abs(env.inPlaybackRate - 1) >= 0.04) {
+                const nearest = rates.reduce((prev, curr) =>
+                  Math.abs(curr - env.inPlaybackRate) < Math.abs(prev - env.inPlaybackRate) ? curr : prev
+                );
+                if (Math.abs(nearest - env.inPlaybackRate) <= 0.12) {
+                  toPlayer?.setPlaybackRate?.(nearest);
+                }
+              }
+            } catch {}
+          }
+
+          // Ensure standby deck stays rolling
           try {
-            const toState = toPlayer?.getPlayerState?.();
             if (
               toState === window.YT?.PlayerState?.CUED ||
-              toState === window.YT?.PlayerState?.PAUSED ||
-              toState === -1
+              toState === window.YT?.PlayerState?.PAUSED
             ) {
               toPlayer?.playVideo?.();
             }
@@ -785,6 +831,7 @@ export default function YouTubePlayer({
           });
 
           if (p >= 1.0 || remainingSec <= 0.35) {
+            try { toPlayer?.setPlaybackRate?.(playbackRateRef.current || 1.0); } catch {}
             completeActiveTransition();
             return;
           }
