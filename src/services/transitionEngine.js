@@ -44,6 +44,7 @@ export const TRANSITION_BAR_OPTIONS = [
 ];
 
 export const TRANSITION_VOLUME_OPTIONS = [
+  { id: 'mashup', label: 'Mashup Blend', desc: 'Style Spotify/DJ Remix: lagu baru mengunci beat & bass swap di bar tengah, kedua lagu menyatu seperti mashup' },
   { id: 'overlap', label: 'Overlap', desc: 'Kedua lagu membaur penuh di tengah transisi' },
   { id: 'crossfade', label: 'Crossfade', desc: 'Equal-power fade out & fade in tanpa drop volume' },
   { id: 'fade', label: 'Dip Fade', desc: 'Redup halus di tengah agar vokal tidak bertabrakan' },
@@ -223,7 +224,21 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let outGain = 1.0;
   let inGain = 0.0;
 
-  if (volumeMode === 'overlap') {
+  if (volumeMode === 'mashup') {
+    // Spotify Automix / DJ Mashup Blend:
+    // Both tracks lock at full energy through the middle phrase while EQ/Filter carves
+    // sub-bass & vocal pockets so they weave together like a live remix mashup!
+    if (p < 0.25) {
+      outGain = 1.0;
+      inGain = 0.25 + 0.75 * Math.sin((p / 0.25) * (Math.PI / 2));
+    } else if (p < 0.72) {
+      outGain = 1.0 - 0.14 * ((p - 0.25) / 0.47);
+      inGain = 1.0;
+    } else {
+      outGain = 0.86 * Math.cos(((p - 0.72) / 0.28) * (Math.PI / 2));
+      inGain = 1.0;
+    }
+  } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
     // Incoming fades in over 0..55% and stays at 100%
     outGain = p <= 0.45 ? 1.0 : Math.cos(((p - 0.45) / 0.55) * (Math.PI / 2));
@@ -277,7 +292,26 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let outMidDb = 0;
   let inMidDb = 0;
 
-  if (eqMode === 'bass_swap') {
+  if (volumeMode === 'mashup') {
+    // Mashup automatically applies DJ stem-style pocket carving:
+    // Bar 1-2: Outgoing owns bass, incoming enters with crisp highs/vocals
+    // Bar 3 (p=0.46..0.56): Instant Bass Swap on the downbeat + gentle vocal pocket on outgoing
+    // Bar 4: Outgoing rides high-pass echo tail while incoming drops full low-end
+    if (p < 0.46) {
+      outLowDb = 0;
+      inLowDb = -18;
+      inMidDb = -2.0;
+    } else if (p <= 0.56) {
+      const t = (p - 0.46) / 0.10;
+      outLowDb = -20 * t;
+      inLowDb = -18 + 20 * t;
+      outMidDb = -4.5 * t;
+    } else {
+      outLowDb = -20;
+      inLowDb = 1.5;
+      outMidDb = -6.0;
+    }
+  } else if (eqMode === 'bass_swap') {
     // Swap sub-bass cleanly around p = 0.50
     if (p < 0.42) {
       outLowDb = 0;
@@ -352,7 +386,7 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   // 5. Effective IFrame Volume Contour (projects EQ/Filter energy onto 0..100 for YouTube IFrame dual decks)
   let outAcousticalFactor = 1.0;
   let inAcousticalFactor = 1.0;
-  if (eqMode === 'bass_swap') {
+  if (volumeMode === 'mashup' || eqMode === 'bass_swap') {
     outAcousticalFactor *= p < 0.5 ? 1.0 : 0.78;
     inAcousticalFactor *= p < 0.5 ? 0.82 : 1.05;
   } else if (eqMode === 'high_pass') {
@@ -410,33 +444,32 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
 
   if (deltaBpm <= 4 && compat.score >= 90) {
     bars = '4 bars';
-    volume = 'overlap';
+    volume = 'mashup';
     eq = 'bass_swap';
     effect = 'high_pass';
     tempoSync = true;
-    explanation = `Harmoni & Tempo Sempurna (${metaA.bpm} → ${metaB.bpm} BPM, ${metaA.key} → ${metaB.key} • ${compat.label}). Menggunakan Overlap 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Bass Swap & High-Pass Filter agar beat menyatu seperti set DJ profesional.`;
+    explanation = `Harmoni & Tempo Sempurna (${metaA.bpm} → ${metaB.bpm} BPM, ${metaA.key} → ${metaB.key} • ${compat.label}). Menggunakan Mashup Blend 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Bass Swap & High-Pass Filter agar beat dan vokal menyatu seperti remix DJ.`;
   } else if (deltaBpm <= 10) {
-    bars = '2 bars';
-    volume = compat.score >= 80 ? 'overlap' : 'crossfade';
+    bars = '4 bars';
+    volume = compat.score >= 80 ? 'mashup' : 'overlap';
     eq = compat.score >= 80 ? 'bass_swap' : 'smooth_blend';
-    effect = compat.score >= 80 ? 'high_pass' : 'low_pass';
+    effect = compat.score >= 80 ? 'high_pass' : 'echo_fade';
     tempoSync = true;
-    explanation = `Beatmatch Halus (${metaA.bpm} → ${metaB.bpm} BPM, selisih ${deltaBpm} BPM • ${compat.label}). Menggunakan ${volume === 'overlap' ? 'Overlap' : 'Crossfade'} 2 Bars (${barStats2.durationSec}s) dengan Tempo Sync aktif & ${effect === 'high_pass' ? 'High-Pass Sweep' : 'Low-Pass Warm Filter'}.`;
+    explanation = `Beatmatch Mashup (${metaA.bpm} → ${metaB.bpm} BPM, selisih ${deltaBpm} BPM • ${compat.label}). Menggunakan ${volume === 'mashup' ? 'Mashup Blend' : 'Overlap'} 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Tempo Sync aktif & ${effect === 'high_pass' ? 'High-Pass Sweep' : 'Tempo Echo Fade'}.`;
   } else if (deltaBpm <= 20) {
     bars = '2 bars';
     volume = 'rise_drop';
-    eq = 'high_pass';
+    eq = 'bass_swap';
     effect = 'echo_fade';
-    tempoSync = false;
-    explanation = `Transisi Energi Kontras (${metaA.bpm} → ${metaB.bpm} BPM). Menggunakan Rise & Drop 2 Bars (${barStats2.durationSec}s) dengan Low Cut & Tempo Echo Fade agar perpindahan tempo terasa dramatis tanpa tabrakan ketukan.`;
+    tempoSync = true;
+    explanation = `Transisi Remix Drop (${metaA.bpm} → ${metaB.bpm} BPM). Menggunakan Rise & Drop 2 Bars (${barStats2.durationSec}s) dengan Bass Swap & Tempo Echo Fade agar perpindahan tempo menghentak pas di ketukan baru.`;
   } else {
-    bars = '1 bar';
+    bars = '2 bars';
     volume = 'cut';
     eq = 'high_pass';
     effect = 'reverb_tail';
     tempoSync = false;
-    const barStats1 = computeBarDurationSec(metaA.bpm, metaB.bpm, '1 bar');
-    explanation = `DJ Drop Cut (${metaA.bpm} vs ${metaB.bpm} BPM, selisih ${deltaBpm} BPM). Menggunakan Beat Cut 1 Bar (${barStats1.durationSec}s) dengan Reverb Wash pada ketukan terakhir agar lagu baru langsung masuk penuh di beat pertama.`;
+    explanation = `DJ Drop Cut (${metaA.bpm} vs ${metaB.bpm} BPM, selisih ${deltaBpm} BPM). Menggunakan Beat Cut 2 Bars (${barStats2.durationSec}s) dengan Reverb Wash pada ketukan terakhir agar lagu baru langsung masuk penuh di beat pertama.`;
   }
 
   const finalBarStats = computeBarDurationSec(metaA.bpm, metaB.bpm, bars);
@@ -525,37 +558,76 @@ export async function resolveTransitionTrackAudio(track) {
     .trim();
 
   // Tier 1: iTunes high-availability CORS AAC preview (supports Web Audio API BiquadFilter/Convolver directly!)
+  // STRICT MATCHING: Require strong title + artist match so indie/Indonesian tracks (e.g. Tenxi - mejikuhibiniu / Bintang 5)
+  // NEVER accidentally play a completely different song from iTunes!
   if (cleanTitle && typeof fetch === 'function') {
     try {
       const q = `${cleanTitle} ${cleanArtist}`.trim();
       const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=6`
+        `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=8`
       );
       if (res.ok) {
         const data = await res.json();
         const results = Array.isArray(data?.results) ? data.results : [];
-        const titleLower = cleanTitle.toLowerCase();
-        const artistLower = cleanArtist.toLowerCase();
+        const normStr = (s) =>
+          String(s || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const titleNorm = normStr(cleanTitle);
+        const artistNorm = normStr(cleanArtist);
+        const titleTokens = titleNorm.split(' ').filter((w) => w.length >= 2);
 
         let best = null;
         let bestScore = -1;
         for (const item of results) {
           if (!item?.previewUrl) continue;
-          const rTitle = String(item.trackName || '').toLowerCase();
-          const rArtist = String(item.artistName || '').toLowerCase();
-          let score = 0;
-          if (rTitle === titleLower) score += 60;
-          else if (rTitle.includes(titleLower) || titleLower.includes(rTitle)) score += 38;
-          if (artistLower && (rArtist.includes(artistLower) || artistLower.includes(rArtist))) {
-            score += 45;
+          const rTitle = normStr(item.trackName || '');
+          const rArtist = normStr(item.artistName || '');
+          if (!rTitle) continue;
+
+          // Title match check
+          let titleScore = 0;
+          if (rTitle === titleNorm) {
+            titleScore = 65;
+          } else if (rTitle.includes(titleNorm) || (titleNorm.length >= 5 && titleNorm.includes(rTitle))) {
+            titleScore = 45;
+          } else if (titleTokens.length > 0) {
+            const matchedTokens = titleTokens.filter((tok) => rTitle.includes(tok));
+            const ratio = matchedTokens.length / titleTokens.length;
+            if (ratio >= 0.75) titleScore = Math.round(ratio * 42);
           }
-          if (score > bestScore) {
-            bestScore = score;
+
+          // Artist match check (mandatory when cleanArtist is provided!)
+          let artistScore = 0;
+          if (!artistNorm) {
+            artistScore = 25;
+          } else if (rArtist === artistNorm) {
+            artistScore = 55;
+          } else if (rArtist.includes(artistNorm) || (artistNorm.length >= 4 && artistNorm.includes(rArtist))) {
+            artistScore = 45;
+          } else {
+            const aTokens = artistNorm.split(' ').filter((w) => w.length >= 3);
+            const matchedA = aTokens.filter((tok) => rArtist.includes(tok));
+            if (aTokens.length > 0 && matchedA.length === aTokens.length) {
+              artistScore = 35;
+            }
+          }
+
+          // Reject if title didn't match strongly OR if artist was provided and didn't match at all
+          if (titleScore < 35 || (artistNorm && artistScore < 30)) {
+            continue;
+          }
+
+          const totalScore = titleScore + artistScore;
+          if (totalScore > bestScore) {
+            bestScore = totalScore;
             best = item.previewUrl;
           }
         }
 
-        if (best) {
+        if (best && bestScore >= 75) {
           const resolved = { url: best, sourceType: 'itunes', isPreview30s: true };
           previewAudioCache.set(cacheKey, resolved);
           return resolved;
