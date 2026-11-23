@@ -225,12 +225,22 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inGain = 0.0;
 
   if (volumeMode === 'mashup') {
-    // Authentic Spotify Mix 8-Bar Blend (per TikTok reference):
-    // Outgoing holds 100% full energy across bars 1..8 and drops cleanly at bar 8 end (p > 0.94);
-    // Incoming enters immediately at full energy on bar 1 (p > 0.04) while Yellow Bass Swap &
-    // Pink S-Curve Filter carve frequency space so both songs fuse into a single seamless remix!
-    outGain = p < 0.92 ? 1.0 : Math.cos(((p - 0.92) / 0.08) * (Math.PI / 2));
-    inGain = p < 0.06 ? Math.sin((p / 0.06) * (Math.PI / 2)) : 1.0;
+    // Balanced Spotify Mix 8-Bar Blend:
+    // Avoids "both songs blaring at 100% at the same time" muddiness!
+    // Bars 1-4 (p=0..0.48): Outgoing leads (100% -> 82%), Incoming sneaks in smoothly underneath (0% -> 72%)
+    // Exact Midpoint (p=0.48..0.54): Bass Swap + Lead Handoff! Incoming rises to 100% while Outgoing ducks to 58%
+    // Bars 5-8 (p=0.54..1.0): Incoming owns the track (100%) while Outgoing glides out smoothly behind HPF (58% -> 0%)
+    if (p < 0.48) {
+      outGain = 1.0 - 0.16 * (p / 0.48);
+      inGain = 0.72 * Math.sin((p / 0.48) * (Math.PI / 2));
+    } else if (p < 0.56) {
+      const t = (p - 0.48) / 0.08;
+      outGain = 0.84 - 0.26 * t;
+      inGain = 0.72 + 0.28 * t;
+    } else {
+      outGain = 0.58 * Math.cos(((p - 0.56) / 0.44) * (Math.PI / 2));
+      inGain = 1.0;
+    }
   } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
     // Incoming fades in over 0..55% and stays at 100%

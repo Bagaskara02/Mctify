@@ -828,7 +828,7 @@ export default function YouTubePlayer({
   }, [playbackRate, isReady]);
 
   // Begin Dual-Deck Crossfade Transition from activeDeck -> standbyDeck
-  const startLiveDualDeckTransition = (currentSec, totalDurSec) => {
+  const startLiveDualDeckTransition = (currentSec, totalDurSec, forcedIntroCue = null) => {
     const nextVid = nextVideoIdRef.current;
     const curVid = videoIdRef.current;
     const cfg = transitionConfigRef.current || {};
@@ -841,7 +841,10 @@ export default function YouTubePlayer({
     if (!fromPlayer || !toPlayer) return;
 
     const overlapSec = Math.max(2.0, Math.min(20.0, Number(cfg.durationSec) || 5.5));
-    const introCue = Math.max(0, Number(cfg.introOffsetSec) || 0);
+    const introCue =
+      typeof forcedIntroCue === 'number'
+        ? Math.max(0, forcedIntroCue)
+        : Math.max(0, Number(cfg.introOffsetSec) || 0);
 
     transitionStateRef.current = {
       active: true,
@@ -916,8 +919,15 @@ export default function YouTubePlayer({
         const transitionEnabled = cfg?.enabled !== false && canAutoTransitionRef.current;
         const overlapSec = Math.max(2.0, Math.min(20.0, Number(cfg?.durationSec) || 5.5));
         const outroOffset = Number(cfg?.outroOffsetSec) || 0;
-        const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
+        // Smart Active-Outro Skip: if user hasn't set a custom outroOffsetSec, start 9s before the dead quiet tail
+        // so the transition mixes while Song 1 still has active beat/instrumentation!
+        const smartOutroLeadSec = outroOffset === 0 && dur > 60 ? 9.0 : 0.0;
+        const triggerRemainingSec = Math.max(2.0, overlapSec + smartOutroLeadSec - outroOffset);
         const remainingSec = dur - current;
+
+        // Smart Intro-Drop Skip: if user hasn't set a custom introOffsetSec, skip first 3.5s of dead silence/slow fade-in
+        const rawIntroOffset = Number(cfg?.introOffsetSec) || 0;
+        const effectiveIntroCueSec = rawIntroOffset > 0 ? rawIntroOffset : 3.5;
 
         // 0. Pre-warm Hybrid Web Audio DSP Bridge 16s before transition window
         if (
@@ -933,7 +943,7 @@ export default function YouTubePlayer({
             activeVid,
             nextVideoIdRef.current,
             Math.max(0, dur - triggerRemainingSec),
-            Math.max(0, Number(cfg?.introOffsetSec) || 0)
+            effectiveIntroCueSec
           );
         }
 
@@ -947,13 +957,13 @@ export default function YouTubePlayer({
           nextVideoIdRef.current &&
           nextVideoIdRef.current !== activeVid
         ) {
-          startLiveDualDeckTransition(current, dur);
+          startLiveDualDeckTransition(current, dur, effectiveIntroCueSec);
           // Attempt seamless upgrade to Hybrid Web Audio DSP Bridge (real Bass Swap + Filter S-Curve!)
           tryActivateDspBridge(
             activeVid,
             nextVideoIdRef.current,
             current,
-            Math.max(0, Number(cfg?.introOffsetSec) || 0)
+            effectiveIntroCueSec
           ).then((ok) => {
             if (ok && transitionStateRef.current.active) {
               // Mute both YouTube IFrames while Hybrid Web Audio DSP Engine drives real EQ/Filter audio!

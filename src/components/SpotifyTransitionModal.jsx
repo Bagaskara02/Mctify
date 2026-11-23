@@ -1189,14 +1189,14 @@ export default function SpotifyTransitionModal({
                     onClick={() =>
                       setSettings((p) => ({
                         ...p,
-                        outroOffsetSec: Math.max(-8, (Number(p.outroOffsetSec) || 0) - 1),
+                        outroOffsetSec: Math.max(-45, (Number(p.outroOffsetSec) || 0) - 2),
                       }))
                     }
                     className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
                   >
-                    -1s
+                    -2s
                   </button>
-                  <span className="font-mono w-7 text-center">
+                  <span className="font-mono w-8 text-center">
                     {(Number(settings.outroOffsetSec) || 0) >= 0
                       ? `+${Number(settings.outroOffsetSec) || 0}s`
                       : `${Number(settings.outroOffsetSec)}s`}
@@ -1205,12 +1205,12 @@ export default function SpotifyTransitionModal({
                     onClick={() =>
                       setSettings((p) => ({
                         ...p,
-                        outroOffsetSec: Math.min(8, (Number(p.outroOffsetSec) || 0) + 1),
+                        outroOffsetSec: Math.min(15, (Number(p.outroOffsetSec) || 0) + 2),
                       }))
                     }
                     className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
                   >
-                    +1s
+                    +2s
                   </button>
                 </div>
 
@@ -1220,26 +1220,26 @@ export default function SpotifyTransitionModal({
                     onClick={() =>
                       setSettings((p) => ({
                         ...p,
-                        introOffsetSec: Math.max(0, (Number(p.introOffsetSec) || 0) - 1),
+                        introOffsetSec: Math.max(0, (Number(p.introOffsetSec) || 0) - 2),
                       }))
                     }
                     className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
                   >
-                    -1s
+                    -2s
                   </button>
-                  <span className="font-mono w-7 text-center">
+                  <span className="font-mono w-8 text-center">
                     +{Math.max(0, Number(settings.introOffsetSec) || 0)}s
                   </span>
                   <button
                     onClick={() =>
                       setSettings((p) => ({
                         ...p,
-                        introOffsetSec: Math.min(15, (Number(p.introOffsetSec) || 0) + 1),
+                        introOffsetSec: Math.min(45, (Number(p.introOffsetSec) || 0) + 2),
                       }))
                     }
                     className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
                   >
-                    +1s
+                    +2s
                   </button>
                 </div>
               </div>
