@@ -30,12 +30,18 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
           bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 350),
           backBufferDuration: Duration(seconds: 60),
         ),
+        darwinLoadControl: ja.DarwinLoadControl(
+          automaticallyWaitsToMinimizeStalling: false,
+          preferredForwardBufferDuration: Duration(seconds: 20),
+        ),
       ),
     );
   }
 
+  //Both decks disable per-instance audio session interception so they never deactivate
+  //each other on iOS AVAudioSession or Android AudioFocus during Dual-Deck crossfade.
   final List<ja.AudioPlayer> _decks = [
-    _createNativeDeck(handleInterruptions: true),
+    _createNativeDeck(handleInterruptions: false),
     _createNativeDeck(handleInterruptions: false),
   ];
   int _activeDeckIndex = 0;
@@ -45,6 +51,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   // Live Dual-Deck Crossfade & Transition Engine state
   TransitionConfig _activePairTransitionConfig = const TransitionConfig();
   bool _isTransitioning = false;
+  bool _isStartingTransition = false;
+  bool _isArmingStandbyDeck = false;
   double _transitionProgress = 0.0;
   Timer? _transitionTimer;
   Track? _transitionTargetTrack;
@@ -52,6 +60,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   bool _standbyDeckArmed = false;
   String? _standbyArmedKey;
   int _transitionSessionId = 0;
+  double _lastAppliedOutVol = -1.0;
+  double _lastAppliedInVol = -1.0;
   final StorageService _storageService = StorageService();
   final MusicApiService _apiService = MusicApiService();
   final MediaAudioHandler? _mediaHandler;
@@ -221,11 +231,14 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     _transitionTimer = null;
     final wasTransitioning = _isTransitioning;
     _isTransitioning = false;
+    _isStartingTransition = false;
     _transitionProgress = 0.0;
     _transitionTargetTrack = null;
     _transitionTargetQueueIndex = -1;
     _standbyDeckArmed = false;
     _standbyArmedKey = null;
+    _lastAppliedOutVol = -1.0;
+    _lastAppliedInVol = -1.0;
 
     try {
       await _standbyPlayer.pause();
@@ -249,7 +262,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _armStandbyDeckForNextTrack() async {
-    if (_isUsingYoutubeIframe) return;
+    if (_isUsingYoutubeIframe || _isArmingStandbyDeck) return;
     final nextTrack = nextTrackInQueue;
     if (nextTrack == null) return;
     await _refreshPairTransitionConfig();
@@ -258,6 +271,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     final key = '${nextTrack.id}_${nextTrack.videoId ?? nextTrack.title}_${_audioQuality.name}';
     if (_standbyDeckArmed && _standbyArmedKey == key) return;
 
+    _isArmingStandbyDeck = true;
     try {
       await AudioProxyServer.instance.verifyOrRestartServer();
       String? url = _apiService.getCachedStream(nextTrack, _audioQuality);
@@ -266,17 +280,26 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (url == null || url.isEmpty || MusicApiService.isPreviewUrl(url)) return;
 
+      // Pre-warm first 2 chunks (~512 KB / ~32s) into RAM BEFORE calling setAudioSource
+      // so iOS AVPlayer & Android ExoPlayer parse MP4 moov + initial samples in <5ms from RAM!
+      final proxyId = Uri.tryParse(url)?.queryParameters['id'];
+      if (proxyId != null && proxyId.isNotEmpty) {
+        await AudioProxyServer.instance.prewarmHead(proxyId, chunks: 2);
+      }
+
       final introSec = _activePairTransitionConfig.introOffsetSec.clamp(0.0, 28.0);
       final source = ja.AudioSource.uri(
         Uri.parse(url),
         headers: const {'Accept': '*/*'},
       );
+      await _standbyPlayer.setVolume(0.0);
       await _standbyPlayer
           .setAudioSource(
             source,
             initialPosition: introSec > 0.1
                 ? Duration(milliseconds: (introSec * 1000).round())
                 : null,
+            preload: true,
           )
           .timeout(const Duration(seconds: 8));
       await _standbyPlayer.setVolume(0.0);
@@ -287,11 +310,19 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('[AudioPlayerManager] Standby Deck arm notice: $e');
       _standbyDeckArmed = false;
       _standbyArmedKey = null;
+    } finally {
+      _isArmingStandbyDeck = false;
     }
   }
 
   Future<void> _startLiveDualDeckTransition() async {
-    if (_isTransitioning || _isUsingYoutubeIframe || _isRepeat || _sleepTimerAtTrackEnd) return;
+    if (_isTransitioning ||
+        _isStartingTransition ||
+        _isUsingYoutubeIframe ||
+        _isRepeat ||
+        _sleepTimerAtTrackEnd) {
+      return;
+    }
     final outgoing = _currentTrack;
     final nextIdx = _resolveActiveQueueIndex() + 1;
     if (outgoing == null || nextIdx <= 0 || nextIdx >= _queue.length) return;
@@ -299,36 +330,51 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     final config = _activePairTransitionConfig;
     if (!config.enabled) return;
 
+    final expectedKey = '${incoming.id}_${incoming.videoId ?? incoming.title}_${_audioQuality.name}';
+    _isStartingTransition = true;
+    try {
+      // Wait for standby deck arming if still in flight or not yet armed
+      if (!_standbyDeckArmed || _standbyArmedKey != expectedKey) {
+        await _armStandbyDeckForNextTrack();
+      }
+      if (!_standbyDeckArmed || !_isPlaying || _userRequestedPause) {
+        _isStartingTransition = false;
+        return;
+      }
+    } catch (_) {
+      _isStartingTransition = false;
+      return;
+    }
+
     final sessionId = ++_transitionSessionId;
+    _isStartingTransition = false;
     _isTransitioning = true;
     _transitionProgress = 0.0;
     _transitionTargetTrack = incoming;
     _transitionTargetQueueIndex = nextIdx;
+    _lastAppliedOutVol = 1.0;
+    _lastAppliedInVol = 0.0;
     notifyListeners();
 
-    final expectedKey = '${incoming.id}_${incoming.videoId ?? incoming.title}_${_audioQuality.name}';
-    if (!_standbyDeckArmed || _standbyArmedKey != expectedKey) {
-      await _armStandbyDeckForNextTrack();
-      if (sessionId != _transitionSessionId || !_isTransitioning) return;
-    }
-
-    if (!_standbyDeckArmed) {
-      // Fallback cleanly to normal track completion if standby stream couldn't arm
-      _isTransitioning = false;
-      _transitionProgress = 0.0;
-      notifyListeners();
-      return;
-    }
-
     final transDurMs = (config.durationSec.clamp(1.2, 22.0) * 1000).round();
-    final startedAt = DateTime.now();
 
     try {
-      final introMs = (config.introOffsetSec.clamp(0.0, 28.0) * 1000).round();
-      if (introMs > 0) {
-        await _standbyPlayer.seek(Duration(milliseconds: introMs));
-      }
+      // Notice: Do NOT re-seek _standbyPlayer here because setAudioSource already positioned it at introOffsetSec!
+      // Re-seeking right before play() on iOS AVPlayer flushes the pre-buffered samples and causes a stall.
       await _standbyPlayer.setVolume(0.01);
+      // Apply a static average tempo once BEFORE crossfading (only if BPM difference is slight and on Android)
+      // Rapidly calling setSpeed() every tick causes Sonic time-stretcher crackle ("brebet") on Android
+      // and keyframe stalls on iOS AVPlayer.
+      if (!Platform.isIOS &&
+          config.syncTempo &&
+          (_playbackSpeed - 1.0).abs() < 0.05 &&
+          (config.bpmA - config.bpmB).abs() <= 8) {
+        final avgBpm = (config.bpmA + config.bpmB) / 2.0;
+        final inRate = (avgBpm / config.bpmB.clamp(60, 200)).clamp(0.95, 1.05);
+        await _standbyPlayer.setSpeed(inRate);
+      } else {
+        await _standbyPlayer.setSpeed(_playbackSpeed);
+      }
       unawaited(_standbyPlayer.play());
     } catch (e) {
       debugPrint('[AudioPlayerManager] Standby play error: $e');
@@ -336,8 +382,11 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    final startedAt = DateTime.now();
+    int tickCount = 0;
+
     _transitionTimer?.cancel();
-    _transitionTimer = Timer.periodic(const Duration(milliseconds: 70), (timer) {
+    _transitionTimer = Timer.periodic(const Duration(milliseconds: 90), (timer) {
       if (sessionId != _transitionSessionId || !_isTransitioning) {
         timer.cancel();
         return;
@@ -347,18 +396,38 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
       final p = (elapsedMs / transDurMs).clamp(0.0, 1.0);
       _transitionProgress = p;
+      tickCount++;
 
       final env = TransitionEngine.evaluateTransitionEnvelope(p, config);
+
+      // Anti-Clipping & Anti-Crackle Headroom Normalization:
+      // When two stereo AAC streams sum in Android AudioTrack / iOS CoreAudio without headroom scaling,
+      // simultaneous bass kicks exceed 0 dBFS and produce digital crackle ("suara brebet").
+      // Scale both decks smoothly by up to -1.3 dB (0.86x) at peak dual-deck overlap!
+      double outVol = env.effectiveOutVolume;
+      double inVol = env.effectiveInVolume;
+      final overlapSum = outVol + inVol;
+      if (overlapSum > 1.08) {
+        final headroomScale = (1.08 / overlapSum).clamp(0.82, 1.0);
+        outVol = (outVol * headroomScale).clamp(0.0, 1.0);
+        inVol = (inVol * headroomScale).clamp(0.0, 1.0);
+      }
+
       try {
-        _player.setVolume(env.effectiveOutVolume);
-        _standbyPlayer.setVolume(env.effectiveInVolume);
-        if (config.syncTempo && (_playbackSpeed - 1.0).abs() < 0.05) {
-          _player.setSpeed(env.outPlaybackRate);
-          _standbyPlayer.setSpeed(env.inPlaybackRate);
+        if ((outVol - _lastAppliedOutVol).abs() >= 0.015 || p >= 0.98) {
+          _lastAppliedOutVol = outVol;
+          _player.setVolume(outVol);
+        }
+        if ((inVol - _lastAppliedInVol).abs() >= 0.015 || p >= 0.98) {
+          _lastAppliedInVol = inVol;
+          _standbyPlayer.setVolume(inVol);
         }
       } catch (_) {}
 
-      notifyListeners();
+      // Throttle UI badge notifications to ~4 Hz so widget rebuilds don't jitter audio thread
+      if (tickCount % 3 == 0 || p >= 1.0) {
+        notifyListeners();
+      }
 
       if (p >= 1.0) {
         timer.cancel();
@@ -1403,9 +1472,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             unawaited(_persistPlaybackSession());
           }
 
-          // Gapless Pre-fetch & Standby Deck Arming (25s before track end)
-          if (_duration.inSeconds > 25 &&
-              pos.inSeconds >= _duration.inSeconds - 25 &&
+          // Gapless Pre-fetch & Standby Deck Arming (35s before track end)
+          if (_duration.inSeconds > 20 &&
+              pos.inSeconds >= max(3, _duration.inSeconds - 35) &&
               !_hasPrefetchedNextTrack) {
             _hasPrefetchedNextTrack = true;
             _prefetchNextTrackStream();
@@ -1414,6 +1483,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
 
           // Live Dual-Deck Crossfade Trigger
           if (!_isTransitioning &&
+              !_isStartingTransition &&
               !_isRepeat &&
               !_sleepTimerAtTrackEnd &&
               _activePairTransitionConfig.enabled &&

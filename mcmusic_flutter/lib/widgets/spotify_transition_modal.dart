@@ -194,13 +194,19 @@ class _SpotifyTransitionModalState extends State<SpotifyTransitionModal> {
     final metaB = TransitionEngine.computeTrackBpmAndKey(_incomingTrack);
     final barStats = TransitionEngine.computeBarDurationSec(metaA.bpm, metaB.bpm, loaded.bars);
     if (!mounted) return;
+    final nextCfg = loaded.copyWith(
+      bpmA: metaA.bpm,
+      bpmB: metaB.bpm,
+      durationSec: barStats.durationSec,
+    );
     setState(() {
-      _config = loaded.copyWith(
-        bpmA: metaA.bpm,
-        bpmB: metaB.bpm,
-        durationSec: barStats.durationSec,
-      );
+      _config = nextCfg;
     });
+    unawaited(_auditionMixer.preloadDecks(
+      outgoing: _outgoingTrack,
+      incoming: _incomingTrack,
+      config: nextCfg,
+    ));
   }
 
   void _showStatus(String msg) {

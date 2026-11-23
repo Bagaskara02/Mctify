@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 import '../models/audio_quality.dart';
 import '../models/track.dart';
+import 'audio_proxy_server.dart';
 import 'music_api_service.dart';
 
 /// Immutable or mutable configuration for a transition between two tracks.
@@ -790,8 +792,28 @@ typedef AuditionTickCallback = void Function({
 /// and live scrubbing.
 class TransitionAuditionMixer {
   final MusicApiService _apiService = MusicApiService();
-  final ja.AudioPlayer _deckA = ja.AudioPlayer(handleInterruptions: false);
-  final ja.AudioPlayer _deckB = ja.AudioPlayer(handleInterruptions: false);
+
+  static ja.AudioPlayer _createAuditionDeck() {
+    return ja.AudioPlayer(
+      handleInterruptions: false,
+      audioLoadConfiguration: const ja.AudioLoadConfiguration(
+        androidLoadControl: ja.AndroidLoadControl(
+          minBufferDuration: Duration(seconds: 10),
+          maxBufferDuration: Duration(seconds: 25),
+          bufferForPlaybackDuration: Duration(milliseconds: 200),
+          bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 300),
+          backBufferDuration: Duration(seconds: 30),
+        ),
+        darwinLoadControl: ja.DarwinLoadControl(
+          automaticallyWaitsToMinimizeStalling: false,
+          preferredForwardBufferDuration: Duration(seconds: 15),
+        ),
+      ),
+    );
+  }
+
+  final ja.AudioPlayer _deckA = _createAuditionDeck();
+  final ja.AudioPlayer _deckB = _createAuditionDeck();
 
   Track? _outgoingTrack;
   Track? _incomingTrack;
@@ -803,6 +825,7 @@ class TransitionAuditionMixer {
   bool _isPlaying = false;
   bool _isLoading = false;
   bool _disposed = false;
+  Future<bool>? _preloadFuture;
 
   TransitionConfig _config = const TransitionConfig();
   Timer? _tickTimer;
@@ -813,6 +836,8 @@ class TransitionAuditionMixer {
   double _elapsedSec = 0.0;
   DateTime? _lastTickAt;
   bool _deckBStarted = false;
+  double _lastVolA = -1.0;
+  double _lastVolB = -1.0;
 
   AuditionTickCallback? onTick;
   VoidCallback? onComplete;
@@ -842,6 +867,26 @@ class TransitionAuditionMixer {
     return offsetMs.clamp(0, math.max(0, totalMs - 10000));
   }
 
+  /// Pre-loads both decks silently in the background as soon as the studio modal opens
+  /// or when a track is changed, so tapping Play starts immediately without waiting.
+  Future<bool> preloadDecks({
+    required Track outgoing,
+    required Track incoming,
+    TransitionConfig? config,
+  }) {
+    if (config != null) _config = config;
+    final keyA = '${outgoing.id}_${outgoing.videoId ?? outgoing.title}';
+    final keyB = '${incoming.id}_${incoming.videoId ?? incoming.title}';
+    if (_loadedKeyA == keyA && _loadedKeyB == keyB) {
+      return Future.value(true);
+    }
+    if (_preloadFuture != null) return _preloadFuture!;
+    final fut = _ensureDecksLoaded(outgoing, incoming);
+    _preloadFuture = fut;
+    fut.whenComplete(() => _preloadFuture = null);
+    return fut;
+  }
+
   Future<bool> _ensureDecksLoaded(Track outgoing, Track incoming) async {
     _outgoingTrack = outgoing;
     _incomingTrack = incoming;
@@ -856,6 +901,7 @@ class TransitionAuditionMixer {
     onStateChanged?.call();
 
     try {
+      await AudioProxyServer.instance.verifyOrRestartServer();
       final results = await Future.wait<String?>([
         _resolveAuditionStream(outgoing),
         _resolveAuditionStream(incoming),
@@ -865,14 +911,63 @@ class TransitionAuditionMixer {
       final urlA = results[0];
       final urlB = results[1];
 
+      // Pre-warm RAM chunks for Deck A outro (~85% mark) and Deck B intro (head chunks 0 & 1)
+      // so neither iOS AVPlayer nor Android ExoPlayer stalls waiting on network range reads!
+      final prewarmTasks = <Future<void>>[];
+      if (urlA != null && urlA.isNotEmpty) {
+        final proxyIdA = Uri.tryParse(urlA)?.queryParameters['id'];
+        if (proxyIdA != null && proxyIdA.isNotEmpty) {
+          prewarmTasks.add(AudioProxyServer.instance.prewarmAtFraction(proxyIdA, 0.84));
+        }
+      }
+      if (urlB != null && urlB.isNotEmpty) {
+        final proxyIdB = Uri.tryParse(urlB)?.queryParameters['id'];
+        if (proxyIdB != null && proxyIdB.isNotEmpty) {
+          prewarmTasks.add(AudioProxyServer.instance.prewarmHead(proxyIdB, chunks: 2));
+        }
+      }
+      if (prewarmTasks.isNotEmpty) {
+        await Future.wait(prewarmTasks).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => const [],
+        );
+      }
+      if (_disposed) return false;
+
       if (urlA != null && urlA.isNotEmpty && _loadedKeyA != keyA) {
-        final dA = await _deckA.setUrl(urlA).timeout(const Duration(seconds: 7));
-        _durA = dA ?? Duration(seconds: outgoing.duration > 0 ? outgoing.duration : 180);
+        final estDurASec = outgoing.duration > 20 ? outgoing.duration : 180;
+        final estStartAMs = math.max(
+          0,
+          (estDurASec * 1000) - (_config.durationSec * 1000).round() - 5000,
+        );
+        final sourceA = ja.AudioSource.uri(
+          Uri.parse(urlA),
+          headers: const {'Accept': '*/*'},
+        );
+        final dA = await _deckA
+            .setAudioSource(
+              sourceA,
+              initialPosition: Duration(milliseconds: estStartAMs),
+              preload: true,
+            )
+            .timeout(const Duration(seconds: 7));
+        _durA = dA ?? Duration(seconds: estDurASec);
         _loadedKeyA = keyA;
       }
 
       if (urlB != null && urlB.isNotEmpty && _loadedKeyB != keyB) {
-        final dB = await _deckB.setUrl(urlB).timeout(const Duration(seconds: 7));
+        final introMs = (_config.introOffsetSec.clamp(0.0, 28.0) * 1000).round();
+        final sourceB = ja.AudioSource.uri(
+          Uri.parse(urlB),
+          headers: const {'Accept': '*/*'},
+        );
+        final dB = await _deckB
+            .setAudioSource(
+              sourceB,
+              initialPosition: introMs > 0 ? Duration(milliseconds: introMs) : null,
+              preload: true,
+            )
+            .timeout(const Duration(seconds: 7));
         _durB = dB ?? Duration(seconds: incoming.duration > 0 ? incoming.duration : 180);
         _loadedKeyB = keyB;
       }
@@ -904,23 +999,36 @@ class TransitionAuditionMixer {
     _config = config;
     await stop(silent: true);
 
-    await _ensureDecksLoaded(outgoing, incoming);
+    await preloadDecks(outgoing: outgoing, incoming: incoming, config: config);
     if (_disposed) return;
 
     _elapsedSec = (startProgress.clamp(0.0, 0.98) * _totalAuditionSec);
     _deckBStarted = _elapsedSec >= _leadInSec;
+    _lastVolA = -1.0;
+    _lastVolB = -1.0;
 
     try {
-      final seekAMs = _outroStartMs + (_elapsedSec * 1000).round();
-      await _deckA.seek(Duration(milliseconds: seekAMs));
+      final targetAMs = _outroStartMs + (_elapsedSec * 1000).round();
+      if ((_deckA.position.inMilliseconds - targetAMs).abs() > 450) {
+        await _deckA.seek(Duration(milliseconds: targetAMs));
+      }
       await _deckA.setVolume(1.0);
       await _deckA.setSpeed(1.0);
 
-      final seekBMs = _introStartMs +
+      final targetBMs = _introStartMs +
           math.max<int>(0, ((_elapsedSec - _leadInSec) * 1000).round());
-      await _deckB.seek(Duration(milliseconds: seekBMs));
+      if ((_deckB.position.inMilliseconds - targetBMs).abs() > 450) {
+        await _deckB.seek(Duration(milliseconds: targetBMs));
+      }
       await _deckB.setVolume(_deckBStarted ? 0.25 : 0.0);
-      await _deckB.setSpeed(1.0);
+
+      // Static subtle tempo match only on Android when BPMs are close; never ramp speed per tick
+      if (!kIsWeb && !Platform.isIOS && _config.syncTempo && (_config.bpmA - _config.bpmB).abs() <= 8) {
+        final avgBpm = (_config.bpmA + _config.bpmB) / 2.0;
+        await _deckB.setSpeed((avgBpm / _config.bpmB.clamp(60, 200)).clamp(0.95, 1.05));
+      } else {
+        await _deckB.setSpeed(1.0);
+      }
 
       unawaited(_deckA.play());
       if (_deckBStarted) {
@@ -935,7 +1043,7 @@ class TransitionAuditionMixer {
     onStateChanged?.call();
 
     _tickTimer?.cancel();
-    _tickTimer = Timer.periodic(const Duration(milliseconds: 60), (_) => _onTimerTick());
+    _tickTimer = Timer.periodic(const Duration(milliseconds: 80), (_) => _onTimerTick());
     _onTimerTick();
   }
 
@@ -986,10 +1094,19 @@ class TransitionAuditionMixer {
 
   void _onTimerTick() {
     if (!_isPlaying || _disposed) return;
+
+    // Wait for Deck A to actually start outputting audio frames before advancing the audition clock!
+    // This prevents the audition playhead from running ahead while iOS/Android is still buffering the first frame.
+    if (_elapsedSec < 0.25 &&
+        _deckA.processingState == ja.ProcessingState.buffering) {
+      _lastTickAt = DateTime.now();
+      return;
+    }
+
     final now = DateTime.now();
     final dtSec = _lastTickAt != null
         ? (now.difference(_lastTickAt!).inMilliseconds / 1000.0).clamp(0.0, 0.25)
-        : 0.06;
+        : 0.08;
     _lastTickAt = now;
     _elapsedSec += dtSec;
 
@@ -1032,8 +1149,14 @@ class TransitionAuditionMixer {
 
     try {
       if (phase == 'lead_in') {
-        _deckA.setVolume(1.0);
-        _deckB.setVolume(0.0);
+        if ((_lastVolA - 1.0).abs() > 0.01) {
+          _lastVolA = 1.0;
+          _deckA.setVolume(1.0);
+        }
+        if ((_lastVolB - 0.0).abs() > 0.01) {
+          _lastVolB = 0.0;
+          _deckB.setVolume(0.0);
+        }
       } else if (phase == 'transition') {
         if (!_deckBStarted) {
           _deckBStarted = true;
@@ -1041,20 +1164,33 @@ class TransitionAuditionMixer {
             unawaited(_deckB.play());
           }
         }
-        _deckA.setVolume(env.effectiveOutVolume);
-        _deckB.setVolume(env.effectiveInVolume);
-        if (_config.syncTempo) {
-          _deckA.setSpeed(env.outPlaybackRate);
-          _deckB.setSpeed(env.inPlaybackRate);
-        } else {
-          _deckA.setSpeed(1.0);
-          _deckB.setSpeed(1.0);
+        // Apply anti-clipping headroom normalization so simultaneous bass kicks don't crackle ("brebet")
+        double outVol = env.effectiveOutVolume;
+        double inVol = env.effectiveInVolume;
+        final sum = outVol + inVol;
+        if (sum > 1.08) {
+          final scale = (1.08 / sum).clamp(0.82, 1.0);
+          outVol = (outVol * scale).clamp(0.0, 1.0);
+          inVol = (inVol * scale).clamp(0.0, 1.0);
+        }
+        if ((outVol - _lastVolA).abs() >= 0.015) {
+          _lastVolA = outVol;
+          _deckA.setVolume(outVol);
+        }
+        if ((inVol - _lastVolB).abs() >= 0.015) {
+          _lastVolB = inVol;
+          _deckB.setVolume(inVol);
         }
       } else {
-        _deckA.setVolume(0.0);
+        if (_lastVolA > 0.01) {
+          _lastVolA = 0.0;
+          _deckA.setVolume(0.0);
+        }
         if (_deckA.playing) unawaited(_deckA.pause());
-        _deckB.setVolume(1.0);
-        _deckB.setSpeed(1.0);
+        if ((_lastVolB - 1.0).abs() > 0.01) {
+          _lastVolB = 1.0;
+          _deckB.setVolume(1.0);
+        }
       }
     } catch (_) {}
 

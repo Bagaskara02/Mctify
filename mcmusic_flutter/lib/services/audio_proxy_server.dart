@@ -52,7 +52,7 @@ class AudioProxyServer {
     return HttpClient()
       ..connectionTimeout = const Duration(seconds: 8)
       ..idleTimeout = const Duration(seconds: 20)
-      ..maxConnectionsPerHost = 6
+      ..maxConnectionsPerHost = 12
       ..autoUncompress = false;
   }
 
@@ -209,12 +209,34 @@ class AudioProxyServer {
 
   bool hasHeadCached(String key) => _chunkCache.containsKey('$key:0');
 
-  /// Pre-fetches Chunk 0 into RAM so Track transitions / Quick Cards start without network delay.
-  Future<void> prewarmHead(String key) async {
+  /// Pre-fetches initial chunks into RAM so Track transitions,
+  /// Dual-Deck crossfades, and Quick Cards start with 0ms network delay on both Android & iOS.
+  Future<void> prewarmHead(String key, {int chunks = 1}) async {
+    final entry = _entries[key];
+    if (entry == null) return;
+    try {
+      for (int i = 0; i < chunks; i++) {
+        if (entry.totalBytes > 0 && i * chunkSize >= entry.totalBytes) break;
+        await _getChunk(entry, i);
+      }
+    } catch (_) {}
+  }
+
+  /// Pre-fetches chunks around an arbitrary fractional position [fraction] (`0.0..1.0`)
+  /// (e.g. for auditioning an outro at ~85% of the track) plus Chunk 0 (MP4 moov header).
+  Future<void> prewarmAtFraction(String key, double fraction) async {
     final entry = _entries[key];
     if (entry == null) return;
     try {
       await _getChunk(entry, 0);
+      if (entry.totalBytes > chunkSize) {
+        final targetByte = (entry.totalBytes * fraction.clamp(0.0, 0.95)).round();
+        final targetChunk = targetByte ~/ chunkSize;
+        await _getChunk(entry, targetChunk);
+        if ((targetChunk + 1) * chunkSize < entry.totalBytes) {
+          unawaited(_getChunk(entry, targetChunk + 1).catchError((_) => Uint8List(0)));
+        }
+      }
     } catch (_) {}
   }
 
