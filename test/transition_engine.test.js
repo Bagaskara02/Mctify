@@ -146,7 +146,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.ok(analysis.detectedBpm >= 116 && analysis.detectedBpm <= 124, `Expected ~120 BPM, got ${analysis.detectedBpm}`);
   });
 
-  it('matches authentic TikTok Spotify Mix blueprint (Ain\'t In LA -> Close To Me) with 16 bars (0:35 to 1:03), 2:33.5 cue, midpoint bass swap, and crossover fade', () => {
+  it('matches authentic TikTok Spotify Mix blueprint (Ain\'t In LA -> Close To Me) with 16 bars (0:34 to 1:02), 2:33.5 cue, midpoint bass swap, and crossover fade', () => {
     const trackA = { title: "Ain't In LA", artist: "ADÉLA" };
     const trackB = { title: "Close To Me", artist: "Ellie Goulding, Diplo, Swae Lee" };
 
@@ -157,7 +157,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(metaA.activeOutroSec, 153.5, 'Ain\'t In LA active outro must cue at 153.5s (2:33.5)');
     assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
     assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
-    assert.equal(metaB.introDropSec, 35.0, 'Close To Me chorus drop cues at 35s (0:35)');
+    assert.equal(metaB.introDropSec, 34.0, 'Close To Me chorus drop cues at 34s (0:34)');
 
     const preset = computeSmartAutomixPreset(trackA, trackB);
     assert.equal(preset.bars, '16 bars');
@@ -165,15 +165,15 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(preset.eq, 'bass_swap');
     assert.equal(preset.effect, 'high_pass');
     assert.equal(preset.tempoSync, true);
-    assert.equal(preset.introOffsetSec, 35.0, 'Must cue Close To Me at its 35.0s chorus drop');
+    assert.equal(preset.introOffsetSec, 34.0, 'Must cue Close To Me at its 34.0s chorus drop');
     assert.equal(preset.activeOutroSec, 153.5, 'Must cue Ain\'t In LA at 2:33.5 (153.5s)');
-    assert.ok(preset.durationSec >= 27.0 && preset.durationSec <= 28.5, '16 bars at 139 BPM should be ~27.6s (0:35 to 1:03)');
+    assert.ok(preset.durationSec >= 27.0 && preset.durationSec <= 28.5, '16 bars at 139 BPM should be ~27.6s (0:34 to 1:02)');
 
     // Verify storageService automatically resolves the TikTok Smart Automix blueprint
     const autoPairCfg = storageService.getTransitionForPair(trackA, trackB);
     assert.equal(autoPairCfg.bars, '16 bars');
     assert.equal(autoPairCfg.volume, 'mashup');
-    assert.equal(autoPairCfg.introOffsetSec, 35.0);
+    assert.equal(autoPairCfg.introOffsetSec, 34.0);
     assert.equal(autoPairCfg.activeOutroSec, 153.5);
 
     // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
@@ -189,7 +189,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     global.localStorage.setItem('mcmusic_transition_pairs_v1', JSON.stringify(outdatedCache));
     const upgradedCfg = storageService.getTransitionForPair(trackA, trackB);
     assert.equal(upgradedCfg.bars, '16 bars', 'Outdated 8 bars cache should auto-upgrade to 16 bars');
-    assert.equal(upgradedCfg.introOffsetSec, 35.0, 'Outdated 0s intro cache should auto-upgrade to 35.0s');
+    assert.equal(upgradedCfg.introOffsetSec, 34.0, 'Outdated 0s intro cache should auto-upgrade to 34.0s');
     assert.equal(upgradedCfg.activeOutroSec, 153.5, 'Outdated 168s outro cache should auto-upgrade to 153.5s');
 
     // Verify Spotify Mix 3-curve automation envelope

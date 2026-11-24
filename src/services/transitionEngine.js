@@ -35,7 +35,7 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
   { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 153.5, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
-  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 35.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
+  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 34.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
 export const TRANSITION_BAR_OPTIONS = [
@@ -406,8 +406,9 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let outAcousticalFactor = 1.0;
   let inAcousticalFactor = 1.0;
   if (volumeMode === 'mashup') {
-    // Mashup mode: keep both tracks at full 100% volume without artificial attenuation
-    outAcousticalFactor = 1.0;
+    // Mashup mode: keep outgoing Ain't In LA at full volume with a slight boost (+5%) during crossover bars (0.20..0.80)
+    // so vocal/beat presence stays strong and never fades down; incoming starts full blast with zero fade-up.
+    outAcousticalFactor = p >= 0.20 && p <= 0.80 ? 1.05 : 1.0;
     inAcousticalFactor = 1.0;
   } else {
     if (eqMode === 'bass_swap') {
@@ -470,7 +471,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     const finalStats = computeBarDurationSec(metaA.bpm, metaB.bpm, bars);
     return {
       bars,
-      durationSec: finalStats.durationSec, // 27.6s (0:35 -> 1:02.6 / 1:03)
+      durationSec: finalStats.durationSec, // 27.6s (0:34 -> 1:01.6 / 1:02)
       beats: finalStats.beats,
       volume: 'mashup',
       eq: 'bass_swap',
@@ -479,14 +480,14 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       outroOffsetSec: 0.0,
       activeOutroSec: 153.5, // Mulai tepat di detik 2:33.5 (antara 2:33 dan 2:34) pada Ain't In LA
       targetOutroSec: 153.5,
-      introOffsetSec: 35.0, // Mulai tepat di menit 0:35 pada Close To Me sampai 1:03
+      introOffsetSec: 34.0, // Mulai tepat di menit 0:34 pada Close To Me sampai 1:02 (tanpa fade-up, langsung suara tinggi)
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
       keyA: metaA.key,
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:33.5, Close To Me mulai di 0:35 sampai 1:03. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:33.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh (sedikit dinaikkan) di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
     };
   }
 

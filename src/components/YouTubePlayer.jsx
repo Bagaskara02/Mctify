@@ -178,7 +178,7 @@ export default function YouTubePlayer({
       const outGain = ctx.createGain();
       outGain.gain.value = 1.0;
       const inGain = ctx.createGain();
-      inGain.gain.value = 0.0;
+      inGain.gain.value = transitionConfigRef.current?.volume === 'mashup' ? 1.0 : 0.0;
 
       const masterGain = ctx.createGain();
       masterGain.gain.value = isMutedRef.current ? 0 : Math.max(0, Math.min(1, volumeRef.current ?? 0.8));
@@ -884,7 +884,8 @@ export default function YouTubePlayer({
       } else {
         toPlayer.unMute?.();
       }
-      toPlayer.setVolume?.(0);
+      const isMashup = cfg?.volume === 'mashup';
+      toPlayer.setVolume?.(isMashup ? computeMasterCeilingVol() : 0);
       const st = toPlayer.getPlayerState?.();
       if (st === window.YT?.PlayerState?.CUED) {
         toPlayer.playVideo?.();
@@ -1146,8 +1147,8 @@ export default function YouTubePlayer({
             let outVol = Math.round((env.effectiveOutIframeVol / 100) * masterVol);
             let inVol = Math.round((env.effectiveInIframeVol / 100) * masterVol);
 
-            // Anti-clipping headroom balance when Mashup/Overlap runs both decks at full energy
-            if (outVol + inVol > masterVol * 1.35) {
+            // Anti-clipping headroom balance when Overlap runs both decks at full energy (bypass in mashup so Ain't In LA & Close To Me keep 100% full volume without fade)
+            if (cfg?.volume !== 'mashup' && outVol + inVol > masterVol * 1.35) {
               const scale = (masterVol * 1.35) / Math.max(1, outVol + inVol);
               outVol = Math.round(outVol * scale);
               inVol = Math.round(inVol * scale);
