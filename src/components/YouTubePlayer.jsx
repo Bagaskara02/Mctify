@@ -952,9 +952,8 @@ export default function YouTubePlayer({
         const transitionEnabled = cfg?.enabled !== false && canAutoTransitionRef.current;
         const overlapSec = Math.max(2.0, Math.min(32.0, Number(cfg?.durationSec) || 5.5));
         const outroOffset = typeof cfg?.outroOffsetSec === 'number' ? cfg.outroOffsetSec : (Number(cfg?.outroOffsetSec) || 0);
-        // Smart Active-Outro Skip: if user hasn't configured outroOffsetSec, start 4s before the dead tail
-        const smartOutroLeadSec = cfg?.outroOffsetSec === undefined && dur > 60 ? 4.0 : 0.0;
-        const triggerRemainingSec = Math.max(2.0, overlapSec + smartOutroLeadSec - outroOffset);
+        // For regular songs, wait until the final seconds of the track (classic end-of-track crossfade)
+        const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
         const remainingSec = dur - current;
 
         // Honor explicit activeOutroSec / targetOutroSec (e.g. 150.0s = 2:30 for Ain't In LA)

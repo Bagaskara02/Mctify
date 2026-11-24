@@ -579,10 +579,10 @@ export const storageService = {
     const defaults = {
       bars: '2 bars',
       durationSec: 5.5,
-      volume: 'overlap',
+      volume: 'crossfade',
       eq: 'none',
-      effect: 'high_pass',
-      tempoSync: true,
+      effect: 'none',
+      tempoSync: false,
       outroOffsetSec: 0,
       introOffsetSec: 0,
       enabled: true,
@@ -591,6 +591,9 @@ export const storageService = {
       const saved = localStorage.getItem('mcmusic_transition_settings_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (parsed.volume === 'mashup') {
+          parsed.volume = 'crossfade';
+        }
         return { ...defaults, ...parsed };
       }
       return defaults;
@@ -661,8 +664,8 @@ export const storageService = {
       } catch (_) {}
     }
 
-    // Default to intelligent Smart Automix preset if available for this specific pair
-    if (outgoingTrack && incomingTrack) {
+    // Curated blueprint strictly for Ain't In LA -> Close To Me; all other tracks use classic fade
+    if (isAintInLaToCloseToMe) {
       try {
         const smart = computeSmartAutomixPreset(outgoingTrack, incomingTrack);
         if (smart) {
@@ -683,9 +686,9 @@ export const storageService = {
     const cleanSettings = {
       bars: settings.bars || '2 bars',
       durationSec: Number(settings.durationSec) || 5.5,
-      volume: settings.volume || 'overlap',
+      volume: settings.volume || 'crossfade',
       eq: settings.eq || 'none',
-      effect: settings.effect || 'high_pass',
+      effect: settings.effect || 'none',
       tempoSync: settings.tempoSync !== false,
       outroOffsetSec: Number(settings.outroOffsetSec) || 0,
       introOffsetSec: Number(settings.introOffsetSec) || 0,

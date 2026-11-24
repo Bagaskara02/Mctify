@@ -190,6 +190,11 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const autoOtherCfg = storageService.getTransitionForPair(trackA, { title: 'Numb', artist: 'Linkin Park' });
     assert.equal(autoOtherCfg.activeOutroSec, undefined, 'storageService must not assign activeOutroSec to other pairs');
     assert.equal(autoOtherCfg.introOffsetSec, 0, 'storageService must keep introOffsetSec at 0 for other pairs');
+    assert.equal(autoOtherCfg.volume, 'crossfade', 'storageService must default to classic crossfade for other songs');
+    assert.equal(autoOtherCfg.bars, '2 bars', 'storageService must default to standard 2 bars for other songs');
+    assert.equal(autoOtherCfg.eq, 'none', 'storageService must default to neutral EQ for other songs');
+    assert.equal(autoOtherCfg.effect, 'none', 'storageService must default to no effect for other songs');
+    assert.equal(autoOtherCfg.tempoSync, false, 'storageService must not force tempo sync on other songs');
 
     // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
     const pairKey = storageService._makeTransitionPairKey(trackA, trackB);
