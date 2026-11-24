@@ -639,11 +639,11 @@ export const storageService = {
           const map = JSON.parse(raw);
           if (map && typeof map === 'object' && map[pairKey]) {
             const saved = map[pairKey];
-            // Auto-upgrade if cached setting is an outdated blueprint (e.g. 8 bars or missing 2:34/0:34 cues)
+            // Auto-upgrade if cached setting is an outdated blueprint (e.g. 8 bars or missing 2:34/0:35 cues)
             if (
               isAintInLaToCloseToMe &&
               (saved.bars !== '16 bars' ||
-                Number(saved.introOffsetSec) !== 34.0 ||
+                Number(saved.introOffsetSec) !== 35.0 ||
                 Number(saved.activeOutroSec) !== 154.0)
             ) {
               const smart = computeSmartAutomixPreset(outgoingTrack, incomingTrack);

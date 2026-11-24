@@ -215,7 +215,7 @@ export default function SpotifyTransitionModal({
   }, [isAintInLaToCloseToMe, settings.activeOutroSec, settings.outroOffsetSec, outgoing.duration, barStats.durationSec]);
 
   const currentIntroCueSec = useMemo(() => {
-    if (isAintInLaToCloseToMe) return 34.0;
+    if (isAintInLaToCloseToMe) return 35.0;
     return Math.max(0, Number(settings.introOffsetSec) || 0);
   }, [isAintInLaToCloseToMe, settings.introOffsetSec]);
 
@@ -281,7 +281,7 @@ export default function SpotifyTransitionModal({
             : (outgoing.activeOutroSec || null));
 
       const effectiveIntroSec = isAintInLaToCloseToMe
-        ? 34.0
+        ? 35.0
         : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
             ? pairCfg.introOffsetSec
             : (incoming.introDropSec || 0));
@@ -703,7 +703,7 @@ export default function SpotifyTransitionModal({
       durationSec: barStats.durationSec,
       activeOutroSec: isAintInLaToCloseToMe ? 154.0 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
       targetOutroSec: isAintInLaToCloseToMe ? 154.0 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
-      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
+      introOffsetSec: isAintInLaToCloseToMe ? 35.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -722,7 +722,7 @@ export default function SpotifyTransitionModal({
       durationSec: barStats.durationSec,
       activeOutroSec: isAintInLaToCloseToMe ? 154.0 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
       targetOutroSec: isAintInLaToCloseToMe ? 154.0 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
-      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
+      introOffsetSec: isAintInLaToCloseToMe ? 35.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);

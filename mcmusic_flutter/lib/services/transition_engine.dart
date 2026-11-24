@@ -723,7 +723,7 @@ class TransitionEngine {
         effectsMode: 'high_pass',
         syncTempo: true,
         outroOffsetSec: 0.0,
-        introOffsetSec: 34.0, // starts at 0:34 on Close To Me chorus drop until 1:02
+        introOffsetSec: 35.0, // starts at 0:35 on Close To Me chorus drop until 1:03
         bpmA: metaA.bpm,
         bpmB: metaB.bpm,
       );
@@ -732,7 +732,7 @@ class TransitionEngine {
         metaA: metaA,
         metaB: metaB,
         compatibilityScore: 99,
-        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:34, Close To Me mulai di 0:34 sampai 1:02. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:34, Close To Me mulai di 0:35 sampai 1:03. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
         bars: '16 bars',
         volumeMode: 'mashup',
         eqMode: 'bass_swap',
