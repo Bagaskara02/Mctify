@@ -163,8 +163,6 @@ export default async function handler(req, res) {
             const matched = coreTokens.filter(tok => searchPool.includes(tok)).length;
             if (coreTokens.length > 0 && matched === coreTokens.length) {
               score += 800;
-            } else if (coreTokens.length > 0 && matched / coreTokens.length >= 0.5) {
-              score += 200;
             } else {
               score -= 3000; // WRONG SONG for specific title resolution!
             }
@@ -174,12 +172,10 @@ export default async function handler(req, res) {
         // 2. Strict Artist check:
         if (targetArtist) {
           const targetTokens = targetArtist.split(/[\s,&]+/).filter(w => w.length > 1);
-          const hasArtistMatch = Boolean(authorStr) && authorStr.trim().length > 1 && (
-            authorStr.includes(targetArtist) ||
-            targetArtist.includes(authorStr) ||
-            combined.includes(targetArtist) ||
-            (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)))
-          );
+          const hasArtistMatch = (authorStr && authorStr.includes(targetArtist)) ||
+                                 (authorStr && targetArtist.includes(authorStr)) ||
+                                 combined.includes(targetArtist) ||
+                                 (targetTokens.length > 0 && targetTokens.some(tok => (authorStr && authorStr.includes(tok)) || normTitle.includes(tok)));
           if (hasArtistMatch) {
             score += 1500;
           } else {

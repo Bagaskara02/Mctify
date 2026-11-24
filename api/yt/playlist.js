@@ -97,12 +97,10 @@ function scoreCandidate(item, idx, targetTitle, targetArtist, targetDuration = 0
 
   if (targetArtist) {
     const targetTokens = targetArtist.split(/[\s,&]+/).filter(w => w.length > 1);
-    const hasArtistMatch = Boolean(authorStr) && authorStr.trim().length > 1 && (
-      authorStr.includes(targetArtist) ||
-      targetArtist.includes(authorStr) ||
-      combined.includes(targetArtist) ||
-      (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)))
-    );
+    const hasArtistMatch = (authorStr && authorStr.includes(targetArtist)) ||
+                           (authorStr && targetArtist.includes(authorStr)) ||
+                           combined.includes(targetArtist) ||
+                           (targetTokens.length > 0 && targetTokens.some(tok => (authorStr && authorStr.includes(tok)) || normTitle.includes(tok)));
     if (hasArtistMatch) {
       score += 1500;
     } else {
@@ -447,8 +445,8 @@ export default async function handler(req, res) {
                   const searchResult = await resolveOriginalTrack(yt, rawTitle, rawArtist, durationSec);
                   if (searchResult && isValidVideoId(searchResult.videoId)) {
                     videoId = searchResult.videoId;
-                    if (searchResult.title) title = searchResult.title;
-                    if (searchResult.artist) artist = searchResult.artist;
+                    if (!title && searchResult.title) title = searchResult.title;
+                    if (!artist && searchResult.artist) artist = searchResult.artist;
                     if (searchResult.duration) durationSec = searchResult.duration;
                   }
                 } catch (e) {
