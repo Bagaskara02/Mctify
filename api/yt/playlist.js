@@ -353,9 +353,17 @@ export default async function handler(req, res) {
           musicStatus: musicRes.status,
           musicError: musicRes.status === 'rejected' ? musicRes.reason?.message : null,
           musicItemsCount: (musicPl?.items || musicPl?.contents || []).length,
+          musicTracksListCount: musicTracksList.length,
+          musicItemsOverview: (musicPl?.items || musicPl?.contents || []).map((it, idx) => ({
+            idx,
+            id: it.id || it.videoId || it.video_id || it.endpoint?.payload?.videoId,
+            type: it.type,
+            title: typeof it.title === 'string' ? it.title : (it.title?.text || it.title?.toString() || it.metadata?.title?.text),
+          })),
           stdStatus: stdRes.status,
           stdError: stdRes.status === 'rejected' ? stdRes.reason?.message : null,
           stdVideosCount: (stdPl?.videos || []).length,
+          stdTracksListCount: stdTracksList.length,
         },
       })
     );
