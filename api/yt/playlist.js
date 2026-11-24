@@ -237,8 +237,15 @@ export default async function handler(req, res) {
                   if (cleanNormTitle === targetTitleClean) score += 2500;
                   else if (cleanNormTitle.startsWith(targetTitleClean)) score += 1200;
 
-                  if (artistTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok))) {
+                  const hasArtist = artistTokens.length === 0 || artistTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok));
+                  if (hasArtist) {
                     score += 1500;
+                  } else {
+                    score -= 5000;
+                  }
+
+                  if (/\b(cover|karaoke|instrumental|kidz bop|tribute|parody|slowed|reverb)\b/i.test(`${normTitle} ${authorStr}`)) {
+                    score -= 5000;
                   }
 
                   const isRemixOrAlt = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(normTitle) ||
