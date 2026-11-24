@@ -146,7 +146,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.ok(analysis.detectedBpm >= 116 && analysis.detectedBpm <= 124, `Expected ~120 BPM, got ${analysis.detectedBpm}`);
   });
 
-  it('matches authentic TikTok Spotify Mix blueprint (Ain\'t In LA -> Close To Me) with 16 bars (0:34 to 1:02), 2:33.5 cue, midpoint bass swap, and crossover fade', () => {
+  it('matches authentic TikTok Spotify Mix blueprint (Ain\'t In LA -> Close To Me) with 16 bars (0:34 to 1:02), 2:32.5 cue, midpoint bass swap, and crossover fade', () => {
     const trackA = { title: "Ain't In LA", artist: "ADÉLA" };
     const trackB = { title: "Close To Me", artist: "Ellie Goulding, Diplo, Swae Lee" };
 
@@ -154,7 +154,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const metaB = computeTrackBpmAndKey(trackB);
     assert.equal(metaA.bpm, 139, 'Ain\'t In LA studio BPM should be 139');
     assert.equal(metaA.key, '12B', 'Ain\'t In LA Camelot key should be 12B');
-    assert.equal(metaA.activeOutroSec, 153.5, 'Ain\'t In LA active outro must cue at 153.5s (2:33.5)');
+    assert.equal(metaA.activeOutroSec, 152.5, 'Ain\'t In LA active outro must cue at 152.5s (2:32.5)');
     assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
     assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
     assert.equal(metaB.introDropSec, 34.0, 'Close To Me chorus drop cues at 34s (0:34)');
@@ -166,7 +166,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(preset.effect, 'high_pass');
     assert.equal(preset.tempoSync, true);
     assert.equal(preset.introOffsetSec, 34.0, 'Must cue Close To Me at its 34.0s chorus drop');
-    assert.equal(preset.activeOutroSec, 153.5, 'Must cue Ain\'t In LA at 2:33.5 (153.5s)');
+    assert.equal(preset.activeOutroSec, 152.5, 'Must cue Ain\'t In LA at 2:32.5 (152.5s)');
     assert.ok(preset.durationSec >= 27.0 && preset.durationSec <= 28.5, '16 bars at 139 BPM should be ~27.6s (0:34 to 1:02)');
 
     // Verify storageService automatically resolves the TikTok Smart Automix blueprint
@@ -174,7 +174,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(autoPairCfg.bars, '16 bars');
     assert.equal(autoPairCfg.volume, 'mashup');
     assert.equal(autoPairCfg.introOffsetSec, 34.0);
-    assert.equal(autoPairCfg.activeOutroSec, 153.5);
+    assert.equal(autoPairCfg.activeOutroSec, 152.5);
 
     // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
     const pairKey = storageService._makeTransitionPairKey(trackA, trackB);
@@ -190,7 +190,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const upgradedCfg = storageService.getTransitionForPair(trackA, trackB);
     assert.equal(upgradedCfg.bars, '16 bars', 'Outdated 8 bars cache should auto-upgrade to 16 bars');
     assert.equal(upgradedCfg.introOffsetSec, 34.0, 'Outdated 0s intro cache should auto-upgrade to 34.0s');
-    assert.equal(upgradedCfg.activeOutroSec, 153.5, 'Outdated 168s outro cache should auto-upgrade to 153.5s');
+    assert.equal(upgradedCfg.activeOutroSec, 152.5, 'Outdated 168s outro cache should auto-upgrade to 152.5s');
 
     // Verify Spotify Mix 3-curve automation envelope
     // 1. Crossover volume curve: Ain't In LA and Close To Me both stay at 100% full power (no volume fade)

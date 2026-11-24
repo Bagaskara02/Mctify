@@ -34,7 +34,7 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /sanctuary/i, bpm: 84, key: '11B' },
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
-  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 153.5, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
+  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 152.5, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
   { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 34.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
@@ -478,8 +478,8 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       effect: 'high_pass',
       tempoSync: true,
       outroOffsetSec: 0.0,
-      activeOutroSec: 153.5, // Mulai tepat di detik 2:33.5 (antara 2:33 dan 2:34) pada Ain't In LA
-      targetOutroSec: 153.5,
+      activeOutroSec: 152.5, // Mulai tepat di detik 2:32.5 pada Ain't In LA
+      targetOutroSec: 152.5,
       introOffsetSec: 34.0, // Mulai tepat di menit 0:34 pada Close To Me sampai 1:02 (tanpa fade-up, langsung suara tinggi)
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
@@ -487,7 +487,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:33.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh (sedikit dinaikkan) di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh (sedikit dinaikkan) di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
     };
   }
 

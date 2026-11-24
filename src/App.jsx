@@ -1446,7 +1446,7 @@ export default function App() {
           : (metaB.introDropSec ?? (Number(pairCfg.introOffsetSec) || 0)));
 
     const resolvedActiveOutroSec = isAintInLaToCloseToMe
-      ? 153.5
+      ? 152.5
       : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
           ? pairCfg.activeOutroSec
           : (metaA.activeOutroSec ?? null));

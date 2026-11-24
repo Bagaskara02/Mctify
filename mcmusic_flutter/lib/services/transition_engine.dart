@@ -732,7 +732,7 @@ class TransitionEngine {
         metaA: metaA,
         metaB: metaB,
         compatibilityScore: 99,
-        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:33.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
         bars: '16 bars',
         volumeMode: 'mashup',
         eqMode: 'bass_swap',

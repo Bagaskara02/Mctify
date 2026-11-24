@@ -206,7 +206,7 @@ export default function SpotifyTransitionModal({
 
   // Derived cue seconds for UI display & auditioning
   const currentOutroCueSec = useMemo(() => {
-    if (isAintInLaToCloseToMe) return 153.5;
+    if (isAintInLaToCloseToMe) return 152.5;
     if (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0) {
       return settings.activeOutroSec;
     }
@@ -275,7 +275,7 @@ export default function SpotifyTransitionModal({
       const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, effectiveBars);
 
       const effectiveOutroSec = isAintInLaToCloseToMe
-        ? 153.5
+        ? 152.5
         : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
             ? pairCfg.activeOutroSec
             : (outgoing.activeOutroSec || null));
@@ -701,8 +701,8 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe ? 153.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
-      targetOutroSec: isAintInLaToCloseToMe ? 153.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
+      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
+      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
       introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
       enabled: true,
     };
@@ -720,8 +720,8 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe ? 153.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
-      targetOutroSec: isAintInLaToCloseToMe ? 153.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
+      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
+      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
       introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
       enabled: true,
     };
