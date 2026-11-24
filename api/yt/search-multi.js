@@ -8,7 +8,10 @@ import {
 let ytPromise = null;
 async function getYT() {
   if (!ytPromise) {
-    ytPromise = Innertube.create();
+    ytPromise = Innertube.create({
+      location: 'ID',
+      enable_session_cache: false,
+    });
   }
   return ytPromise;
 }

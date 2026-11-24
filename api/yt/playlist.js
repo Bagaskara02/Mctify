@@ -9,7 +9,10 @@ import {
 let ytPromise = null;
 async function getYT() {
   if (!ytPromise) {
-    ytPromise = Innertube.create();
+    ytPromise = Innertube.create({
+      location: 'ID',
+      enable_session_cache: false,
+    });
   }
   return ytPromise;
 }
@@ -426,9 +429,12 @@ export default async function handler(req, res) {
             let videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || item.overlay?.content?.endpoint?.payload?.videoId || '').trim();
 
             if (!isValidVideoId(videoId)) {
-              // 1. Direct match with standard YouTube playlist item at the same index
+              // 1. Direct match with standard YouTube playlist item at the same index (if title aligns)
               const stdCandidate = stdTracksList[itemIndex];
-              if (stdCandidate && isValidVideoId(stdCandidate.videoId)) {
+              const normRawTitle = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
+              const normStdTitle = (stdCandidate?.title || '').toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
+              const isTitleMatch = stdCandidate && (normStdTitle.includes(normRawTitle) || normRawTitle.includes(normStdTitle));
+              if (isTitleMatch && isValidVideoId(stdCandidate.videoId)) {
                 videoId = stdCandidate.videoId;
                 if (!artist && stdCandidate.artist) artist = stdCandidate.artist;
                 if (stdCandidate.duration) durationSec = stdCandidate.duration;
@@ -481,32 +487,33 @@ export default async function handler(req, res) {
     }
 
     // 3. Assemble unified playlist:
-    // If stdTracksList is available, it represents the authoritative playlist order & videoIds.
-    // Enrich each track with YouTube Music's high-res audio metadata (clean artists, album, duration, artwork).
-    const baseList = stdTracksList.length > 0 ? stdTracksList : musicTracksList;
-    const enrichList = baseList === stdTracksList ? musicTracksList : stdTracksList;
+    // Choose primary list (whichever retrieved the most tracks) to preserve authentic playlist track order
+    const primaryList = musicTracksList.length >= stdTracksList.length ? musicTracksList : stdTracksList;
+    const secondaryList = primaryList === musicTracksList ? stdTracksList : musicTracksList;
 
-    for (let i = 0; i < baseList.length && tracks.length < MAX_TRACKS; i++) {
-      const track = baseList[i];
+    for (const track of primaryList) {
+      if (tracks.length >= MAX_TRACKS) break;
       if (seenVideoIds.has(track.videoId)) continue;
       seenVideoIds.add(track.videoId);
 
-      const musicTrack = musicTracksMap.get(track.videoId) || enrichList[i];
-      if (musicTrack) {
-        tracks.push({
-          ...track,
-          title: musicTrack.title || track.title,
-          artist: musicTrack.artist || track.artist,
-          artwork: musicTrack.artwork || track.artwork,
-          duration: musicTrack.duration || track.duration,
-          album: musicTrack.album || track.album,
-        });
-      } else {
-        tracks.push(track);
+      if (primaryList === stdTracksList) {
+        const musicTrack = musicTracksMap.get(track.videoId);
+        if (musicTrack) {
+          tracks.push({
+            ...track,
+            title: musicTrack.title || track.title,
+            artist: musicTrack.artist || track.artist,
+            artwork: musicTrack.artwork || track.artwork,
+            duration: musicTrack.duration || track.duration,
+            album: musicTrack.album || track.album,
+          });
+          continue;
+        }
       }
+      tracks.push(track);
     }
 
-    for (const extra of enrichList) {
+    for (const extra of secondaryList) {
       if (tracks.length >= MAX_TRACKS) break;
       if (!seenVideoIds.has(extra.videoId)) {
         seenVideoIds.add(extra.videoId);
