@@ -612,7 +612,11 @@ const SUPERSTAR_ARTISTS = [
   'olivia rodrigo', 'kendrick lamar', 'travis scott', 'sza', 'bts', 'blackpink',
   'niki', 'rich brian', 'bernadya', 'sal priadi', 'hindia', 'mahalini',
   'tulus', 'juicy luicy', 'sheila on 7', 'dewa 19', 'noah', 'tiara andini',
-  'lyodra', 'yura yunita', 'pamungkas', 'feby putri', 'fiersa besari', 'glenn fredly'
+  'lyodra', 'yura yunita', 'pamungkas', 'feby putri', 'fiersa besari', 'glenn fredly',
+  'cheat codes', 'demi lovato', 'martin garrix', 'zedd', 'jonas blue', 'clean bandit',
+  'the chainsmokers', 'david guetta', 'calvin harris', 'alan walker', 'avicii',
+  'marshmello', 'bebe rexha', 'selena gomez', 'troye sivan', 'major lazer', 'dj snake',
+  'tiesto', 'kygo', 'alesso', 'galantis', 'robin schulz', 'lost frequencies'
 ];
 
 function calculateSearchRelevance(track, rawQuery) {
@@ -682,18 +686,18 @@ function calculateSearchRelevance(track, rawQuery) {
     score += 1200; // Strong boost to put lyric match on top!
   }
 
-  // 1. Prefix match bonus (Spotify-like instant hit suggestion on short prefixes like "im the ")
-  if (tTitle.startsWith(qNorm)) {
+  // 1. Core title & Prefix match bonus (collab songs with feat. Demi Lovato shouldn't lose to solo tracks)
+  const coreTitle = tTitle.replace(/\s*[\(\[](?:feat|ft)\.?\s+[^\)\]]+[\)\]]/gi, '').replace(/\s*(?:feat|ft)\.?\s+.*$/i, '').trim();
+  if (coreTitle === qNorm || tTitle === qNorm) {
+    score += 750;
+  } else if (coreTitle.startsWith(qNorm) || tTitle.startsWith(qNorm)) {
     score += 550;
   } else if (combined.startsWith(qNorm)) {
     score += 400;
   }
 
-  if (tTitle.includes(qNorm) || combined.includes(qNorm)) {
+  if (coreTitle.includes(qNorm) || tTitle.includes(qNorm) || combined.includes(qNorm)) {
     score += 450;
-  }
-  if (tTitle === qNorm) {
-    score += 650;
   }
 
   // 2. Popularity / Rank weighting
@@ -703,23 +707,34 @@ function calculateSearchRelevance(track, rawQuery) {
   }
 
   // 3. Superstar / Global Hitmaker artist bonus
-  if (SUPERSTAR_ARTISTS.some(art => tArtist.includes(art))) {
+  if (SUPERSTAR_ARTISTS.some(art => tArtist.includes(art) || tTitle.includes(art))) {
     score += 450;
   }
 
+  // 3.5 Direct verified YouTube playable track bonus
+  if (track.videoId) {
+    score += 350;
+  }
+
   // 4. Two-way version scoring for search (acoustic, remix, live)
-  const isAcousticRequested = qNorm.includes('acoustic');
-  const isRemixRequested = qNorm.includes('remix');
+  const isAcousticRequested = qNorm.includes('acoustic') || qNorm.includes('unplugged');
+  const isRemixRequested = qNorm.includes('remix') || qNorm.includes('club') || qNorm.includes('edit');
   const isLiveRequested = qNorm.includes('live') || qNorm.includes('concert') || qNorm.includes('konser');
 
   if (isAcousticRequested) {
-    if (tTitle.includes('acoustic')) score += 750;
+    if (tTitle.includes('acoustic') || tTitle.includes('unplugged')) score += 750;
     else score -= 900;
+  } else if (tTitle.includes('acoustic') || tTitle.includes('unplugged')) {
+    score -= 750;
   }
+
   if (isRemixRequested) {
-    if (tTitle.includes('remix')) score += 750;
+    if (tTitle.includes('remix') || tTitle.includes('club edit')) score += 750;
     else score -= 900;
+  } else if (tTitle.includes('remix') || tTitle.includes('club edit') || tTitle.includes('stripped') || tTitle.includes('eden prince') || tTitle.includes('bassjackers') || tTitle.includes('ashworth')) {
+    score -= 750;
   }
+
   if (isLiveRequested) {
     if (tTitle.includes('live') || tTitle.includes('concert')) score += 750;
     else score -= 900;
@@ -1156,6 +1171,37 @@ export const musicApi = {
         releaseYear: new Date().getFullYear().toString(),
         isYouTubeImport: true,
       };
+    }
+
+    // If it's a playlist URL (list=...), extract and resolve the first track or import the playlist
+    if (clean.includes('list=')) {
+      const plMatch = clean.match(/[?&]list=([^#&?]+)/);
+      if (plMatch) {
+        try {
+          const plRes = await fetch(`/api/yt/playlist?id=${encodeURIComponent(plMatch[1])}&_t=${Date.now()}`);
+          if (plRes.ok) {
+            const plData = await plRes.json();
+            if (plData.tracks && plData.tracks.length > 0) {
+              const first = plData.tracks[0];
+              return {
+                id: first.id,
+                title: first.title,
+                artist: first.artist,
+                album: plData.name || 'YouTube Playlist',
+                artwork: first.artwork || plData.cover || DEFAULT_ARTWORK,
+                audioUrl: '',
+                videoId: first.videoId,
+                duration: first.duration || 210,
+                genre: 'YouTube Playlist',
+                releaseYear: new Date().getFullYear().toString(),
+                isYouTubeImport: true,
+                playlistTracks: plData.tracks,
+                playlistName: plData.name,
+              };
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     // If query string instead of direct link, resolve via backend search

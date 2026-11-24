@@ -91,7 +91,7 @@ export const playlistImporter = {
     }
 
     onProgress({ status: 'fetching', message: 'Menghubungkan ke YouTube dan mengambil daftar lagu...' });
-    const res = await fetch(`/api/yt/playlist?id=${encodeURIComponent(playlistId)}`);
+    const res = await fetch(`/api/yt/playlist?id=${encodeURIComponent(playlistId)}&_t=${Date.now()}`, { cache: 'no-cache' });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.error || `Gagal mengambil playlist dari YouTube (Status ${res.status})`);

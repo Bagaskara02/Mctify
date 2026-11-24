@@ -154,6 +154,32 @@ export default function SearchView({
 
     const timeout = setTimeout(async () => {
       try {
+        // Direct YouTube Playlist Link Detection in Search Bar
+        if (trimmed.includes('list=')) {
+          const listMatch = trimmed.match(/[?&]list=([^#&?]+)/);
+          if (listMatch) {
+            try {
+              const plRes = await fetch(`/api/yt/playlist?id=${encodeURIComponent(listMatch[1])}&_t=${Date.now()}`, { cache: 'no-cache' });
+              if (plRes.ok) {
+                const plData = await plRes.json();
+                if (plData.tracks && plData.tracks.length > 0) {
+                  if (!cancelled) {
+                    setSongs(plData.tracks);
+                    setArtists([{
+                      id: `pl_author_${listMatch[1]}`,
+                      name: plData.author || 'YouTube Playlist',
+                      image: plData.cover || DEFAULT_ARTWORK,
+                      subscribers: `${plData.totalTracks || plData.tracks.length} lagu`,
+                    }]);
+                    setIsLoading(false);
+                  }
+                  return;
+                }
+              }
+            } catch (_) {}
+          }
+        }
+
         if (activeTab === 'Cocok Lirik') {
           const lyricSongs = await musicApi.searchTracksByLyrics(trimmed);
           if (!cancelled) setSongs(lyricSongs || []);

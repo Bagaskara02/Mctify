@@ -120,7 +120,10 @@ export default async function handler(req, res) {
     let playlistId = (url.searchParams.get('id') || req.query?.id || '').trim();
     const rawUrl = (url.searchParams.get('url') || req.query?.url || '').trim();
 
-    if (!playlistId && rawUrl) {
+    if (playlistId.includes('list=')) {
+      const match = playlistId.match(/[?&]list=([^#&?]+)/);
+      if (match) playlistId = match[1].trim();
+    } else if (!playlistId && rawUrl) {
       const match = rawUrl.match(/[?&]list=([^#&?]+)/);
       if (match) playlistId = match[1].trim();
     }
@@ -157,10 +160,12 @@ export default async function handler(req, res) {
         const items = current.items || current.contents || [];
         for (const item of items) {
           if (tracks.length >= MAX_TRACKS) break;
-          const videoId = (item.id || item.video_id || '').trim();
+          const videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || '').trim();
           if (!isValidVideoId(videoId) || seenVideoIds.has(videoId)) continue;
 
-          const rawTitle = typeof item.title === 'string' ? item.title : (item.title?.text || item.title?.toString() || '');
+          const rawTitle = typeof item.title === 'string'
+            ? item.title
+            : (item.title?.text || item.title?.runs?.map(r => r.text).join('') || item.title?.toString() || item.metadata?.title?.text || '');
           if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
 
           const rawArtist =
@@ -270,7 +275,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader(
       'Cache-Control',
-      isDynamicMix ? 'no-store' : 'public, s-maxage=3600, stale-while-revalidate=86400'
+      isDynamicMix ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
     );
     return res.end(
       JSON.stringify({

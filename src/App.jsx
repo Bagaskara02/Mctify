@@ -1240,6 +1240,29 @@ export default function App() {
     setTimeout(() => setSmartToast(null), 3000);
   };
 
+  // Reorder tracks inside Playlist (Drag and Drop)
+  const handleReorderPlaylistTracks = (playlistId, newTracks) => {
+    if (!playlistId || !Array.isArray(newTracks)) return;
+    const updated = storageService.reorderPlaylistTracks(playlistId, newTracks);
+    setPlaylists(updated);
+  };
+
+  // Reorder tracks inside Liked Songs (Drag and Drop)
+  const handleReorderLikedTracks = (_playlistId, newTracks) => {
+    const listToSave = Array.isArray(newTracks) ? newTracks : (Array.isArray(_playlistId) ? _playlistId : []);
+    if (listToSave.length === 0) return;
+    storageService.saveLikedTracks(listToSave);
+    setLikedTracks(listToSave);
+  };
+
+  // Reorder tracks inside Queue (Drag and Drop)
+  const handleReorderQueue = (newQueue) => {
+    if (!Array.isArray(newQueue)) return;
+    setQueue(newQueue);
+    queueRef.current = newQueue;
+    setOriginalQueue(newQueue);
+  };
+
   // Callback when user imports new playlist from Modal
   const handlePlaylistImported = (newPlaylist) => {
     const saved = storageService.addPlaylist(newPlaylist);
@@ -1824,6 +1847,7 @@ export default function App() {
               onToggleLike={handleToggleLike}
               onOpenLyrics={() => setIsLyricsOpen(true)}
               onTrackContextMenu={handleTrackContextMenu}
+              onReorderTracks={handleReorderLikedTracks}
             />
           )}
 
@@ -1884,6 +1908,7 @@ export default function App() {
               onDeletePlaylist={handleDeletePlaylist}
               onUpdatePlaylist={handleUpdatePlaylist}
               onTrackContextMenu={handleTrackContextMenu}
+              onReorderTracks={handleReorderPlaylistTracks}
             />
           )}
         </main>
@@ -2038,6 +2063,7 @@ export default function App() {
           setIsTransitionModalOpen(true);
         }}
         transitionConfig={activeTransitionConfig}
+        onReorderQueue={handleReorderQueue}
       />
 
       {/* --- IMPORT PLAYLIST MODAL --- */}

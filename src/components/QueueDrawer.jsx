@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Play, Sparkles, Music, Trash2, Wand2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Play, Sparkles, Music, Trash2, Wand2, GripVertical } from 'lucide-react';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
 
 export default function QueueDrawer({
@@ -12,11 +12,56 @@ export default function QueueDrawer({
   onClearQueue,
   onOpenTransitionModal,
   transitionConfig = null,
+  onReorderQueue,
 }) {
+  const [draggedQueueIdx, setDraggedQueueIdx] = useState(null);
+  const [dragOverQueueIdx, setDragOverQueueIdx] = useState(null);
+
   if (!isOpen) return null;
 
   const currentIndex = queue.findIndex(t => t.id === currentTrack?.id);
   const upNextTracks = currentIndex !== -1 ? queue.slice(currentIndex + 1) : queue;
+  const canDragQueue = typeof onReorderQueue === 'function' && upNextTracks.length > 1;
+
+  const handleQueueDragStart = (e, index) => {
+    if (!canDragQueue) return;
+    setDraggedQueueIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', String(index));
+    } catch (_) {}
+  };
+
+  const handleQueueDragOver = (e, index) => {
+    if (!canDragQueue || draggedQueueIdx === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverQueueIdx !== index) {
+      setDragOverQueueIdx(index);
+    }
+  };
+
+  const handleQueueDrop = (e, targetIndex) => {
+    if (!canDragQueue || draggedQueueIdx === null) return;
+    e.preventDefault();
+    if (draggedQueueIdx !== targetIndex) {
+      const reorderedUpNext = Array.from(upNextTracks);
+      const [moved] = reorderedUpNext.splice(draggedQueueIdx, 1);
+      reorderedUpNext.splice(targetIndex, 0, moved);
+
+      // Reconstruct the full queue maintaining playback index
+      const basePrefix = currentIndex !== -1 ? queue.slice(0, currentIndex + 1) : [];
+      const updatedQueue = [...basePrefix, ...reorderedUpNext];
+      onReorderQueue(updatedQueue);
+    }
+    setDraggedQueueIdx(null);
+    setDragOverQueueIdx(null);
+  };
+
+  const handleQueueDragEnd = () => {
+    setDraggedQueueIdx(null);
+    setDragOverQueueIdx(null);
+  };
 
   return (
     <>
@@ -151,43 +196,70 @@ export default function QueueDrawer({
             </div>
           ) : (
             <div className="space-y-1">
-              {upNextTracks.map((track, idx) => (
-                <div
-                  key={`${track.id}-${idx}`}
-                  onClick={() => onPlayTrack(track)}
-                  className="group flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer transition-colors"
-                >
-                  <span className="w-5 text-center text-xs text-[#b3b3b3] group-hover:hidden">
-                    {idx + 1}
-                  </span>
-                  <button className="w-5 hidden group-hover:flex items-center justify-center text-white">
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                  </button>
+              {upNextTracks.map((track, idx) => {
+                const isBeingDragged = draggedQueueIdx === idx;
+                const isDragOver = dragOverQueueIdx === idx && draggedQueueIdx !== idx;
 
-                  <img
-                    src={(track.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
-                    alt={track.title}
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      if (track.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
-                        e.currentTarget.src = `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`;
-                      } else {
-                        e.currentTarget.src = DEFAULT_ARTWORK;
-                      }
-                    }}
-                    className="w-10 h-10 rounded object-cover flex-shrink-0"
-                  />
+                return (
+                  <div
+                    key={`${track.id}-${idx}`}
+                    draggable={canDragQueue}
+                    onDragStart={(e) => handleQueueDragStart(e, idx)}
+                    onDragOver={(e) => handleQueueDragOver(e, idx)}
+                    onDrop={(e) => handleQueueDrop(e, idx)}
+                    onDragEnd={handleQueueDragEnd}
+                    onClick={() => onPlayTrack(track)}
+                    className={`group relative flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-150 ${
+                      isBeingDragged
+                        ? 'opacity-35 scale-[0.99] bg-[#222] border border-dashed border-white/20'
+                        : isDragOver
+                        ? 'bg-[#00a3ff]/15 border-t-2 border-[#00a3ff]'
+                        : 'hover:bg-[#1f1f1f]'
+                    }`}
+                  >
+                    {/* Drag Grip Handle */}
+                    {canDragQueue && (
+                      <div 
+                        className="opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-grab active:cursor-grabbing text-neutral-400 p-0.5 -ml-1 flex-shrink-0 transition-opacity"
+                        title="Tahan & geser untuk mengubah urutan antrean"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </div>
+                    )}
 
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-white truncate group-hover:text-[#00a3ff] transition-colors">
-                      {track.title}
-                    </p>
-                    <p className="text-[11px] text-[#b3b3b3] truncate mt-0.5">
-                      {track.artist}
-                    </p>
+                    <span className="w-5 text-center text-xs text-[#b3b3b3] group-hover:hidden">
+                      {idx + 1}
+                    </span>
+                    <button className="w-5 hidden group-hover:flex items-center justify-center text-white">
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                    </button>
+
+                    <img
+                      src={(track.artwork && track.artwork.replace(/hq(hq)?720\.jpg/gi, 'hqdefault.jpg')) || (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : DEFAULT_ARTWORK)}
+                      alt={track.title}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        if (track.videoId && !e.currentTarget.src.includes('hqdefault.jpg')) {
+                          e.currentTarget.src = `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`;
+                        } else {
+                          e.currentTarget.src = DEFAULT_ARTWORK;
+                        }
+                      }}
+                      className="w-10 h-10 rounded object-cover flex-shrink-0"
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-white truncate group-hover:text-[#00a3ff] transition-colors">
+                        {track.title}
+                      </p>
+                      <p className="text-[11px] text-[#b3b3b3] truncate mt-0.5">
+                        {track.artist}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

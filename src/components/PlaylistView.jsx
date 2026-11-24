@@ -17,7 +17,8 @@ import {
   Check,
   Pencil,
   Camera,
-  Upload
+  Upload,
+  GripVertical
 } from 'lucide-react';
 import { playlistImporter } from '../services/playlistImporter';
 import { DEFAULT_ARTWORK } from '../services/musicApi';
@@ -49,6 +50,7 @@ export default function PlaylistView({
   onSaveMixToLibrary,
   isSavedInLibrary = false,
   onTrackContextMenu,
+  onReorderTracks,
 }) {
   const [isHeaderSticky, setIsHeaderSticky] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,6 +59,51 @@ export default function PlaylistView({
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [bannerColor, setBannerColor] = useState('#1e3264');
   const scrollContainerRef = useRef(null);
+
+  // Drag and drop reordering state
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+
+  // Reorder is enabled in custom sort order without active text search filter
+  const canDrag = !searchQuery.trim() && sortBy === 'custom' && typeof onReorderTracks === 'function';
+
+  const handleDragStart = (e, index) => {
+    if (!canDrag) return;
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', String(index));
+    } catch (_) {}
+  };
+
+  const handleDragOver = (e, index) => {
+    if (!canDrag || draggedIndex === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    if (!canDrag || draggedIndex === null) return;
+    e.preventDefault();
+    if (draggedIndex !== targetIndex) {
+      const currentList = Array.isArray(playlist?.tracks) ? Array.from(playlist.tracks) : [];
+      if (currentList.length > 0) {
+        const [moved] = currentList.splice(draggedIndex, 1);
+        currentList.splice(targetIndex, 0, moved);
+        onReorderTracks(playlist.id, currentList);
+      }
+    }
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
 
   // Edit Playlist Modal state
   const isEditable = playlist?.id !== 'pl-liked' && playlist?.id !== 'pl-history';
@@ -433,7 +480,7 @@ export default function PlaylistView({
                     Urutkan Berdasarkan
                   </p>
                   {[
-                    { key: 'custom', label: 'Urutan Kustom' },
+                    { key: 'custom', label: 'Urutan Kustom (Drag & Drop)' },
                     { key: 'title', label: 'Judul (A - Z)' },
                     { key: 'artist', label: 'Nama Artis (A - Z)' },
                     { key: 'duration-desc', label: 'Durasi Terlama' },
@@ -484,7 +531,8 @@ export default function PlaylistView({
           <div className="divide-y divide-[#282828]/50">
             {/* Table Header */}
             <div className="flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#b3b3b3] border-b border-[#282828]">
-              <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1">
+                {canDrag && <span className="w-4 text-center opacity-40 text-[10px]" title="Drag & drop aktif">::</span>}
                 <span className="w-6 text-center">#</span>
                 <span>Judul</span>
               </div>
@@ -498,10 +546,17 @@ export default function PlaylistView({
             {processedTracks.map((t, idx) => {
               const isCurrent = currentTrack?.id === t.id;
               const isLiked = likedTrackIds.has(t.id);
+              const isBeingDragged = draggedIndex === idx;
+              const isDragOver = dragOverIndex === idx && draggedIndex !== idx;
 
               return (
                 <div
                   key={t.id || idx}
+                  draggable={canDrag}
+                  onDragStart={(e) => handleDragStart(e, idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDrop={(e) => handleDrop(e, idx)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => {
                     if (isCurrent) {
                       onTogglePlayPause();
@@ -513,14 +568,29 @@ export default function PlaylistView({
                     e.preventDefault();
                     onTrackContextMenu?.(e, t);
                   }}
-                  className={`group flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                    isCurrent
+                  className={`group relative flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 ${
+                    isBeingDragged
+                      ? 'opacity-35 scale-[0.99] bg-[#222] border border-dashed border-white/20'
+                      : isDragOver
+                      ? 'bg-[#3B82F6]/15 border-t-2 border-[#3B82F6]'
+                      : isCurrent
                       ? 'bg-[#242424] text-white'
                       : 'hover:bg-[#1a1a1a] text-neutral-300'
                   }`}
                 >
-                  {/* Left: Rank/Equalizer, Art, Title, Artist */}
-                  <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 pr-3">
+                  {/* Left: Grip, Rank/Equalizer, Art, Title, Artist */}
+                  <div className="flex items-center gap-2 sm:gap-3.5 min-w-0 flex-1 pr-3">
+                    {/* Drag Grip Handle */}
+                    {canDrag && (
+                      <div 
+                        className="opacity-0 group-hover:opacity-70 hover:!opacity-100 cursor-grab active:cursor-grabbing text-neutral-400 p-0.5 -ml-1 flex-shrink-0 transition-opacity"
+                        title="Tahan & geser untuk mengubah urutan lagu"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <GripVertical className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+
                     <div className="w-6 flex items-center justify-center flex-shrink-0">
                       {isCurrent && isPlaying ? (
                         <div className="flex items-end gap-0.5 h-3.5 group-hover:hidden">

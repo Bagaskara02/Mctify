@@ -104,18 +104,34 @@ export const storageService = {
   addPlaylist(playlist) {
     const playlists = this.getPlaylists();
     const defaultCover = 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=400';
+    const plId = playlist.id || 'pl-' + Date.now();
     const newPlaylist = {
-      id: playlist.id || 'pl-' + Date.now(),
+      id: plId,
       name: playlist.name || 'New Playlist',
       description: playlist.description || '',
       cover: sanitizeMediaUrl(playlist.cover || '', defaultCover) || defaultCover,
       source: playlist.source || 'custom',
-      tracks: playlist.tracks || [],
-      createdAt: Date.now(),
+      tracks: Array.isArray(playlist.tracks) ? playlist.tracks : [],
+      createdAt: playlist.createdAt || Date.now(),
     };
-    playlists.push(newPlaylist);
+    const existingIdx = playlists.findIndex(p => p.id === plId);
+    if (existingIdx !== -1) {
+      playlists[existingIdx] = { ...playlists[existingIdx], ...newPlaylist };
+    } else {
+      playlists.push(newPlaylist);
+    }
     this.savePlaylists(playlists);
     return newPlaylist;
+  },
+
+  reorderPlaylistTracks(playlistId, newTracks) {
+    const playlists = this.getPlaylists();
+    const pl = playlists.find(p => p.id === playlistId);
+    if (pl && Array.isArray(newTracks)) {
+      pl.tracks = newTracks;
+      this.savePlaylists(playlists);
+    }
+    return playlists;
   },
 
   deletePlaylist(playlistId) {
@@ -198,6 +214,15 @@ export const storageService = {
       console.error(e);
     }
     return updated;
+  },
+
+  saveLikedTracks(tracks) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LIKED_TRACKS, JSON.stringify(tracks));
+    } catch (e) {
+      console.error('Failed to save liked tracks', e);
+    }
+    return tracks;
   },
 
   getPlayCounts() {
