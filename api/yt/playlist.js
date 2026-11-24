@@ -190,20 +190,49 @@ export default async function handler(req, res) {
           const items = current.items || current.contents || [];
           for (const item of items) {
             if (musicTracksList.length >= MAX_TRACKS) break;
-            const videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || '').trim();
-            if (!isValidVideoId(videoId)) continue;
 
             const rawTitle = typeof item.title === 'string'
               ? item.title
-              : (item.title?.text || item.title?.runs?.map(r => r.text).join('') || item.title?.toString() || item.metadata?.title?.text || '');
+              : (item.title?.text || item.title?.runs?.map(r => r.text).join('') || item.title?.toString() || item.metadata?.title?.text || item.flex_columns?.[0]?.title?.text || '');
             if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
 
             const rawArtist =
               item.artists?.map((a) => a.name).filter(Boolean).join(', ') ||
               item.author?.name ||
+              item.flex_columns?.[1]?.title?.runs?.map(r => r.text).join('') ||
+              item.flex_columns?.[1]?.title?.text ||
               '';
             const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
-            const durationSec = item.duration?.seconds || parseDurationText(item.duration?.text) || 200;
+            const durationSec = item.duration?.seconds ||
+              parseDurationText(item.duration?.text) ||
+              parseDurationText(item.fixed_columns?.[0]?.title?.text) ||
+              200;
+
+            let videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || item.overlay?.content?.endpoint?.payload?.videoId || '').trim();
+
+            if (!isValidVideoId(videoId)) {
+              // Resolve missing videoId via search when title and artist are present (handles YTM US datacenter masking)
+              try {
+                const searchRes = await yt.music.search(`${rawTitle} ${rawArtist}`.trim(), { type: 'song' });
+                const candidates = searchRes.songs?.contents || searchRes.results || [];
+                const targetTitleClean = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
+                for (const cand of candidates) {
+                  const candTitle = (typeof cand.title === 'string' ? cand.title : (cand.title?.text || '')).toLowerCase();
+                  const candClean = candTitle.replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
+                  const isRemix = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(candTitle);
+                  if (candClean === targetTitleClean && !isRemix && isValidVideoId(cand.id)) {
+                    videoId = cand.id;
+                    break;
+                  }
+                }
+                if (!videoId && candidates.length > 0 && isValidVideoId(candidates[0]?.id)) {
+                  videoId = candidates[0].id;
+                }
+              } catch (_) {}
+            }
+
+            if (!isValidVideoId(videoId)) continue;
+
             const rawThumb =
               item.thumbnail?.contents?.[item.thumbnail.contents.length - 1]?.url ||
               item.thumbnails?.[item.thumbnails.length - 1]?.url ||
@@ -290,37 +319,37 @@ export default async function handler(req, res) {
     }
 
     // 3. Assemble unified playlist:
-    // First iterate standard YouTube tracks (authoritative playlist ordering) and enrich with YTM metadata
-    if (stdTracksList.length > 0) {
-      for (const stdTrack of stdTracksList) {
-        if (tracks.length >= MAX_TRACKS) break;
-        if (seenVideoIds.has(stdTrack.videoId)) continue;
+    // Choose primary list (whichever retrieved the most tracks) to preserve authentic playlist track order
+    const primaryList = musicTracksList.length >= stdTracksList.length ? musicTracksList : stdTracksList;
+    const secondaryList = primaryList === musicTracksList ? stdTracksList : musicTracksList;
 
-        seenVideoIds.add(stdTrack.videoId);
-        const musicTrack = musicTracksMap.get(stdTrack.videoId);
+    for (const track of primaryList) {
+      if (tracks.length >= MAX_TRACKS) break;
+      if (seenVideoIds.has(track.videoId)) continue;
+      seenVideoIds.add(track.videoId);
+
+      // If primary was stdTracks, enrich with musicTrack if available
+      if (primaryList === stdTracksList) {
+        const musicTrack = musicTracksMap.get(track.videoId);
         if (musicTrack) {
           tracks.push({
-            ...stdTrack,
-            title: musicTrack.title || stdTrack.title,
-            artist: musicTrack.artist || stdTrack.artist,
-            artwork: musicTrack.artwork || stdTrack.artwork,
-            duration: musicTrack.duration || stdTrack.duration,
+            ...track,
+            title: musicTrack.title || track.title,
+            artist: musicTrack.artist || track.artist,
+            artwork: musicTrack.artwork || track.artwork,
+            duration: musicTrack.duration || track.duration,
           });
-        } else {
-          tracks.push(stdTrack);
+          continue;
         }
       }
+      tracks.push(track);
     }
 
-    // Append any extra tracks found only in YouTube Music
-    if (musicTracksList.length > 0) {
-      for (const mTrack of musicTracksList) {
-        if (tracks.length >= MAX_TRACKS) break;
-        if (seenVideoIds.has(mTrack.videoId)) continue;
-
-        seenVideoIds.add(mTrack.videoId);
-        tracks.push(mTrack);
-      }
+    for (const track of secondaryList) {
+      if (tracks.length >= MAX_TRACKS) break;
+      if (seenVideoIds.has(track.videoId)) continue;
+      seenVideoIds.add(track.videoId);
+      tracks.push(track);
     }
 
     if (
@@ -339,7 +368,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader(
       'Cache-Control',
-      'no-store, no-cache, must-revalidate'
+      'public, s-maxage=60, stale-while-revalidate=300'
     );
     return res.end(
       JSON.stringify({
@@ -349,23 +378,6 @@ export default async function handler(req, res) {
         cover: playlistCover,
         totalTracks: tracks.length,
         tracks,
-        _debug: {
-          musicStatus: musicRes.status,
-          musicError: musicRes.status === 'rejected' ? musicRes.reason?.message : null,
-          musicItemsCount: (musicPl?.items || musicPl?.contents || []).length,
-          musicTracksListCount: musicTracksList.length,
-          musicItemsOverview: (musicPl?.items || musicPl?.contents || []).map((it, idx) => ({
-            idx,
-            id: it.id || it.videoId || it.video_id || it.endpoint?.payload?.videoId,
-            type: it.type,
-            title: typeof it.title === 'string' ? it.title : (it.title?.text || it.title?.toString() || it.metadata?.title?.text),
-          })),
-          rawItem0: JSON.stringify(musicPl?.items?.[0] || {}),
-          stdStatus: stdRes.status,
-          stdError: stdRes.status === 'rejected' ? stdRes.reason?.message : null,
-          stdVideosCount: (stdPl?.videos || []).length,
-          stdTracksListCount: stdTracksList.length,
-        },
       })
     );
   } catch (e) {
