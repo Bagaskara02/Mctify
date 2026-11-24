@@ -1492,13 +1492,10 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
             final remainingSec = (_duration.inMilliseconds - pos.inMilliseconds) / 1000.0;
             final triggerSec = (_activePairTransitionConfig.durationSec +
                     max(0.0, -_activePairTransitionConfig.outroOffsetSec))
-                .clamp(1.2, 22.0);
+                .clamp(1.2, 32.0);
             final currentSec = pos.inMilliseconds / 1000.0;
             final isTrigger = (remainingSec > 0.3 && remainingSec <= triggerSec) ||
-                (_activePairTransitionConfig.outroOffsetSec < -1.0 &&
-                    _duration.inSeconds >= 160 &&
-                    currentSec >= 168.0 &&
-                    remainingSec > 0.7);
+                (currentSec >= 150.0 && remainingSec > 0.7);
             if (isTrigger) {
               unawaited(_startLiveDualDeckTransition());
             }

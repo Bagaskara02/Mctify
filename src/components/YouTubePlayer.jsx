@@ -840,7 +840,7 @@ export default function YouTubePlayer({
     const toPlayer = decksRef.current[toIdx];
     if (!fromPlayer || !toPlayer) return;
 
-    const overlapSec = Math.max(2.0, Math.min(20.0, Number(cfg.durationSec) || 5.5));
+    const overlapSec = Math.max(2.0, Math.min(32.0, Number(cfg.durationSec) || 5.5));
     const introCue =
       typeof forcedIntroCue === 'number'
         ? Math.max(0, forcedIntroCue)
@@ -874,12 +874,21 @@ export default function YouTubePlayer({
         toPlayer.playVideo?.();
       } else {
         try {
-          toPlayer.loadVideoById(nextVid, introCue);
-        } catch {
           toPlayer.loadVideoById({ videoId: nextVid, startSeconds: introCue });
+        } catch {
+          toPlayer.loadVideoById(nextVid, introCue);
         }
         toPlayer.playVideo?.();
       }
+      // Seek guard: guarantee standby deck starts at introCue (e.g. 0:33) and never from 0:00
+      setTimeout(() => {
+        try {
+          const cur = toPlayer.getCurrentTime?.() || 0;
+          if (introCue > 1 && cur < introCue - 1.5) {
+            toPlayer.seekTo?.(introCue, true);
+          }
+        } catch {}
+      }, 400);
     } catch (e) {
       console.warn('[YouTubePlayer] Standby deck start warning:', e);
     }
@@ -917,14 +926,14 @@ export default function YouTubePlayer({
 
         const cfg = transitionConfigRef.current;
         const transitionEnabled = cfg?.enabled !== false && canAutoTransitionRef.current;
-        const overlapSec = Math.max(2.0, Math.min(20.0, Number(cfg?.durationSec) || 5.5));
+        const overlapSec = Math.max(2.0, Math.min(32.0, Number(cfg?.durationSec) || 5.5));
         const outroOffset = typeof cfg?.outroOffsetSec === 'number' ? cfg.outroOffsetSec : (Number(cfg?.outroOffsetSec) || 0);
         // Smart Active-Outro Skip: if user hasn't configured outroOffsetSec, start 4s before the dead tail
         const smartOutroLeadSec = cfg?.outroOffsetSec === undefined && dur > 60 ? 4.0 : 0.0;
         const triggerRemainingSec = Math.max(2.0, overlapSec + smartOutroLeadSec - outroOffset);
         const remainingSec = dur - current;
 
-        // Honor explicit activeOutroSec / targetOutroSec (e.g. 168.0s = 2:48 for Ain't In LA)
+        // Honor explicit activeOutroSec / targetOutroSec (e.g. 150.0s = 2:30 for Ain't In LA)
         // so transition triggers at the designated musical phrase cue, NOT just at the tail end of the video!
         const explicitOutroCue =
           typeof cfg?.activeOutroSec === 'number' && cfg.activeOutroSec > 10
@@ -940,12 +949,12 @@ export default function YouTubePlayer({
         const isAtTriggerPoint =
           current >= targetTriggerSec || (remainingSec <= triggerRemainingSec && remainingSec > 0.7);
 
-        // Honor explicit introOffsetSec (e.g. +14s for Close To Me drop)
+        // Honor explicit introOffsetSec (e.g. +33s for Close To Me chorus drop)
         const effectiveIntroCueSec = typeof cfg?.introOffsetSec === 'number'
           ? Math.max(0, cfg.introOffsetSec)
           : (Number(cfg?.introOffsetSec) || 0);
 
-        // 0. Pre-warm Hybrid Web Audio DSP Bridge 16s before transition window
+        // 0. Pre-warm Standby Deck & Hybrid Web Audio DSP Bridge 16s before transition window
         const prewarmTriggerSec = Math.max(0, targetTriggerSec - 16.0);
         const shouldPrewarm =
           (current >= prewarmTriggerSec && current < targetTriggerSec) ||
@@ -954,11 +963,27 @@ export default function YouTubePlayer({
         if (
           transitionEnabled &&
           !transitionStateRef.current.active &&
-          dur > overlapSec + 6 &&
+          dur > 15 &&
           shouldPrewarm &&
           nextVideoIdRef.current &&
           nextVideoIdRef.current !== activeVid
         ) {
+          // Pre-cue standby deck in YouTube IFrame so it is already buffered at introCue!
+          const standbyIdx = 1 - activeDeckIdxRef.current;
+          const standbyPlayer = decksRef.current[standbyIdx];
+          const nextVid = nextVideoIdRef.current;
+          if (standbyPlayer && loadedVidByDeckRef.current[standbyIdx] !== nextVid) {
+            loadedVidByDeckRef.current[standbyIdx] = nextVid;
+            try {
+              standbyPlayer.mute?.();
+              standbyPlayer.setVolume?.(0);
+              try {
+                standbyPlayer.cueVideoById({ videoId: nextVid, startSeconds: effectiveIntroCueSec });
+              } catch {
+                standbyPlayer.cueVideoById?.(nextVid, effectiveIntroCueSec);
+              }
+            } catch {}
+          }
           prewarmDspBridgeDecks(
             activeVid,
             nextVideoIdRef.current,

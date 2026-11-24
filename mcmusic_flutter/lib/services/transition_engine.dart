@@ -568,9 +568,15 @@ class TransitionEngine {
 
     switch (volumeMode) {
       case 'mashup':
-        // Authentic Spotify Mix 8-Bar Blend (matches TikTok @rollingwithlana reference):
-        // In Spotify Mix, BOTH Cyan Volume lines stay flat at 100% across the transition grid!
-        outGain = p < 0.94 ? 1.0 : math.cos(((p - 0.94) / 0.06) * (math.pi / 2.0));
+        if (p <= 0.48) {
+          outGain = 1.0;
+        } else if (p < 0.88) {
+          final t = (p - 0.48) / 0.40;
+          outGain = 0.18 + 0.82 * math.cos(t * (math.pi / 2.0));
+        } else {
+          final t = (p - 0.88) / 0.12;
+          outGain = 0.18 * (1.0 - t);
+        }
         inGain = 1.0;
         break;
       case 'overlap':
@@ -715,17 +721,17 @@ class TransitionEngine {
         (titleA.contains('close to me') && titleB.contains("ain't in la"));
 
     if (isAintInLaToCloseToMe) {
-      final barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, '8 bars');
+      final barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, '16 bars');
       final config = TransitionConfig(
         enabled: true,
-        bars: '8 bars',
+        bars: '16 bars',
         durationSec: barStats.durationSec,
         volumeMode: 'mashup',
         eqMode: 'bass_swap',
         effectsMode: 'high_pass',
         syncTempo: true,
-        outroOffsetSec: -3.0, // starts at ~2:48 during Ain't In LA's active outro phrase
-        introOffsetSec: 14.0, // skips 14s acoustic intro and drops on Diplo's beat
+        outroOffsetSec: 0.0,
+        introOffsetSec: 33.0, // starts at 0:33 on Close To Me chorus drop until 1:01
         bpmA: metaA.bpm,
         bpmB: metaB.bpm,
       );
@@ -734,8 +740,8 @@ class TransitionEngine {
         metaA: metaA,
         metaB: metaB,
         compatibilityScore: 99,
-        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 8 Bars Mashup Blend dengan Bass Swap di Bar 4➔5 dan Pink S-Curve HPF. Outro di-cue pada 2:48 & intro langsung pada beat drop +14s.',
-        bars: '8 bars',
+        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:30, Close To Me mulai di 0:33 sampai 1:01. Di tengah (Bar 8➔9), Ain\'t In LA di-fade halus agar Close To Me mendominasi, ditambah Bass Swap & Pink S-Curve HPF.',
+        bars: '16 bars',
         volumeMode: 'mashup',
         eqMode: 'bass_swap',
         effectsMode: 'high_pass',

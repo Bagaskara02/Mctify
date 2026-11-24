@@ -34,8 +34,8 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /sanctuary/i, bpm: 84, key: '11B' },
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
-  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 168.0, totalDurSec: 185 },
-  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 14.0, totalDurSec: 183 },
+  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 150.0, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
+  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 33.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
 export const TRANSITION_BAR_OPTIONS = [
@@ -43,6 +43,7 @@ export const TRANSITION_BAR_OPTIONS = [
   { id: '2 bars', label: '2 bars', bars: 2 },
   { id: '4 bars', label: '4 bars', bars: 4 },
   { id: '8 bars', label: '8 bars', bars: 8 },
+  { id: '16 bars', label: '16 bars', bars: 16 },
 ];
 
 export const TRANSITION_VOLUME_OPTIONS = [
@@ -202,7 +203,7 @@ export function computeBarDurationSec(bpmA = 90, bpmB = 90, barsLabel = '2 bars'
   const bars = barMatch ? Math.max(1, Math.min(16, parseInt(barMatch[1], 10))) : 2;
   const beats = bars * 4; // 4/4 time signature
   const rawSeconds = (beats * 60) / avgBpm;
-  const clampedSeconds = Math.max(2.0, Math.min(24.0, rawSeconds));
+  const clampedSeconds = Math.max(2.0, Math.min(32.0, rawSeconds));
 
   return {
     bars,
@@ -231,13 +232,20 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inGain = 0.0;
 
   if (volumeMode === 'mashup') {
-    // Authentic Spotify Mix 8-Bar Blend (Matches TikTok @rollingwithlana reference):
-    // In Spotify Mix, BOTH Cyan Volume lines stay flat at 100% across the transition grid!
-    // Outgoing stays at 100% until 94% (end of Bar 8), then vertically drops to 0%.
-    // Incoming is at 100% from the very first downbeat!
-    // Separation is achieved through Bass Swap (yellow line) and High-Pass Filter (pink S-curve),
-    // creating that seamless "single song" mashup sensation!
-    outGain = p < 0.94 ? 1.0 : Math.cos(((p - 0.94) / 0.06) * (Math.PI / 2));
+    // Spotify Mashup Blend:
+    // First Half (p <= 0.48): Both tracks play at 100% full volume energy.
+    // Midpoint Crossover (p = 0.48..0.88): Outgoing track fades down gracefully (1.0 -> 0.18)
+    // so incoming track (Close To Me) dominates the mix cleanly, as requested by user.
+    // Final Bars (p >= 0.88): Outgoing fades to 0.0, Incoming stays 100%.
+    if (p <= 0.48) {
+      outGain = 1.0;
+    } else if (p < 0.88) {
+      const t = (p - 0.48) / 0.40;
+      outGain = 0.18 + 0.82 * Math.cos(t * (Math.PI / 2));
+    } else {
+      const t = (p - 0.88) / 0.12;
+      outGain = 0.18 * (1 - t);
+    }
     inGain = 1.0;
   } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
@@ -459,27 +467,27 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || ''));
 
   if (isAintInLaToCloseToMe) {
-    const bars = '8 bars';
+    const bars = '16 bars';
     const finalStats = computeBarDurationSec(metaA.bpm, metaB.bpm, bars);
     return {
       bars,
-      durationSec: finalStats.durationSec, // 13.8s
+      durationSec: finalStats.durationSec, // 27.6s (0:33 -> 1:00.6 / 1:01)
       beats: finalStats.beats,
       volume: 'mashup',
       eq: 'bass_swap',
       effect: 'high_pass',
       tempoSync: true,
-      outroOffsetSec: -3.0, // starts at ~2:48 on Ain't In LA's active vocal outro phrase
-      introOffsetSec: 14.0, // skips 14s quiet acoustic guitar intro to drop on Diplo's beat
-      activeOutroSec: 168.0, // Exact target trigger timestamp: 2:48 (168s)
-      targetOutroSec: 168.0,
+      outroOffsetSec: 0.0,
+      activeOutroSec: 150.0, // Mulai tepat di menit 2:30 pada Ain't In LA
+      targetOutroSec: 150.0,
+      introOffsetSec: 33.0, // Mulai tepat di menit 0:33 pada Close To Me sampai 1:01
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
       keyA: metaA.key,
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 8 Bars Mashup Blend dengan Bass Swap di Bar 4➔5 dan Pink S-Curve HPF. Outro di-cue pada 2:48 & intro langsung pada beat drop +14s.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:30, Close To Me mulai di 0:33 sampai 1:01. Di tengah (Bar 8➔9), Ain\'t In LA di-fade halus agar Close To Me mendominasi, ditambah Bass Swap & Pink S-Curve HPF.',
     };
   }
 
@@ -1162,14 +1170,16 @@ export class TransitionAuditionMixer {
       Math.min(actualOutDur - 2, actualOutDur - (this.leadInSec + overlapSec) + (isOutPreview30s && Math.abs(outroOffset) > 5 ? 0 : outroOffset))
     );
 
-    // If incoming audio is a 30s preview (which typically starts near the energy intro/chorus at ~0:12),
+    // If incoming audio is a 30s preview (which typically starts near the energy intro/chorus at ~0:12..0:33),
     // an introOffsetSec >= 10 is designed for the full 3-minute YouTube track to skip acoustic guitar.
-    // In the 30s preview, map it to the preview's beat onset (2.0s) so both preview and player drop on the exact same beat!
+    // In the 30s preview, map it to the preview's chorus onset (0.0s for 33s chorus drop, 2.0s for 14s drop)
     const isInPreview30s = Boolean(
       (this.elIn && Number.isFinite(this.elIn.duration) && this.elIn.duration <= 35) ||
       outDurationEstimate <= 35
     );
-    this.inStartCueSec = isInPreview30s && introOffset >= 10 ? 2.0 : Math.max(0, introOffset);
+    this.inStartCueSec = isInPreview30s
+      ? (introOffset >= 25 ? 0.0 : (introOffset >= 10 ? 2.0 : 0.0))
+      : Math.max(0, introOffset);
 
     if (this.elOut) {
       try {
