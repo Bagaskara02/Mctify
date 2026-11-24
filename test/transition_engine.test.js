@@ -212,6 +212,27 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(upgradedCfg.introOffsetSec, 34.0, 'Outdated 0s intro cache should auto-upgrade to 34.0s');
     assert.equal(upgradedCfg.activeOutroSec, 152.5, 'Outdated 168s outro cache should auto-upgrade to 152.5s');
 
+    // Verify corrupted global settings containing 154s or 2:34 are automatically purged
+    global.localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify({
+      activeOutroSec: 154,
+      targetOutroSec: 154,
+      introOffsetSec: 34,
+      volume: 'mashup',
+    }));
+    const sanitizedGlobal = storageService.getTransitionSettings();
+    assert.equal(sanitizedGlobal.activeOutroSec, null, 'Global settings must purge activeOutroSec');
+    assert.equal(sanitizedGlobal.targetOutroSec, null, 'Global settings must purge targetOutroSec');
+    assert.equal(sanitizedGlobal.introOffsetSec, 0, 'Global settings must purge introOffsetSec');
+    assert.equal(sanitizedGlobal.volume, 'crossfade', 'Global settings must sanitize mashup volume to crossfade');
+
+    const genericPairAfterCorrupted = storageService.getTransitionForPair(
+      { title: 'In the End', artist: 'Linkin Park' },
+      { title: 'Numb', artist: 'Linkin Park' }
+    );
+    assert.equal(genericPairAfterCorrupted.activeOutroSec, null, 'Generic pair must have null activeOutroSec even if localStorage had 154');
+    assert.equal(genericPairAfterCorrupted.introOffsetSec, 0, 'Generic pair must have 0 introOffsetSec even if localStorage had 34');
+    assert.equal(genericPairAfterCorrupted.volume, 'crossfade');
+
     // Verify Spotify Mix 3-curve automation envelope
     // 1. Crossover volume curve: Ain't In LA and Close To Me both stay at 100% full power (no volume fade)
     const envBar1 = evaluateTransitionEnvelope(0.1, preset);

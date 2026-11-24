@@ -594,7 +594,20 @@ export const storageService = {
         if (parsed.volume === 'mashup') {
           parsed.volume = 'crossfade';
         }
-        return { ...defaults, ...parsed };
+        // GLOBAL settings must NEVER contain song-specific timestamps (e.g. 154, 152.5, 34.0)
+        delete parsed.activeOutroSec;
+        delete parsed.targetOutroSec;
+        delete parsed.introOffsetSec;
+        try {
+          localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify(parsed));
+        } catch (_) {}
+        return {
+          ...defaults,
+          ...parsed,
+          activeOutroSec: null,
+          targetOutroSec: null,
+          introOffsetSec: 0,
+        };
       }
       return defaults;
     } catch {
@@ -606,6 +619,9 @@ export const storageService = {
     try {
       const current = this.getTransitionSettings();
       const merged = { ...current, ...settings };
+      delete merged.activeOutroSec;
+      delete merged.targetOutroSec;
+      delete merged.introOffsetSec;
       localStorage.setItem('mcmusic_transition_settings_v1', JSON.stringify(merged));
       return merged;
     } catch (e) {
@@ -658,6 +674,19 @@ export const storageService = {
                 return { ...base, ...smart, isCustomPair: false, isSmartPreset: true };
               }
             }
+            if (!isAintInLaToCloseToMe) {
+              return {
+                ...base,
+                ...saved,
+                activeOutroSec: null,
+                targetOutroSec: null,
+                introOffsetSec: 0,
+                volume: saved?.volume === 'mashup' ? 'crossfade' : (saved?.volume || 'crossfade'),
+                eq: saved?.eq === 'bass_swap' ? 'none' : (saved?.eq || 'none'),
+                effect: saved?.effect === 'high_pass' ? 'none' : (saved?.effect || 'none'),
+                isCustomPair: true,
+              };
+            }
             return { ...base, ...saved, isCustomPair: true };
           }
         }
@@ -683,21 +712,42 @@ export const storageService = {
   },
 
   saveTransitionForPair(outgoingTrack, incomingTrack, settings) {
+    const isAintInLaToCloseToMe =
+      Boolean(outgoingTrack && incomingTrack) &&
+      /ain'?t in la/i.test(outgoingTrack?.title || '') &&
+      /close to me/i.test(incomingTrack?.title || '');
+
     const cleanSettings = {
-      bars: settings.bars || '2 bars',
+      bars: isAintInLaToCloseToMe ? (settings.bars || '16 bars') : (settings.bars || '2 bars'),
       durationSec: Number(settings.durationSec) || 5.5,
-      volume: settings.volume || 'crossfade',
-      eq: settings.eq || 'none',
-      effect: settings.effect || 'none',
-      tempoSync: settings.tempoSync !== false,
+      volume: isAintInLaToCloseToMe
+        ? (settings.volume || 'mashup')
+        : (settings.volume === 'mashup' ? 'crossfade' : (settings.volume || 'crossfade')),
+      eq: isAintInLaToCloseToMe
+        ? (settings.eq || 'bass_swap')
+        : (settings.eq === 'bass_swap' ? 'none' : (settings.eq || 'none')),
+      effect: isAintInLaToCloseToMe
+        ? (settings.effect || 'high_pass')
+        : (settings.effect === 'high_pass' ? 'none' : (settings.effect || 'none')),
+      tempoSync: isAintInLaToCloseToMe ? true : (settings.tempoSync !== false),
       outroOffsetSec: Number(settings.outroOffsetSec) || 0,
-      introOffsetSec: Number(settings.introOffsetSec) || 0,
-      activeOutroSec: typeof settings.activeOutroSec === 'number' ? settings.activeOutroSec : null,
-      targetOutroSec: typeof settings.targetOutroSec === 'number' ? settings.targetOutroSec : null,
+      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : 0,
+      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
+      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
       enabled: settings.enabled !== false,
       updatedAt: Date.now(),
     };
-    this.saveTransitionSettings(cleanSettings);
+    if (!isAintInLaToCloseToMe) {
+      this.saveTransitionSettings({
+        bars: cleanSettings.bars,
+        durationSec: cleanSettings.durationSec,
+        volume: cleanSettings.volume,
+        eq: cleanSettings.eq,
+        effect: cleanSettings.effect,
+        tempoSync: cleanSettings.tempoSync,
+        enabled: cleanSettings.enabled,
+      });
+    }
     const pairKey = this._makeTransitionPairKey(outgoingTrack, incomingTrack);
     if (!pairKey) return cleanSettings;
     try {

@@ -206,17 +206,19 @@ export default function SpotifyTransitionModal({
 
   // Derived cue seconds for UI display & auditioning
   const currentOutroCueSec = useMemo(() => {
-    if (isAintInLaToCloseToMe) return 152.5;
-    if (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0) {
-      return settings.activeOutroSec;
+    if (isAintInLaToCloseToMe) {
+      return typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0 ? settings.activeOutroSec : 152.5;
     }
+    // For all other songs, cue strictly at the natural end of the song
     const base = (outgoing.duration || 185) - barStats.durationSec;
     return Math.max(0, base + (Number(settings.outroOffsetSec) || 0));
   }, [isAintInLaToCloseToMe, settings.activeOutroSec, settings.outroOffsetSec, outgoing.duration, barStats.durationSec]);
 
   const currentIntroCueSec = useMemo(() => {
-    if (isAintInLaToCloseToMe) return 34.0;
-    return Math.max(0, Number(settings.introOffsetSec) || 0);
+    if (isAintInLaToCloseToMe) {
+      return typeof settings.introOffsetSec === 'number' && settings.introOffsetSec > 0 ? settings.introOffsetSec : 34.0;
+    }
+    return 0;
   }, [isAintInLaToCloseToMe, settings.introOffsetSec]);
 
   const currentIntroEndSec = useMemo(() => {
@@ -274,17 +276,9 @@ export default function SpotifyTransitionModal({
 
       const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, effectiveBars);
 
-      const effectiveOutroSec = isAintInLaToCloseToMe
-        ? 152.5
-        : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
-            ? pairCfg.activeOutroSec
-            : null);
-
-      const effectiveIntroSec = isAintInLaToCloseToMe
-        ? 34.0
-        : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
-            ? pairCfg.introOffsetSec
-            : 0);
+      // Explicit cue timestamps are STRICTLY reserved for the curated Ain't In LA -> Close To Me pair
+      const effectiveOutroSec = isAintInLaToCloseToMe ? 152.5 : null;
+      const effectiveIntroSec = isAintInLaToCloseToMe ? 34.0 : 0;
 
       setSettings({
         ...pairCfg,
@@ -701,15 +695,9 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe
-        ? 152.5
-        : (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0 ? settings.activeOutroSec : null),
-      targetOutroSec: isAintInLaToCloseToMe
-        ? 152.5
-        : (typeof settings.targetOutroSec === 'number' && settings.targetOutroSec > 0 ? settings.targetOutroSec : null),
-      introOffsetSec: isAintInLaToCloseToMe
-        ? 34.0
-        : (typeof settings.introOffsetSec === 'number' && settings.introOffsetSec > 0 ? settings.introOffsetSec : 0),
+      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
+      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
+      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : 0,
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -726,15 +714,9 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe
-        ? 152.5
-        : (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0 ? settings.activeOutroSec : null),
-      targetOutroSec: isAintInLaToCloseToMe
-        ? 152.5
-        : (typeof settings.targetOutroSec === 'number' && settings.targetOutroSec > 0 ? settings.targetOutroSec : null),
-      introOffsetSec: isAintInLaToCloseToMe
-        ? 34.0
-        : (typeof settings.introOffsetSec === 'number' && settings.introOffsetSec > 0 ? settings.introOffsetSec : 0),
+      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
+      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : null,
+      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : 0,
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -1379,16 +1361,21 @@ export default function SpotifyTransitionModal({
                   <button
                     onClick={() =>
                       setSettings((p) => {
-                        const cur =
-                          typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0
-                            ? p.activeOutroSec
-                            : Math.max(0, (outgoing.duration || 185) - barStats.durationSec + (Number(p.outroOffsetSec) || 0));
-                        const nxt = Math.max(5, cur - 2);
+                        if (isAintInLaToCloseToMe) {
+                          const cur = typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0 ? p.activeOutroSec : 152.5;
+                          const nxt = Math.max(5, cur - 2);
+                          return {
+                            ...p,
+                            activeOutroSec: nxt,
+                            targetOutroSec: nxt,
+                          };
+                        }
+                        const cur = Number(p.outroOffsetSec) || 0;
                         return {
                           ...p,
-                          activeOutroSec: nxt,
-                          targetOutroSec: nxt,
-                          outroOffsetSec: Number((nxt - ((outgoing.duration || 185) - barStats.durationSec)).toFixed(1)),
+                          outroOffsetSec: Number((cur - 2).toFixed(1)),
+                          activeOutroSec: null,
+                          targetOutroSec: null,
                         };
                       })
                     }
@@ -1402,16 +1389,21 @@ export default function SpotifyTransitionModal({
                   <button
                     onClick={() =>
                       setSettings((p) => {
-                        const cur =
-                          typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0
-                            ? p.activeOutroSec
-                            : Math.max(0, (outgoing.duration || 185) - barStats.durationSec + (Number(p.outroOffsetSec) || 0));
-                        const nxt = Math.min((outgoing.duration || 185) - 2, cur + 2);
+                        if (isAintInLaToCloseToMe) {
+                          const cur = typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0 ? p.activeOutroSec : 152.5;
+                          const nxt = Math.min((outgoing.duration || 185) - 2, cur + 2);
+                          return {
+                            ...p,
+                            activeOutroSec: nxt,
+                            targetOutroSec: nxt,
+                          };
+                        }
+                        const cur = Number(p.outroOffsetSec) || 0;
                         return {
                           ...p,
-                          activeOutroSec: nxt,
-                          targetOutroSec: nxt,
-                          outroOffsetSec: Number((nxt - ((outgoing.duration || 185) - barStats.durationSec)).toFixed(1)),
+                          outroOffsetSec: Number((cur + 2).toFixed(1)),
+                          activeOutroSec: null,
+                          targetOutroSec: null,
                         };
                       })
                     }
@@ -1426,12 +1418,14 @@ export default function SpotifyTransitionModal({
                   <button
                     onClick={() =>
                       setSettings((p) => {
-                        const cur = Math.max(0, Number(p.introOffsetSec) || 0);
+                        if (!isAintInLaToCloseToMe) return p;
+                        const cur = typeof p.introOffsetSec === 'number' && p.introOffsetSec > 0 ? p.introOffsetSec : 34.0;
                         const nxt = Math.max(0, cur - 2);
                         return { ...p, introOffsetSec: nxt };
                       })
                     }
-                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
+                    disabled={!isAintInLaToCloseToMe}
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform disabled:opacity-30 disabled:pointer-events-none"
                   >
                     -2s
                   </button>
@@ -1441,11 +1435,14 @@ export default function SpotifyTransitionModal({
                   <button
                     onClick={() =>
                       setSettings((p) => {
-                        const cur = Math.max(0, Number(p.introOffsetSec) || 0);
+                        if (!isAintInLaToCloseToMe) return p;
+                        const cur = typeof p.introOffsetSec === 'number' && p.introOffsetSec > 0 ? p.introOffsetSec : 34.0;
                         const nxt = Math.min((incoming.duration || 180) - 5, cur + 2);
                         return { ...p, introOffsetSec: nxt };
                       })
                     }
+                    disabled={!isAintInLaToCloseToMe}
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform disabled:opacity-30 disabled:pointer-events-none"
                     className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
                   >
                     +2s

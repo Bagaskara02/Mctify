@@ -1439,17 +1439,9 @@ export default function App() {
 
     const barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, effectiveBars);
 
-    const resolvedIntroOffsetSec = isAintInLaToCloseToMe
-      ? 34.0
-      : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
-          ? pairCfg.introOffsetSec
-          : 0);
-
-    const resolvedActiveOutroSec = isAintInLaToCloseToMe
-      ? 152.5
-      : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
-          ? pairCfg.activeOutroSec
-          : null);
+    // Explicit cue timestamps are STRICTLY reserved for the curated Ain't In LA -> Close To Me pair
+    const resolvedIntroOffsetSec = isAintInLaToCloseToMe ? 34.0 : 0;
+    const resolvedActiveOutroSec = isAintInLaToCloseToMe ? 152.5 : null;
 
     return {
       ...pairCfg,
