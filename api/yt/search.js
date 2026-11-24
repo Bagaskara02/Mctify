@@ -49,7 +49,7 @@ const getBestThumbnail = (item) => {
 
 export default async function handler(req, res) {
   if (!applyApiSecurity(req, res)) return;
-  res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 
   try {
     const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
@@ -151,13 +151,16 @@ export default async function handler(req, res) {
             score += 2500; // Exact match to clean title (e.g. "no promises (feat. demi lovato)" matches "no promises")
           } else if (cleanNormTitle.startsWith(targetTitle)) {
             score += 1400;
-          } else if (normTitle.includes(targetTitle)) {
+          } else if (normTitle.includes(targetTitle) || (!rawTitle && combined.includes(targetTitle))) {
             score += 800;
           } else {
-            const coreTokens = targetTitle.split(' ').filter(w => w.length > 2);
-            const matched = coreTokens.filter(tok => normTitle.includes(tok)).length;
+            const coreTokens = targetTitle.split(' ').filter(w => w.length > 1);
+            const searchPool = rawTitle ? normTitle : combined;
+            const matched = coreTokens.filter(tok => searchPool.includes(tok)).length;
             if (coreTokens.length > 0 && matched === coreTokens.length) {
-              score += 500;
+              score += 800;
+            } else if (coreTokens.length > 0 && matched / coreTokens.length >= 0.5) {
+              score += 200;
             } else {
               score -= 3000; // WRONG SONG for specific title resolution!
             }

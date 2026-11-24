@@ -248,7 +248,7 @@ export default async function handler(req, res) {
     const suggestions = cleanSuggestions(sugSections, qLower);
 
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     return res.end(JSON.stringify({ songs, artists, albums, suggestions }));
   } catch (e) {
     return sendSafeError(res, 500, 'Gagal mencari katalog musik', e);
