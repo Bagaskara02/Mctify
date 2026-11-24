@@ -35,7 +35,7 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
   { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 154.0, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
-  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 33.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
+  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 34.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
 export const TRANSITION_BAR_OPTIONS = [
@@ -470,7 +470,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     const finalStats = computeBarDurationSec(metaA.bpm, metaB.bpm, bars);
     return {
       bars,
-      durationSec: finalStats.durationSec, // 27.6s (0:33 -> 1:00.6 / 1:01)
+      durationSec: finalStats.durationSec, // 27.6s (0:34 -> 1:01.6 / 1:02)
       beats: finalStats.beats,
       volume: 'mashup',
       eq: 'bass_swap',
@@ -479,14 +479,14 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       outroOffsetSec: 0.0,
       activeOutroSec: 154.0, // Mulai tepat di menit 2:34 pada Ain't In LA
       targetOutroSec: 154.0,
-      introOffsetSec: 33.0, // Mulai tepat di menit 0:33 pada Close To Me sampai 1:01
+      introOffsetSec: 34.0, // Mulai tepat di menit 0:34 pada Close To Me sampai 1:02
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
       keyA: metaA.key,
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:34, Close To Me mulai di 0:33 sampai 1:01. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:34, Close To Me mulai di 0:34 sampai 1:02. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
     };
   }
 

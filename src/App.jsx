@@ -1440,7 +1440,7 @@ export default function App() {
     const barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, effectiveBars);
 
     const resolvedIntroOffsetSec = isAintInLaToCloseToMe
-      ? 33.0
+      ? 34.0
       : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
           ? pairCfg.introOffsetSec
           : (metaB.introDropSec ?? (Number(pairCfg.introOffsetSec) || 0)));
