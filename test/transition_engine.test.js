@@ -154,10 +154,10 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const metaB = computeTrackBpmAndKey(trackB);
     assert.equal(metaA.bpm, 139, 'Ain\'t In LA studio BPM should be 139');
     assert.equal(metaA.key, '12B', 'Ain\'t In LA Camelot key should be 12B');
-    assert.equal(metaA.activeOutroSec, 152.5, 'Ain\'t In LA active outro must cue at 152.5s (2:32.5)');
+    assert.equal(metaA.activeOutroSec, undefined, 'Ain\'t In LA alone must not carry activeOutroSec so it never bleeds to other tracks');
     assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
     assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
-    assert.equal(metaB.introDropSec, 34.0, 'Close To Me chorus drop cues at 34s (0:34)');
+    assert.equal(metaB.introDropSec, undefined, 'Close To Me alone must not carry introDropSec so it never bleeds to other tracks');
 
     const preset = computeSmartAutomixPreset(trackA, trackB);
     assert.equal(preset.bars, '16 bars');
@@ -165,16 +165,31 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(preset.eq, 'bass_swap');
     assert.equal(preset.effect, 'high_pass');
     assert.equal(preset.tempoSync, true);
-    assert.equal(preset.introOffsetSec, 34.0, 'Must cue Close To Me at its 34.0s chorus drop');
-    assert.equal(preset.activeOutroSec, 152.5, 'Must cue Ain\'t In LA at 2:32.5 (152.5s)');
+    assert.equal(preset.introOffsetSec, 34.0, 'Must cue Close To Me at its 34.0s chorus drop strictly for this pair');
+    assert.equal(preset.activeOutroSec, 152.5, 'Must cue Ain\'t In LA at 2:32.5 (152.5s) strictly for this pair');
     assert.ok(preset.durationSec >= 27.0 && preset.durationSec <= 28.5, '16 bars at 139 BPM should be ~27.6s (0:34 to 1:02)');
 
-    // Verify storageService automatically resolves the TikTok Smart Automix blueprint
+    // Verify other track pairs NEVER inherit the 2:32.5 / 0:34 cues or 16-bar mashup
+    const genericPair1 = computeSmartAutomixPreset(trackA, { title: 'Numb', artist: 'Linkin Park' });
+    assert.equal(genericPair1.activeOutroSec, undefined, 'Ain\'t In LA -> Numb must NOT cut off at 2:32.5');
+    assert.equal(genericPair1.introOffsetSec, 0, 'Numb must start at 0:00');
+    assert.notEqual(genericPair1.bars, '16 bars', 'Generic pair must not force 16 bars');
+
+    const genericPair2 = computeSmartAutomixPreset({ title: 'Starboy', artist: 'The Weeknd' }, trackB);
+    assert.equal(genericPair2.activeOutroSec, undefined, 'Starboy -> Close To Me must NOT have early activeOutroSec');
+    assert.equal(genericPair2.introOffsetSec, 0, 'Close To Me must NOT skip to 0:34 when paired with Starboy');
+    assert.notEqual(genericPair2.bars, '16 bars', 'Generic pair must not force 16 bars');
+
+    // Verify storageService automatically resolves the TikTok Smart Automix blueprint strictly for the target pair
     const autoPairCfg = storageService.getTransitionForPair(trackA, trackB);
     assert.equal(autoPairCfg.bars, '16 bars');
     assert.equal(autoPairCfg.volume, 'mashup');
     assert.equal(autoPairCfg.introOffsetSec, 34.0);
     assert.equal(autoPairCfg.activeOutroSec, 152.5);
+
+    const autoOtherCfg = storageService.getTransitionForPair(trackA, { title: 'Numb', artist: 'Linkin Park' });
+    assert.equal(autoOtherCfg.activeOutroSec, undefined, 'storageService must not assign activeOutroSec to other pairs');
+    assert.equal(autoOtherCfg.introOffsetSec, 0, 'storageService must keep introOffsetSec at 0 for other pairs');
 
     // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
     const pairKey = storageService._makeTransitionPairKey(trackA, trackB);

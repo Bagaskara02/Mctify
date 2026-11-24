@@ -1429,8 +1429,8 @@ export default function App() {
 
     const isAintInLaToCloseToMe =
       Boolean(currentTrack && nextQueuedTrack) &&
-      ((/ain'?t in la/i.test(currentTrack?.title || '') && /close to me/i.test(nextQueuedTrack?.title || '')) ||
-       (/close to me/i.test(currentTrack?.title || '') && /ain'?t in la/i.test(nextQueuedTrack?.title || '')));
+      /ain'?t in la/i.test(currentTrack?.title || '') &&
+      /close to me/i.test(nextQueuedTrack?.title || '');
 
     const effectiveBars =
       isAintInLaToCloseToMe && (!pairCfg?.bars || pairCfg.bars === '2 bars' || pairCfg.bars === '8 bars')
@@ -1443,13 +1443,13 @@ export default function App() {
       ? 34.0
       : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
           ? pairCfg.introOffsetSec
-          : (metaB.introDropSec ?? (Number(pairCfg.introOffsetSec) || 0)));
+          : 0);
 
     const resolvedActiveOutroSec = isAintInLaToCloseToMe
       ? 152.5
       : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
           ? pairCfg.activeOutroSec
-          : (metaA.activeOutroSec ?? null));
+          : null);
 
     return {
       ...pairCfg,

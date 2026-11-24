@@ -629,8 +629,8 @@ export const storageService = {
 
     const isAintInLaToCloseToMe =
       Boolean(outgoingTrack && incomingTrack) &&
-      ((/ain'?t in la/i.test(outgoingTrack?.title || '') && /close to me/i.test(incomingTrack?.title || '')) ||
-       (/close to me/i.test(outgoingTrack?.title || '') && /ain'?t in la/i.test(incomingTrack?.title || '')));
+      /ain'?t in la/i.test(outgoingTrack?.title || '') &&
+      /close to me/i.test(incomingTrack?.title || '');
 
     if (pairKey) {
       try {

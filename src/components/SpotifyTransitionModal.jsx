@@ -199,8 +199,8 @@ export default function SpotifyTransitionModal({
   const isAintInLaToCloseToMe = useMemo(() => {
     return (
       Boolean(outgoing && incoming) &&
-      ((/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
-       (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || '')))
+      /ain'?t in la/i.test(outgoing?.title || '') &&
+      /close to me/i.test(incoming?.title || '')
     );
   }, [outgoing.title, incoming.title]);
 
@@ -278,13 +278,13 @@ export default function SpotifyTransitionModal({
         ? 152.5
         : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
             ? pairCfg.activeOutroSec
-            : (outgoing.activeOutroSec || null));
+            : null);
 
       const effectiveIntroSec = isAintInLaToCloseToMe
         ? 34.0
         : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
             ? pairCfg.introOffsetSec
-            : (incoming.introDropSec || 0));
+            : 0);
 
       setSettings({
         ...pairCfg,
@@ -677,8 +677,8 @@ export default function SpotifyTransitionModal({
       eq: smart.eq,
       effect: smart.effect,
       tempoSync: smart.tempoSync,
-      activeOutroSec: smart.activeOutroSec ?? outgoing.activeOutroSec ?? null,
-      targetOutroSec: smart.targetOutroSec ?? outgoing.activeOutroSec ?? null,
+      activeOutroSec: smart.activeOutroSec ?? null,
+      targetOutroSec: smart.targetOutroSec ?? null,
       introOffsetSec: autoIntroOffset,
       outroOffsetSec: autoOutroOffset,
     };
@@ -701,9 +701,15 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
-      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
-      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
+      activeOutroSec: isAintInLaToCloseToMe
+        ? 152.5
+        : (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0 ? settings.activeOutroSec : null),
+      targetOutroSec: isAintInLaToCloseToMe
+        ? 152.5
+        : (typeof settings.targetOutroSec === 'number' && settings.targetOutroSec > 0 ? settings.targetOutroSec : null),
+      introOffsetSec: isAintInLaToCloseToMe
+        ? 34.0
+        : (typeof settings.introOffsetSec === 'number' && settings.introOffsetSec > 0 ? settings.introOffsetSec : 0),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -720,9 +726,15 @@ export default function SpotifyTransitionModal({
     const finalSettings = {
       ...settings,
       durationSec: barStats.durationSec,
-      activeOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.activeOutroSec ?? (outgoing.activeOutroSec || null)),
-      targetOutroSec: isAintInLaToCloseToMe ? 152.5 : (settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null)),
-      introOffsetSec: isAintInLaToCloseToMe ? 34.0 : (typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0)),
+      activeOutroSec: isAintInLaToCloseToMe
+        ? 152.5
+        : (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0 ? settings.activeOutroSec : null),
+      targetOutroSec: isAintInLaToCloseToMe
+        ? 152.5
+        : (typeof settings.targetOutroSec === 'number' && settings.targetOutroSec > 0 ? settings.targetOutroSec : null),
+      introOffsetSec: isAintInLaToCloseToMe
+        ? 34.0
+        : (typeof settings.introOffsetSec === 'number' && settings.introOffsetSec > 0 ? settings.introOffsetSec : 0),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);

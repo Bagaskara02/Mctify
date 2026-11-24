@@ -34,8 +34,8 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /sanctuary/i, bpm: 84, key: '11B' },
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
-  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 152.5, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
-  { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 34.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
+  { match: /ain'?t in la/i, bpm: 139, key: '12B', totalDurSec: 185, videoId: '0ijm2Xui5N8' },
+  { match: /close to me/i, bpm: 72, key: '12B', totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
 export const TRANSITION_BAR_OPTIONS = [
@@ -465,9 +465,11 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
   const deltaBpm = barStats2.deltaBpm;
 
   // Specific Curated Reference Blueprint: ADÉLA - Ain't In LA ➔ Ellie Goulding - Close To Me (from TikTok @rollingwithlana)
+  // Strictly directional: Only when Ain't In LA transitions into Close To Me
   const isAintInLaToCloseToMe =
-    (/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
-    (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || ''));
+    Boolean(outgoing && incoming) &&
+    /ain'?t in la/i.test(outgoing?.title || '') &&
+    /close to me/i.test(incoming?.title || '');
 
   if (isAintInLaToCloseToMe) {
     const bars = '16 bars';
@@ -509,7 +511,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     eq = 'bass_swap';
     effect = 'high_pass';
     tempoSync = true;
-    introOffsetSec = metaB.introDropSec || 0;
+    introOffsetSec = 0;
     explanation = `Harmoni & Tempo Sempurna (${metaA.bpm} → ${metaB.bpm} BPM, ${metaA.key} → ${metaB.key} • ${compat.label}). Menggunakan Mashup Blend 8 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '8 bars').durationSec}s) dengan Bass Swap & High-Pass Filter agar beat dan vokal menyatu seperti remix DJ.`;
   } else if (deltaBpm <= 10) {
     bars = '4 bars';
@@ -517,7 +519,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
     eq = compat.score >= 80 ? 'bass_swap' : 'smooth_blend';
     effect = compat.score >= 80 ? 'high_pass' : 'echo_fade';
     tempoSync = true;
-    introOffsetSec = metaB.introDropSec || 0;
+    introOffsetSec = 0;
     explanation = `Beatmatch Mashup (${metaA.bpm} → ${metaB.bpm} BPM, selisih ${deltaBpm} BPM • ${compat.label}). Menggunakan ${volume === 'mashup' ? 'Mashup Blend' : 'Overlap'} 4 Bars (${computeBarDurationSec(metaA.bpm, metaB.bpm, '4 bars').durationSec}s) dengan Tempo Sync aktif & ${effect === 'high_pass' ? 'High-Pass Sweep' : 'Tempo Echo Fade'}.`;
   } else if (deltaBpm <= 20) {
     bars = '2 bars';
