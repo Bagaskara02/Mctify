@@ -202,7 +202,7 @@ export default async function handler(req, res) {
               item.flex_columns?.[1]?.title?.runs?.map(r => r.text).join('') ||
               item.flex_columns?.[1]?.title?.text ||
               '';
-            const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+            let { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
             const durationSec = item.duration?.seconds ||
               parseDurationText(item.duration?.text) ||
               parseDurationText(item.fixed_columns?.[0]?.title?.text) ||
@@ -216,12 +216,21 @@ export default async function handler(req, res) {
                 const searchRes = await yt.music.search(`${rawTitle} ${rawArtist}`.trim(), { type: 'song' });
                 const candidates = searchRes.songs?.contents || searchRes.results || [];
                 const targetTitleClean = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
+                const artistTokens = rawArtist.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 2);
+
                 for (const cand of candidates) {
                   const candTitle = (typeof cand.title === 'string' ? cand.title : (cand.title?.text || '')).toLowerCase();
+                  const candArtist = (cand.artists?.[0]?.name || cand.author?.name || '').toLowerCase();
                   const candClean = candTitle.replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
                   const isRemix = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(candTitle);
-                  if (candClean === targetTitleClean && !isRemix && isValidVideoId(cand.id)) {
+                  const matchesArtist = artistTokens.length === 0 || artistTokens.some(tok => candArtist.includes(tok) || candTitle.includes(tok));
+
+                  if (candClean === targetTitleClean && matchesArtist && !isRemix && isValidVideoId(cand.id)) {
                     videoId = cand.id;
+                    const pickedTitle = typeof cand.title === 'string' ? cand.title : (cand.title?.text || '');
+                    const pickedArtist = cand.artists?.map((a) => a.name).filter(Boolean).join(', ') || cand.author?.name || '';
+                    if (pickedTitle) title = pickedTitle;
+                    if (pickedArtist) artist = pickedArtist;
                     break;
                   }
                 }
