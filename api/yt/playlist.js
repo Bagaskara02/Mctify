@@ -336,11 +336,10 @@ export default async function handler(req, res) {
         (tracks[0].videoId ? `https://i.ytimg.com/vi/${tracks[0].videoId}/hqdefault.jpg` : '');
     }
 
-    const isDynamicMix = playlistId.startsWith('RD') && !playlistId.startsWith('RDCLAK');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader(
       'Cache-Control',
-      isDynamicMix ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
+      'no-store, no-cache, must-revalidate'
     );
     return res.end(
       JSON.stringify({
@@ -350,6 +349,14 @@ export default async function handler(req, res) {
         cover: playlistCover,
         totalTracks: tracks.length,
         tracks,
+        _debug: {
+          musicStatus: musicRes.status,
+          musicError: musicRes.status === 'rejected' ? musicRes.reason?.message : null,
+          musicItemsCount: (musicPl?.items || musicPl?.contents || []).length,
+          stdStatus: stdRes.status,
+          stdError: stdRes.status === 'rejected' ? stdRes.reason?.message : null,
+          stdVideosCount: (stdPl?.videos || []).length,
+        },
       })
     );
   } catch (e) {
