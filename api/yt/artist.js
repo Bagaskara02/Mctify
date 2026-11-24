@@ -10,7 +10,8 @@ let ytPromise = null;
 async function getYT() {
   if (!ytPromise) {
     ytPromise = Innertube.create({
-      location: 'ID',
+      gl: 'ID',
+      hl: 'id',
       enable_session_cache: false,
     });
   }

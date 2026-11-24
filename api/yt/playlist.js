@@ -10,7 +10,8 @@ let ytPromise = null;
 async function getYT() {
   if (!ytPromise) {
     ytPromise = Innertube.create({
-      location: 'ID',
+      gl: 'ID',
+      hl: 'id',
       enable_session_cache: false,
     });
   }
@@ -96,10 +97,12 @@ function scoreCandidate(item, idx, targetTitle, targetArtist, targetDuration = 0
 
   if (targetArtist) {
     const targetTokens = targetArtist.split(/[\s,&]+/).filter(w => w.length > 1);
-    const hasArtistMatch = authorStr.includes(targetArtist) ||
-                           targetArtist.includes(authorStr) ||
-                           combined.includes(targetArtist) ||
-                           (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)));
+    const hasArtistMatch = Boolean(authorStr) && authorStr.trim().length > 1 && (
+      authorStr.includes(targetArtist) ||
+      targetArtist.includes(authorStr) ||
+      combined.includes(targetArtist) ||
+      (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)))
+    );
     if (hasArtistMatch) {
       score += 1500;
     } else {
@@ -185,9 +188,9 @@ async function resolveOriginalTrack(yt, rawTitle, rawArtist, targetDuration = 0)
     }
   } catch (_) {}
 
-  // 2. Fallback to general YouTube search with official audio
+  // 2. Fallback to general YouTube search
   try {
-    const generalRes = await yt.search(`${cleanTitle} ${cleanArtist} official audio`.trim());
+    const generalRes = await yt.search(`${cleanTitle} ${cleanArtist}`.trim(), { type: 'video' });
     const videos = generalRes.videos || [];
     const ranked = videos.map((item, idx) => ({
       item,

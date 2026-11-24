@@ -10,7 +10,8 @@ let ytPromise = null;
 async function getYT() {
   if (!ytPromise) {
     ytPromise = Innertube.create({
-      location: 'ID',
+      gl: 'ID',
+      hl: 'id',
       enable_session_cache: false,
     });
   }
@@ -172,14 +173,16 @@ export default async function handler(req, res) {
 
         // 2. Strict Artist check:
         if (targetArtist) {
-          const targetTokens = targetArtist.split(/\s+/).filter(w => w.length > 1);
-          const hasArtistMatch = authorStr.includes(targetArtist) ||
-                                 targetArtist.includes(authorStr) ||
-                                 combined.includes(targetArtist) ||
-                                 (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)));
+          const targetTokens = targetArtist.split(/[\s,&]+/).filter(w => w.length > 1);
+          const hasArtistMatch = Boolean(authorStr) && authorStr.trim().length > 1 && (
+            authorStr.includes(targetArtist) ||
+            targetArtist.includes(authorStr) ||
+            combined.includes(targetArtist) ||
+            (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)))
+          );
           if (hasArtistMatch) {
-            score += 1200;
-          } else if (rawArtist) {
+            score += 1500;
+          } else {
             score -= 5000; // WRONG ARTIST: Completely disqualifies different artist tracks!
           }
         }
@@ -278,8 +281,8 @@ export default async function handler(req, res) {
     const pickBestPlayable = (items, minScore = (rawTitle || rawArtist) ? 400 : -200) => {
       if (!items || items.length === 0) return null;
       const ranked = rankCandidates(items).filter((entry) => {
-        const id = entry?.item?.id;
-        return id && !excludeIds.has(id);
+        const id = (entry?.item?.id || entry?.item?.content_id || entry?.item?.videoId || '').trim();
+        return isValidVideoId(id) && !excludeIds.has(id);
       });
       if (ranked.length === 0) return null;
       return ranked[0].score >= minScore ? ranked[0].item : null;
@@ -290,50 +293,59 @@ export default async function handler(req, res) {
     const songs = search.songs?.contents || search.results || [];
 
     const best = pickBestPlayable(songs);
-    if (best && best.id) {
-      const durationSec = getDurationSec(best);
-      const titleStr = typeof best.title === 'string' ? best.title : (best.title?.text || '');
-      const artistStr = best.artists?.[0]?.name || best.author?.name || '';
-      const thumbUrl = getBestThumbnail(best);
+    if (best) {
+      const vid = (best.id || best.content_id || best.videoId || '').trim();
+      if (isValidVideoId(vid)) {
+        const durationSec = getDurationSec(best);
+        const titleStr = typeof best.title === 'string' ? best.title : (best.title?.text || '');
+        const artistStr = best.artists?.[0]?.name || best.author?.name || '';
+        const thumbUrl = getBestThumbnail(best);
 
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({
-        videoId: best.id,
-        title: titleStr,
-        artist: artistStr,
-        duration: durationSec,
-        thumbnail: thumbUrl,
-      }));
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({
+          videoId: vid,
+          title: titleStr,
+          artist: artistStr,
+          duration: durationSec,
+          thumbnail: thumbUrl,
+        }));
+      }
     }
 
-    // Fallback 1: general YouTube search with official audio (frequently embeddable when MV/YTM is restricted)
-    const general = await yt.search(`${searchQuery} official audio`).catch(() => ({}));
+    // Fallback 1: general YouTube search with type: video
+    const general = await yt.search(`${searchQuery} official audio`, { type: 'video' }).catch(() => ({}));
     const videos = general.videos || [];
     const video = pickBestPlayable(videos);
-    if (video && video.id) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({
-        videoId: video.id,
-        title: video.title?.text || '',
-        artist: video.author?.name || '',
-        duration: video.duration?.seconds || 180,
-        thumbnail: toHighResUrl(video.thumbnails?.[video.thumbnails.length - 1]?.url || video.thumbnails?.[0]?.url || ''),
-      }));
+    if (video) {
+      const vid = (video.id || video.content_id || video.videoId || '').trim();
+      if (isValidVideoId(vid)) {
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({
+          videoId: vid,
+          title: video.title?.text || (typeof video.title === 'string' ? video.title : ''),
+          artist: video.author?.name || '',
+          duration: video.duration?.seconds || 180,
+          thumbnail: toHighResUrl(video.thumbnails?.[video.thumbnails.length - 1]?.url || video.thumbnails?.[0]?.url || '', vid),
+        }));
+      }
     }
 
     // Fallback 2: general search
-    const generalAny = await yt.search(searchQuery).catch(() => ({}));
+    const generalAny = await yt.search(searchQuery, { type: 'video' }).catch(() => ({}));
     const anyVideos = generalAny.videos || [];
     const anyVideo = pickBestPlayable(anyVideos);
-    if (anyVideo && anyVideo.id) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({
-        videoId: anyVideo.id,
-        title: anyVideo.title?.text || '',
-        artist: anyVideo.author?.name || '',
-        duration: anyVideo.duration?.seconds || 180,
-        thumbnail: toHighResUrl(anyVideo.thumbnails?.[anyVideo.thumbnails.length - 1]?.url || anyVideo.thumbnails?.[0]?.url || ''),
-      }));
+    if (anyVideo) {
+      const vid = (anyVideo.id || anyVideo.content_id || anyVideo.videoId || '').trim();
+      if (isValidVideoId(vid)) {
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({
+          videoId: vid,
+          title: anyVideo.title?.text || (typeof anyVideo.title === 'string' ? anyVideo.title : ''),
+          artist: anyVideo.author?.name || '',
+          duration: anyVideo.duration?.seconds || 180,
+          thumbnail: toHighResUrl(anyVideo.thumbnails?.[anyVideo.thumbnails.length - 1]?.url || anyVideo.thumbnails?.[0]?.url || '', vid),
+        }));
+      }
     }
 
     res.statusCode = 404;
