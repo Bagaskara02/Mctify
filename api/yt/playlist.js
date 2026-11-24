@@ -14,6 +14,47 @@ async function getYT() {
   return ytPromise;
 }
 
+export function toHighResUrl(url, fallbackVideoId = '') {
+  const cleanUrl = typeof url === 'string' ? url.trim() : '';
+  const hasBadPlaceholder =
+    !cleanUrl ||
+    cleanUrl.includes('no_thumbnail') ||
+    cleanUrl.includes('default_playlist');
+
+  if (!hasBadPlaceholder && cleanUrl.includes('googleusercontent.com')) {
+    if (/=w\d+-h\d+/i.test(cleanUrl)) {
+      return cleanUrl.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj');
+    }
+    if (/=s\d+/i.test(cleanUrl)) {
+      return cleanUrl.replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
+    }
+    if (!cleanUrl.includes('=')) {
+      return `${cleanUrl}=w544-h544-l90-rj`;
+    }
+    return cleanUrl;
+  }
+
+  if (isValidVideoId(fallbackVideoId)) {
+    return `https://i.ytimg.com/vi/${fallbackVideoId.trim()}/hqdefault.jpg`;
+  }
+
+  if (!hasBadPlaceholder && cleanUrl.includes('ytimg.com')) {
+    const viMatch = cleanUrl.match(/\/vi(?:_webp)?\/([a-zA-Z0-9_-]{11})\//);
+    if (viMatch) {
+      return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
+    }
+    return cleanUrl
+      .split('?')[0]
+      .replace(
+        /(hqhq720|hq720|maxresdefault|sddefault|mqdefault|hqdefault|default)\.(jpg|webp)/i,
+        'hqdefault.jpg'
+      );
+  }
+
+  if (hasBadPlaceholder) return '';
+  return cleanUrl.startsWith('https://') ? cleanUrl : '';
+}
+
 function scoreCandidate(item, idx, targetTitle, targetArtist, targetDuration = 0) {
   const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
   const normTitle = titleStr.toLowerCase();
@@ -219,47 +260,6 @@ export function parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor = '') {
     title: title || (rawTitle || '').trim(),
     artist: artist || cleanPlaylistAuthor || 'YouTube',
   };
-}
-
-export function toHighResUrl(url, fallbackVideoId = '') {
-  const cleanUrl = typeof url === 'string' ? url.trim() : '';
-  const hasBadPlaceholder =
-    !cleanUrl ||
-    cleanUrl.includes('no_thumbnail') ||
-    cleanUrl.includes('default_playlist');
-
-  if (!hasBadPlaceholder && cleanUrl.includes('googleusercontent.com')) {
-    if (/=w\d+-h\d+/i.test(cleanUrl)) {
-      return cleanUrl.replace(/=w\d+-h\d+[^?#]*/i, '=w544-h544-l90-rj');
-    }
-    if (/=s\d+/i.test(cleanUrl)) {
-      return cleanUrl.replace(/=s\d+[^?#]*/i, '=w544-h544-l90-rj');
-    }
-    if (!cleanUrl.includes('=')) {
-      return `${cleanUrl}=w544-h544-l90-rj`;
-    }
-    return cleanUrl;
-  }
-
-  if (isValidVideoId(fallbackVideoId)) {
-    return `https://i.ytimg.com/vi/${fallbackVideoId.trim()}/hqdefault.jpg`;
-  }
-
-  if (!hasBadPlaceholder && cleanUrl.includes('ytimg.com')) {
-    const viMatch = cleanUrl.match(/\/vi(?:_webp)?\/([a-zA-Z0-9_-]{11})\//);
-    if (viMatch) {
-      return `https://i.ytimg.com/vi/${viMatch[1]}/hqdefault.jpg`;
-    }
-    return cleanUrl
-      .split('?')[0]
-      .replace(
-        /(hqhq720|hq720|maxresdefault|sddefault|mqdefault|hqdefault|default)\.(jpg|webp)/i,
-        'hqdefault.jpg'
-      );
-  }
-
-  if (hasBadPlaceholder) return '';
-  return cleanUrl.startsWith('https://') ? cleanUrl : '';
 }
 
 function isUnavailableTitle(title) {
