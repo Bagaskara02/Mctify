@@ -1,4 +1,5 @@
 import { Innertube } from 'youtubei.js';
+import searchHandler from './search.js';
 import {
   applyApiSecurity,
   isValidVideoId,
@@ -211,59 +212,33 @@ export default async function handler(req, res) {
             let videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || item.overlay?.content?.endpoint?.payload?.videoId || '').trim();
 
             if (!isValidVideoId(videoId)) {
-              // Resolve missing videoId via search when title and artist are present (handles YTM US datacenter masking)
+              // Resolve missing videoId via official search handler (handles YTM US datacenter masking)
               try {
-                const cleanArtist = (rawArtist || '').split('&')[0].split(',')[0].trim();
-                const searchRes = await yt.music.search(`${rawTitle} ${cleanArtist}`.trim(), { type: 'song' });
-                const candidates = searchRes.songs?.contents || searchRes.results || [];
-                const targetTitleClean = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
-                const artistTokens = rawArtist.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 2);
-
-                const ranked = candidates.map((cand, idx) => {
-                  const titleStr = typeof cand.title === 'string' ? cand.title : (cand.title?.text || '');
-                  const normTitle = titleStr.toLowerCase();
-                  const authorStr = (cand.artists?.[0]?.name || cand.author?.name || '').toLowerCase();
-                  let score = 1000;
-
-                  if (idx === 0) score += 1200;
-                  else if (idx === 1) score += 800;
-                  else if (idx < 5) score += 300;
-
-                  const cleanNormTitle = normTitle
-                    .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
-                    .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
-                    .trim();
-
-                  if (cleanNormTitle === targetTitleClean) score += 2500;
-                  else if (cleanNormTitle.startsWith(targetTitleClean)) score += 1200;
-
-                  const hasArtist = artistTokens.length === 0 || artistTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok));
-                  if (hasArtist) {
-                    score += 1500;
-                  } else {
-                    score -= 5000;
-                  }
-
-                  if (/\b(cover|karaoke|instrumental|kidz bop|tribute|parody|slowed|reverb)\b/i.test(`${normTitle} ${authorStr}`)) {
-                    score -= 5000;
-                  }
-
-                  const isRemixOrAlt = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(normTitle) ||
-                                       /\[(eden prince|club edit|radio edit|vip|extended|stripped|ashworth|bassjackers)\]/i.test(titleStr);
-                  if (isRemixOrAlt) score -= 3500;
-
-                  return { cand, score };
-                }).sort((a, b) => b.score - a.score);
-
-                const best = ranked[0]?.cand;
-                if (best && isValidVideoId(best.id) && ranked[0].score > 0) {
-                  videoId = best.id;
-                  const pickedTitle = typeof best.title === 'string' ? best.title : (best.title?.text || '');
-                  const pickedArtist = best.artists?.map((a) => a.name).filter(Boolean).join(', ') || best.author?.name || '';
-                  if (pickedTitle) title = pickedTitle;
-                  if (pickedArtist) artist = pickedArtist;
+                const searchReq = {
+                  url: `/api/yt/search?title=${encodeURIComponent(rawTitle)}&artist=${encodeURIComponent(rawArtist)}&duration=${encodeURIComponent(durationSec)}`,
+                  headers: { host: 'localhost' },
+                  method: 'GET',
+                };
+                let searchResult = null;
+                const searchRes = {
+                  statusCode: 200,
+                  setHeader: () => {},
+                  end: (payload) => {
+                    try {
+                      searchResult = JSON.parse(payload);
+                    } catch (_) {}
+                  },
+                };
+                await searchHandler(searchReq, searchRes);
+                if (searchResult && isValidVideoId(searchResult.videoId)) {
+                  videoId = searchResult.videoId;
+                  if (searchResult.title) title = searchResult.title;
+                  if (searchResult.artist) artist = searchResult.artist;
+                  if (searchResult.duration) durationSec = searchResult.duration;
                 }
-              } catch (_) {}
+              } catch (e) {
+                console.warn('Auto-resolve failed for track:', rawTitle, e?.message);
+              }
             }
 
             if (!isValidVideoId(videoId)) continue;
