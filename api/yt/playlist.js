@@ -360,6 +360,7 @@ export default async function handler(req, res) {
             type: it.type,
             title: typeof it.title === 'string' ? it.title : (it.title?.text || it.title?.toString() || it.metadata?.title?.text),
           })),
+          rawItem0: JSON.stringify(musicPl?.items?.[0] || {}),
           stdStatus: stdRes.status,
           stdError: stdRes.status === 'rejected' ? stdRes.reason?.message : null,
           stdVideosCount: (stdPl?.videos || []).length,
