@@ -95,4 +95,55 @@ test('Playlist and Queue Reordering & Search Match Tests', async (t) => {
       global.fetch = origFetch;
     }
   });
+
+  await t.test('api/yt/search handler prioritizes original Cheat Codes studio version over Eden Prince remix', async () => {
+    const { default: searchHandler } = await import('../api/yt/search.js');
+
+    const runSearch = async (queryString) => {
+      return new Promise((resolve, reject) => {
+        const req = {
+          url: `/api/yt/search?${queryString}`,
+          headers: { host: 'localhost' },
+          method: 'GET',
+        };
+        const res = {
+          statusCode: 200,
+          setHeader: () => {},
+          end: (data) => resolve(JSON.parse(data)),
+        };
+        searchHandler(req, res).catch(reject);
+      });
+    };
+
+    const resWithArtist = await runSearch('title=No%20Promises&artist=Cheat%20Codes');
+    assert.equal(resWithArtist.videoId, '8dwSKcSbvAU');
+    assert.ok(resWithArtist.title.includes('Demi Lovato'));
+    assert.ok(!resWithArtist.title.toLowerCase().includes('eden prince'));
+
+    const resQueryOnly = await runSearch('q=No%20Promises');
+    assert.equal(resQueryOnly.videoId, '8dwSKcSbvAU');
+  });
+
+  await t.test('api/yt/playlist handler retrieves all 11 tracks for PLNpv9qsSPmMZsuHGHJU3qbUAeJue7Xtbk with No Promises as track 1', async () => {
+    const { default: playlistHandler } = await import('../api/yt/playlist.js');
+
+    const result = await new Promise((resolve, reject) => {
+      const req = {
+        url: '/api/yt/playlist?id=PLNpv9qsSPmMZsuHGHJU3qbUAeJue7Xtbk',
+        headers: { host: 'localhost' },
+        method: 'GET',
+      };
+      const res = {
+        statusCode: 200,
+        setHeader: () => {},
+        end: (data) => resolve(JSON.parse(data)),
+      };
+      playlistHandler(req, res).catch(reject);
+    });
+
+    assert.equal(result.totalTracks, 11);
+    assert.equal(result.tracks.length, 11);
+    assert.equal(result.tracks[0].videoId, '8dwSKcSbvAU');
+    assert.ok(result.tracks[0].title.toLowerCase().includes('no promises'));
+  });
 });

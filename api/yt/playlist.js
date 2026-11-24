@@ -142,119 +142,184 @@ export default async function handler(req, res) {
     const seenVideoIds = new Set();
     const MAX_TRACKS = 200;
 
-    // Tier 1: YouTube Music getPlaylist with continuation pagination (up to 200 tracks)
-    try {
-      let current = await yt.music.getPlaylist(playlistId);
-      playlistTitle = current.header?.title?.text || current.header?.title?.toString() || playlistTitle;
-      playlistAuthor =
-        current.header?.author?.name ||
-        current.header?.subtitle?.text ||
-        playlistAuthor;
-      const musicHeaderThumb =
-        current.header?.thumbnail?.contents?.[current.header.thumbnail.contents.length - 1]?.url ||
-        current.header?.thumbnails?.[current.header.thumbnails.length - 1]?.url ||
-        '';
-      playlistCover = toHighResUrl(musicHeaderThumb);
+    // Fetch both YouTube Music & Standard YouTube in parallel to guarantee complete track list
+    // (Standard YouTube has full ordered video list, while YouTube Music provides high-res audio metadata)
+    const [musicRes, stdRes] = await Promise.allSettled([
+      yt.music.getPlaylist(playlistId),
+      yt.getPlaylist(playlistId),
+    ]);
 
-      for (let page = 0; page < 10 && tracks.length < MAX_TRACKS; page++) {
-        const items = current.items || current.contents || [];
-        for (const item of items) {
-          if (tracks.length >= MAX_TRACKS) break;
-          const videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || '').trim();
-          if (!isValidVideoId(videoId) || seenVideoIds.has(videoId)) continue;
+    const musicPl = musicRes.status === 'fulfilled' ? musicRes.value : null;
+    const stdPl = stdRes.status === 'fulfilled' ? stdRes.value : null;
 
-          const rawTitle = typeof item.title === 'string'
-            ? item.title
-            : (item.title?.text || item.title?.runs?.map(r => r.text).join('') || item.title?.toString() || item.metadata?.title?.text || '');
-          if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
-
-          const rawArtist =
-            item.artists?.map((a) => a.name).filter(Boolean).join(', ') ||
-            item.author?.name ||
-            '';
-          const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
-          const durationSec = item.duration?.seconds || parseDurationText(item.duration?.text) || 200;
-          const rawThumb =
-            item.thumbnail?.contents?.[item.thumbnail.contents.length - 1]?.url ||
-            item.thumbnails?.[item.thumbnails.length - 1]?.url ||
-            '';
-
-          seenVideoIds.add(videoId);
-          tracks.push({
-            id: `yt_${videoId}`,
-            videoId,
-            title,
-            artist,
-            album: playlistTitle,
-            duration: durationSec,
-            artwork: toHighResUrl(rawThumb, videoId),
-          });
-        }
-
-        if (!current.has_continuation || tracks.length >= MAX_TRACKS) break;
-        current = await current.getContinuation();
-      }
-    } catch (musicErr) {
-      console.warn('yt.music.getPlaylist fallback triggered:', musicErr?.message);
+    if (!musicPl && !stdPl) {
+      const err = musicRes.status === 'rejected' ? musicRes.reason : stdRes.reason;
+      throw err || new Error('Gagal mengambil playlist dari YouTube');
     }
 
-    // Tier 2: Standard YouTube getPlaylist fallback (supports LockupView & PlaylistVideo + pagination)
-    if (tracks.length === 0) {
-      let pl = await yt.getPlaylist(playlistId);
-      playlistTitle = pl.info?.title || playlistTitle;
-      playlistAuthor = pl.info?.author?.name || playlistAuthor;
-      const rawHeaderThumb =
-        pl.info?.thumbnails && pl.info.thumbnails.length > 0
-          ? pl.info.thumbnails[pl.info.thumbnails.length - 1]?.url || pl.info.thumbnails[0]?.url
-          : '';
-      playlistCover = toHighResUrl(rawHeaderThumb);
+    // Determine playlist metadata (title, author, cover)
+    playlistTitle =
+      musicPl?.header?.title?.text ||
+      musicPl?.header?.title?.toString() ||
+      stdPl?.info?.title ||
+      playlistTitle;
 
-      for (let page = 0; page < 10 && tracks.length < MAX_TRACKS; page++) {
-        const rawVideos = pl.videos || [];
-        for (const v of rawVideos) {
-          if (tracks.length >= MAX_TRACKS) break;
-          const videoId = (v.content_id || v.id || v.videoId || '').trim();
-          if (!isValidVideoId(videoId) || seenVideoIds.has(videoId)) continue;
+    playlistAuthor =
+      musicPl?.header?.author?.name ||
+      musicPl?.header?.subtitle?.text ||
+      stdPl?.info?.author?.name ||
+      playlistAuthor;
 
-          const rawTitle =
-            v.metadata?.title?.text ||
-            v.title?.text ||
-            (typeof v.title === 'string' ? v.title : '') ||
-            '';
-          if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
+    const musicHeaderThumb =
+      musicPl?.header?.thumbnail?.contents?.[musicPl.header.thumbnail.contents.length - 1]?.url ||
+      musicPl?.header?.thumbnails?.[musicPl.header.thumbnails.length - 1]?.url ||
+      '';
+    const stdHeaderThumb =
+      stdPl?.info?.thumbnails && stdPl.info.thumbnails.length > 0
+        ? stdPl.info.thumbnails[stdPl.info.thumbnails.length - 1]?.url || stdPl.info.thumbnails[0]?.url
+        : '';
+    playlistCover = toHighResUrl(musicHeaderThumb || stdHeaderThumb);
 
-          const rawArtist =
-            v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text ||
-            v.author?.name ||
-            '';
-          const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+    // 1. Collect YouTube Music tracks (with continuation up to MAX_TRACKS)
+    const musicTracksMap = new Map();
+    const musicTracksList = [];
+    if (musicPl) {
+      try {
+        let current = musicPl;
+        for (let page = 0; page < 10 && musicTracksList.length < MAX_TRACKS; page++) {
+          const items = current.items || current.contents || [];
+          for (const item of items) {
+            if (musicTracksList.length >= MAX_TRACKS) break;
+            const videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || '').trim();
+            if (!isValidVideoId(videoId)) continue;
 
-          const durationSec =
-            v.duration?.seconds ||
-            parseDurationText(v.duration?.text) ||
-            parseDurationText(v.content_image?.overlays?.[0]?.badges?.[0]?.text) ||
-            200;
+            const rawTitle = typeof item.title === 'string'
+              ? item.title
+              : (item.title?.text || item.title?.runs?.map(r => r.text).join('') || item.title?.toString() || item.metadata?.title?.text || '');
+            if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
 
-          const thumbUrl =
-            v.content_image?.image?.[v.content_image.image.length - 1]?.url ||
-            v.thumbnails?.[v.thumbnails.length - 1]?.url ||
-            v.thumbnails?.[0]?.url ||
-            '';
+            const rawArtist =
+              item.artists?.map((a) => a.name).filter(Boolean).join(', ') ||
+              item.author?.name ||
+              '';
+            const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+            const durationSec = item.duration?.seconds || parseDurationText(item.duration?.text) || 200;
+            const rawThumb =
+              item.thumbnail?.contents?.[item.thumbnail.contents.length - 1]?.url ||
+              item.thumbnails?.[item.thumbnails.length - 1]?.url ||
+              '';
 
-          seenVideoIds.add(videoId);
-          tracks.push({
-            id: `yt_${videoId}`,
-            videoId,
-            title,
-            artist,
-            album: playlistTitle,
-            duration: durationSec,
-            artwork: toHighResUrl(thumbUrl, videoId),
-          });
+            const trackObj = {
+              id: `yt_${videoId}`,
+              videoId,
+              title,
+              artist,
+              album: playlistTitle,
+              duration: durationSec,
+              artwork: toHighResUrl(rawThumb, videoId),
+            };
+
+            if (!musicTracksMap.has(videoId)) {
+              musicTracksMap.set(videoId, trackObj);
+              musicTracksList.push(trackObj);
+            }
+          }
+
+          if (!current.has_continuation || musicTracksList.length >= MAX_TRACKS) break;
+          current = await current.getContinuation();
         }
+      } catch (musicErr) {
+        console.warn('yt.music.getPlaylist pagination notice:', musicErr?.message);
+      }
+    }
 
-        if (!pl.has_continuation || tracks.length >= MAX_TRACKS) break;
-        pl = await pl.getContinuation();
+    // 2. Collect Standard YouTube tracks (authoritative YouTube playlist ordering & LockupView items)
+    const stdTracksList = [];
+    if (stdPl) {
+      try {
+        let pl = stdPl;
+        for (let page = 0; page < 10 && stdTracksList.length < MAX_TRACKS; page++) {
+          const rawVideos = pl.videos || [];
+          for (const v of rawVideos) {
+            if (stdTracksList.length >= MAX_TRACKS) break;
+            const videoId = (v.content_id || v.id || v.videoId || '').trim();
+            if (!isValidVideoId(videoId)) continue;
+
+            const rawTitle =
+              v.metadata?.title?.text ||
+              v.title?.text ||
+              (typeof v.title === 'string' ? v.title : '') ||
+              '';
+            if (!rawTitle || isUnavailableTitle(rawTitle)) continue;
+
+            const rawArtist =
+              v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text ||
+              v.author?.name ||
+              '';
+            const { title, artist } = parseTitleAndArtist(rawTitle, rawArtist, playlistAuthor);
+
+            const durationSec =
+              v.duration?.seconds ||
+              parseDurationText(v.duration?.text) ||
+              parseDurationText(v.content_image?.overlays?.[0]?.badges?.[0]?.text) ||
+              200;
+
+            const thumbUrl =
+              v.content_image?.image?.[v.content_image.image.length - 1]?.url ||
+              v.thumbnails?.[v.thumbnails.length - 1]?.url ||
+              v.thumbnails?.[0]?.url ||
+              '';
+
+            stdTracksList.push({
+              id: `yt_${videoId}`,
+              videoId,
+              title,
+              artist,
+              album: playlistTitle,
+              duration: durationSec,
+              artwork: toHighResUrl(thumbUrl, videoId),
+            });
+          }
+
+          if (!pl.has_continuation || stdTracksList.length >= MAX_TRACKS) break;
+          pl = await pl.getContinuation();
+        }
+      } catch (stdErr) {
+        console.warn('yt.getPlaylist pagination notice:', stdErr?.message);
+      }
+    }
+
+    // 3. Assemble unified playlist:
+    // First iterate standard YouTube tracks (authoritative playlist ordering) and enrich with YTM metadata
+    if (stdTracksList.length > 0) {
+      for (const stdTrack of stdTracksList) {
+        if (tracks.length >= MAX_TRACKS) break;
+        if (seenVideoIds.has(stdTrack.videoId)) continue;
+
+        seenVideoIds.add(stdTrack.videoId);
+        const musicTrack = musicTracksMap.get(stdTrack.videoId);
+        if (musicTrack) {
+          tracks.push({
+            ...stdTrack,
+            title: musicTrack.title || stdTrack.title,
+            artist: musicTrack.artist || stdTrack.artist,
+            artwork: musicTrack.artwork || stdTrack.artwork,
+            duration: musicTrack.duration || stdTrack.duration,
+          });
+        } else {
+          tracks.push(stdTrack);
+        }
+      }
+    }
+
+    // Append any extra tracks found only in YouTube Music
+    if (musicTracksList.length > 0) {
+      for (const mTrack of musicTracksList) {
+        if (tracks.length >= MAX_TRACKS) break;
+        if (seenVideoIds.has(mTrack.videoId)) continue;
+
+        seenVideoIds.add(mTrack.videoId);
+        tracks.push(mTrack);
       }
     }
 

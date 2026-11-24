@@ -142,10 +142,18 @@ function musicBackendPlugin() {
           }
           const yt = await ytPromise;
 
-          // Target duration if provided
+          // Target duration and title/artist if provided
           const targetDuration = parseInt(url.searchParams.get('duration') || '0', 10);
+          const rawTitle = url.searchParams.get('title') || '';
+          const rawArtist = url.searchParams.get('artist') || '';
+          const qLower = q.toLowerCase();
+          const cleanTargetTitle = (rawTitle || qLower)
+            .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+            .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
+            .trim();
+
           const unwantedKeywords = ['brooklyn session', 'session', 'live', 'acoustic', 'remix', '10 years', 'tribute', 'karaoke', 'terjemahan', 'cover'];
-          const activeUnwanted = unwantedKeywords.filter(kw => !q.toLowerCase().includes(kw));
+          const activeUnwanted = unwantedKeywords.filter(kw => !qLower.includes(kw));
 
           // Helper to parse duration
           const getDurationSec = (item) => {
@@ -159,10 +167,40 @@ function musicBackendPlugin() {
 
           // Helper to rank song candidates
           const rankCandidates = (items) => {
-            return items.map(item => {
+            return items.map((item, idx) => {
               const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
               const normTitle = titleStr.toLowerCase();
+              const authorStr = (item.artists?.[0]?.name || item.author?.name || '').toLowerCase();
               let score = 100;
+
+              // YTM natural rank bonus
+              if (idx === 0) score += 120;
+              else if (idx === 1) score += 80;
+              else if (idx === 2) score += 50;
+              else if (idx < 6) score += 20;
+
+              // Clean title match bonus
+              const cleanNormTitle = normTitle
+                .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+                .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
+                .trim();
+              if (cleanTargetTitle && cleanNormTitle === cleanTargetTitle) {
+                score += 250;
+              } else if (cleanTargetTitle && cleanNormTitle.startsWith(cleanTargetTitle)) {
+                score += 140;
+              }
+
+              // Artist match bonus
+              if (rawArtist && (authorStr.includes(rawArtist.toLowerCase()) || rawArtist.toLowerCase().includes(authorStr))) {
+                score += 100;
+              }
+
+              // Anti-remix / alt version detection
+              const isRemixOrAlt = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(normTitle) ||
+                                   /\[(eden prince|club edit|radio edit|vip|extended|stripped|ashworth|bassjackers)\]/i.test(titleStr);
+              if (!qLower.includes('remix') && isRemixOrAlt) {
+                score -= 300;
+              }
 
               for (const kw of activeUnwanted) {
                 if (normTitle.includes(kw)) {
@@ -519,80 +557,8 @@ function musicBackendPlugin() {
       // 5. YouTube Playlist Resolver Endpoint
       server.middlewares.use('/api/yt/playlist', async (req, res) => {
         try {
-          const url = new URL(req.url, 'http://localhost');
-          let playlistId = url.searchParams.get('id') || '';
-          const rawUrl = url.searchParams.get('url') || '';
-
-          if (!playlistId && rawUrl) {
-            const match = rawUrl.match(/[?&]list=([^#&?]+)/);
-            if (match) playlistId = match[1];
-          }
-
-          if (!playlistId) {
-            res.statusCode = 400;
-            return res.end(JSON.stringify({ error: 'Missing YouTube playlist ID or list parameter' }));
-          }
-
-          if (!ytPromise) {
-            const { Innertube } = await import('youtubei.js');
-            ytPromise = Innertube.create();
-          }
-          const yt = await ytPromise;
-          const pl = await yt.getPlaylist(playlistId);
-
-          const playlistTitle = pl.info?.title || 'YouTube Playlist';
-          const playlistAuthor = pl.info?.author?.name || 'YouTube';
-          const rawThumb = pl.info?.thumbnails?.[0]?.url || '';
-          const playlistCover = toHighResUrl(rawThumb);
-
-          const rawVideos = pl.videos || [];
-          const tracks = rawVideos.map((v, idx) => {
-            const videoId = v.content_id || v.id || v.videoId || '';
-            let title = v.metadata?.title?.text || v.title?.text || v.title?.toString() || '';
-            let artist = v.metadata?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.text || 
-                         v.author?.name || v.author?.toString() || playlistAuthor;
-            
-            if (title.includes(' - ')) {
-              const parts = title.split(' - ');
-              if (!artist || artist === playlistAuthor) {
-                artist = parts[0].trim();
-              }
-              title = parts.slice(1).join(' - ').trim();
-            }
-
-            let durationSec = 200;
-            if (v.duration?.seconds) {
-              durationSec = v.duration.seconds;
-            } else if (v.duration?.text) {
-              const parts = v.duration.text.split(':').map(Number);
-              durationSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
-            }
-
-            const thumbUrl = v.content_image?.image?.[0]?.url || 
-                             v.thumbnails?.[v.thumbnails.length - 1]?.url || 
-                             v.thumbnails?.[0]?.url || 
-                             (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : '');
-
-            return {
-              id: videoId || `yt-track-${idx}-${Date.now()}`,
-              videoId,
-              title: title.trim(),
-              artist: artist.trim(),
-              album: playlistTitle,
-              duration: durationSec,
-              artwork: toHighResUrl(thumbUrl),
-            };
-          }).filter(t => t.title && t.videoId);
-
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          return res.end(JSON.stringify({
-            id: playlistId,
-            name: playlistTitle,
-            author: playlistAuthor,
-            cover: playlistCover,
-            totalTracks: tracks.length,
-            tracks,
-          }));
+          const { default: handler } = await import('./api/yt/playlist.js');
+          return await handler(req, res);
         } catch (e) {
           console.error('YouTube playlist fetch error:', e);
           res.statusCode = 500;

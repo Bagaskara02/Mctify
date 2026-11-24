@@ -124,16 +124,34 @@ export default async function handler(req, res) {
     };
 
     const rankCandidates = (items) => {
-      return items.map(item => {
+      return items.map((item, idx) => {
         const titleStr = typeof item.title === 'string' ? item.title : (item.title?.text || '');
         const normTitle = titleStr.toLowerCase();
         const authorStr = (item.artists?.[0]?.name || item.author?.name || '').toLowerCase();
         const combined = `${normTitle} ${authorStr}`;
         let score = 1000;
 
+        // Preserve YouTube Music natural search engine rank (worldwide hit songs rank highest)
+        if (idx === 0) score += 1200;
+        else if (idx === 1) score += 800;
+        else if (idx === 2) score += 500;
+        else if (idx === 3) score += 300;
+        else if (idx < 6) score += 150;
+
+        // Clean Core Title match:
+        // Strip "(feat. ...)", "[feat. ...]", etc. to get the pure song title
+        const cleanNormTitle = normTitle
+          .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+          .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
+          .trim();
+
         // 1. Core title check:
-        if (rawTitle && targetTitle) {
-          if (normTitle.includes(targetTitle)) {
+        if (targetTitle) {
+          if (cleanNormTitle === targetTitle) {
+            score += 2500; // Exact match to clean title (e.g. "no promises (feat. demi lovato)" matches "no promises")
+          } else if (cleanNormTitle.startsWith(targetTitle)) {
+            score += 1400;
+          } else if (normTitle.includes(targetTitle)) {
             score += 800;
           } else {
             const coreTokens = targetTitle.split(' ').filter(w => w.length > 2);
@@ -144,8 +162,6 @@ export default async function handler(req, res) {
               score -= 3000; // WRONG SONG for specific title resolution!
             }
           }
-        } else if (targetTitle && normTitle.includes(targetTitle)) {
-          score += 600;
         }
 
         // 2. Strict Artist check:
@@ -156,7 +172,7 @@ export default async function handler(req, res) {
                                  combined.includes(targetArtist) ||
                                  (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok)));
           if (hasArtistMatch) {
-            score += 800;
+            score += 1200;
           } else if (rawArtist) {
             score -= 5000; // WRONG ARTIST: Completely disqualifies different artist tracks!
           }
@@ -192,27 +208,32 @@ export default async function handler(req, res) {
             score -= 1500;
           }
         } else {
-          if (combined.includes('acoustic')) score -= 1000;
+          if (combined.includes('acoustic')) score -= 1500;
         }
 
+        // Strict Remix & Alternate version detection:
+        // Any title with brackets/words like [Eden Prince], [Club Edit], [Bassjackers], [Ashworth], Remix, Mix, VIP, etc.
+        const isRemixOrAlt = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(normTitle) ||
+                             /\[(eden prince|club edit|radio edit|vip|extended|stripped|ashworth|bassjackers)\]/i.test(titleStr);
+
         if (isRemixRequested) {
-          if (combined.includes('remix')) score += 750;
-          else score -= 900;
+          if (isRemixOrAlt) score += 1000;
+          else score -= 1200;
         } else {
-          if (combined.includes('remix')) score -= 850;
+          if (isRemixOrAlt) score -= 3500; // Heavily penalizes remixes/alts when original is requested!
         }
 
         if (isLiveRequested) {
           if (combined.includes('live') || combined.includes('concert') || combined.includes('konser')) score += 750;
           else score -= 900;
         } else if (!isAcousticRequested) {
-          if (combined.includes('live') || combined.includes('concert') || combined.includes('konser')) score -= 850;
+          if (combined.includes('live') || combined.includes('concert') || combined.includes('konser')) score -= 1200;
         }
 
         if (isSessionRequested || isStrippedRequested) {
           if (combined.includes('session') || combined.includes('stripped')) score += 750;
-        } else if (!isAcousticRequested && combined.includes('session')) {
-          score -= 600;
+        } else if (!isAcousticRequested && (combined.includes('session') || combined.includes('stripped'))) {
+          score -= 1200;
         }
 
         // Heavy boost for clean studio original audio (Topic track, Official Audio, Album Audio)
@@ -241,7 +262,7 @@ export default async function handler(req, res) {
           else if (diff <= 5) score += 150;
           else if (diff <= 10) score += 50;
           else if (diff > 12) score -= 450;
-          if (diff > 25) score -= 1200;
+          if (diff > 25) score -= 1500;
         }
 
         return { item, score };
