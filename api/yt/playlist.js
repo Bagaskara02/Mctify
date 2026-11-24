@@ -1,5 +1,5 @@
 import { Innertube } from 'youtubei.js';
-import searchHandler from './search.js';
+import { resolveOriginalTrack } from '../_searchCore.js';
 import {
   applyApiSecurity,
   isValidVideoId,
@@ -212,24 +212,9 @@ export default async function handler(req, res) {
             let videoId = (item.id || item.video_id || item.videoId || item.endpoint?.payload?.videoId || item.overlay?.content?.endpoint?.payload?.videoId || '').trim();
 
             if (!isValidVideoId(videoId)) {
-              // Resolve missing videoId via official search handler (handles YTM US datacenter masking)
+              // Resolve missing videoId via search core (handles YTM US datacenter masking)
               try {
-                const searchReq = {
-                  url: `/api/yt/search?title=${encodeURIComponent(rawTitle)}&artist=${encodeURIComponent(rawArtist)}&duration=${encodeURIComponent(durationSec)}`,
-                  headers: { host: 'localhost' },
-                  method: 'GET',
-                };
-                let searchResult = null;
-                const searchRes = {
-                  statusCode: 200,
-                  setHeader: () => {},
-                  end: (payload) => {
-                    try {
-                      searchResult = JSON.parse(payload);
-                    } catch (_) {}
-                  },
-                };
-                await searchHandler(searchReq, searchRes);
+                const searchResult = await resolveOriginalTrack(yt, rawTitle, rawArtist, durationSec);
                 if (searchResult && isValidVideoId(searchResult.videoId)) {
                   videoId = searchResult.videoId;
                   if (searchResult.title) title = searchResult.title;
