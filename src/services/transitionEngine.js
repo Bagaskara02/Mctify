@@ -302,16 +302,16 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
     if (p < 0.49) {
       outLowDb = 0;
       inLowDb = -20;
-      inMidDb = -1.5;
+      inMidDb = 0;
     } else if (p <= 0.51) {
       const t = (p - 0.49) / 0.02;
       outLowDb = -20 * t;
       inLowDb = -20 + 21.5 * t;
-      outMidDb = -4.5 * t;
+      outMidDb = 0;
     } else {
       outLowDb = -20;
       inLowDb = 1.5;
-      outMidDb = -5.5;
+      outMidDb = 0;
     }
   } else if (eqMode === 'bass_swap') {
     // Swap sub-bass cleanly around p = 0.50
@@ -406,10 +406,11 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let outAcousticalFactor = 1.0;
   let inAcousticalFactor = 1.0;
   if (volumeMode === 'mashup') {
-    // Mashup mode: keep outgoing Ain't In LA at full volume with a slight boost (+5%) during crossover bars (0.20..0.80)
-    // so vocal/beat presence stays strong and never fades down; incoming starts full blast with zero fade-up.
-    outAcousticalFactor = p >= 0.20 && p <= 0.80 ? 1.05 : 1.0;
-    inAcousticalFactor = 1.0;
+    // Equal loudness balancing: Ain't In LA stays at full 100% volume with 0 dB mid-scoop,
+    // while Close To Me (hotter commercial master) is balanced at 80% (0.80) to match perceived volume
+    // so both tracks play at the EXACT same volume level without Close To Me dominating!
+    outAcousticalFactor = 1.0;
+    inAcousticalFactor = 0.80;
   } else {
     if (eqMode === 'bass_swap') {
       outAcousticalFactor *= p < 0.5 ? 1.0 : 0.82;
@@ -446,6 +447,8 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
     reverbWet,
     outPlaybackRate,
     inPlaybackRate,
+    outAcousticalFactor,
+    inAcousticalFactor,
     effectiveOutIframeVol,
     effectiveInIframeVol,
   };
@@ -487,7 +490,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh (sedikit dinaikkan) di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me di 0:34 seimbang sama besar volumenya tanpa saling mendominasi, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
     };
   }
 

@@ -615,16 +615,16 @@ class TransitionEngine {
       if (p < 0.49) {
         outLowDb = 0.0;
         inLowDb = -20.0;
-        inMidDb = -1.5;
+        inMidDb = 0.0;
       } else if (p <= 0.51) {
         final swapP = (p - 0.49) / 0.02;
         outLowDb = -20.0 * swapP;
         inLowDb = -20.0 + 21.5 * swapP;
-        outMidDb = -4.5 * swapP;
+        outMidDb = 0.0;
       } else {
         outLowDb = -20.0;
         inLowDb = 1.5;
-        outMidDb = -5.5;
+        outMidDb = 0.0;
       }
     } else if (eqMode == 'bass_swap') {
       if (p < 0.48) {
@@ -732,7 +732,7 @@ class TransitionEngine {
         metaA: metaA,
         metaB: metaB,
         compatibilityScore: 99,
-        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me langsung masuk di 0:34 tanpa fade-up. Suara Ain\'t In LA tetap penuh di persilangan, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
+        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me di 0:34 seimbang sama besar volumenya tanpa saling mendominasi, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
         bars: '16 bars',
         volumeMode: 'mashup',
         eqMode: 'bass_swap',

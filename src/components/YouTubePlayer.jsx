@@ -1114,8 +1114,10 @@ export default function YouTubePlayer({
                 now,
                 0.04
               );
-              b.outGain.gain.setTargetAtTime(env.outGain, now, 0.04);
-              b.inGain.gain.setTargetAtTime(env.inGain, now, 0.04);
+              const outFactor = typeof env.outAcousticalFactor === 'number' ? env.outAcousticalFactor : 1.0;
+              const inFactor = typeof env.inAcousticalFactor === 'number' ? env.inAcousticalFactor : 1.0;
+              b.outGain.gain.setTargetAtTime(env.outGain * outFactor, now, 0.04);
+              b.inGain.gain.setTargetAtTime(env.inGain * inFactor, now, 0.04);
               b.outLow.gain.setTargetAtTime(env.outLowDb, now, 0.03);
               b.inLow.gain.setTargetAtTime(env.inLowDb, now, 0.03);
               b.outMid.gain.setTargetAtTime(env.outMidDb, now, 0.04);
