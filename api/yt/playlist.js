@@ -218,24 +218,42 @@ export default async function handler(req, res) {
                 const targetTitleClean = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
                 const artistTokens = rawArtist.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 2);
 
-                for (const cand of candidates) {
-                  const candTitle = (typeof cand.title === 'string' ? cand.title : (cand.title?.text || '')).toLowerCase();
-                  const candArtist = (cand.artists?.[0]?.name || cand.author?.name || '').toLowerCase();
-                  const candClean = candTitle.replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
-                  const isRemix = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(candTitle);
-                  const matchesArtist = artistTokens.length === 0 || artistTokens.some(tok => candArtist.includes(tok) || candTitle.includes(tok));
+                const ranked = candidates.map((cand, idx) => {
+                  const titleStr = typeof cand.title === 'string' ? cand.title : (cand.title?.text || '');
+                  const normTitle = titleStr.toLowerCase();
+                  const authorStr = (cand.artists?.[0]?.name || cand.author?.name || '').toLowerCase();
+                  let score = 1000;
 
-                  if (candClean === targetTitleClean && matchesArtist && !isRemix && isValidVideoId(cand.id)) {
-                    videoId = cand.id;
-                    const pickedTitle = typeof cand.title === 'string' ? cand.title : (cand.title?.text || '');
-                    const pickedArtist = cand.artists?.map((a) => a.name).filter(Boolean).join(', ') || cand.author?.name || '';
-                    if (pickedTitle) title = pickedTitle;
-                    if (pickedArtist) artist = pickedArtist;
-                    break;
+                  if (idx === 0) score += 1200;
+                  else if (idx === 1) score += 800;
+                  else if (idx < 5) score += 300;
+
+                  const cleanNormTitle = normTitle
+                    .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
+                    .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
+                    .trim();
+
+                  if (cleanNormTitle === targetTitleClean) score += 2500;
+                  else if (cleanNormTitle.startsWith(targetTitleClean)) score += 1200;
+
+                  if (artistTokens.some(tok => authorStr.includes(tok) || normTitle.includes(tok))) {
+                    score += 1500;
                   }
-                }
-                if (!videoId && candidates.length > 0 && isValidVideoId(candidates[0]?.id)) {
-                  videoId = candidates[0].id;
+
+                  const isRemixOrAlt = /\b(remix|mix|club edit|radio edit|vip|extended|stripped|acoustic|live|eden prince|bassjackers|ashworth|fitness dance)\b/i.test(normTitle) ||
+                                       /\[(eden prince|club edit|radio edit|vip|extended|stripped|ashworth|bassjackers)\]/i.test(titleStr);
+                  if (isRemixOrAlt) score -= 3500;
+
+                  return { cand, score };
+                }).sort((a, b) => b.score - a.score);
+
+                const best = ranked[0]?.cand;
+                if (best && isValidVideoId(best.id) && ranked[0].score > 0) {
+                  videoId = best.id;
+                  const pickedTitle = typeof best.title === 'string' ? best.title : (best.title?.text || '');
+                  const pickedArtist = best.artists?.map((a) => a.name).filter(Boolean).join(', ') || best.author?.name || '';
+                  if (pickedTitle) title = pickedTitle;
+                  if (pickedArtist) artist = pickedArtist;
                 }
               } catch (_) {}
             }
