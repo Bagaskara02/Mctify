@@ -213,7 +213,8 @@ export default async function handler(req, res) {
             if (!isValidVideoId(videoId)) {
               // Resolve missing videoId via search when title and artist are present (handles YTM US datacenter masking)
               try {
-                const searchRes = await yt.music.search(`${rawTitle} ${rawArtist}`.trim(), { type: 'song' });
+                const cleanArtist = (rawArtist || '').split('&')[0].split(',')[0].trim();
+                const searchRes = await yt.music.search(`${rawTitle} ${cleanArtist}`.trim(), { type: 'song' });
                 const candidates = searchRes.songs?.contents || searchRes.results || [];
                 const targetTitleClean = rawTitle.toLowerCase().replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '').trim();
                 const artistTokens = rawArtist.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 2);
@@ -395,7 +396,7 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader(
       'Cache-Control',
-      'public, s-maxage=60, stale-while-revalidate=300'
+      'no-store, no-cache, must-revalidate, proxy-revalidate'
     );
     return res.end(
       JSON.stringify({
