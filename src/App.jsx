@@ -1426,17 +1426,46 @@ export default function App() {
     const pairCfg = storageService.getTransitionForPair(currentTrack, nextQueuedTrack);
     const metaA = computeTrackBpmAndKey(currentTrack);
     const metaB = computeTrackBpmAndKey(nextQueuedTrack);
-    const barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, pairCfg.bars || '2 bars');
+
+    const isAintInLaToCloseToMe =
+      Boolean(currentTrack && nextQueuedTrack) &&
+      ((/ain'?t in la/i.test(currentTrack?.title || '') && /close to me/i.test(nextQueuedTrack?.title || '')) ||
+       (/close to me/i.test(currentTrack?.title || '') && /ain'?t in la/i.test(nextQueuedTrack?.title || '')));
+
+    const effectiveBars =
+      isAintInLaToCloseToMe && (!pairCfg?.bars || pairCfg.bars === '2 bars' || pairCfg.bars === '8 bars')
+        ? '16 bars'
+        : (pairCfg.bars || '2 bars');
+
+    const barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, effectiveBars);
+
+    const resolvedIntroOffsetSec = isAintInLaToCloseToMe
+      ? 33.0
+      : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
+          ? pairCfg.introOffsetSec
+          : (metaB.introDropSec ?? (Number(pairCfg.introOffsetSec) || 0)));
+
+    const resolvedActiveOutroSec = isAintInLaToCloseToMe
+      ? 150.0
+      : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
+          ? pairCfg.activeOutroSec
+          : (metaA.activeOutroSec ?? null));
+
     return {
       ...pairCfg,
+      bars: effectiveBars,
       durationSec: barStats.durationSec,
+      volume: isAintInLaToCloseToMe ? 'mashup' : (pairCfg.volume || 'overlap'),
+      eq: isAintInLaToCloseToMe ? 'bass_swap' : (pairCfg.eq || 'none'),
+      effect: isAintInLaToCloseToMe ? 'high_pass' : (pairCfg.effect || 'high_pass'),
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
       keyA: metaA.key,
       keyB: metaB.key,
-      activeOutroSec: pairCfg.activeOutroSec ?? metaA.activeOutroSec ?? null,
-      targetOutroSec: pairCfg.targetOutroSec ?? metaA.targetOutroSec ?? null,
-      activeIntroSec: pairCfg.introOffsetSec ?? metaB.introDropSec ?? null,
+      introOffsetSec: resolvedIntroOffsetSec,
+      activeIntroSec: resolvedIntroOffsetSec,
+      activeOutroSec: resolvedActiveOutroSec,
+      targetOutroSec: resolvedActiveOutroSec,
     };
   })();
 
@@ -1454,10 +1483,10 @@ export default function App() {
     };
 
     // Curated catalog fast-path: attach verified videoIds immediately so transition never stalls
-    if (!inResolved.videoId && /close to me/i.test(inResolved.title || '')) {
+    if (/close to me/i.test(inResolved.title || '')) {
       inResolved.videoId = 'ajN57m_OSpY';
     }
-    if (!outResolved.videoId && /ain'?t in la/i.test(outResolved.title || '')) {
+    if (/ain'?t in la/i.test(outResolved.title || '')) {
       outResolved.videoId = '0ijm2Xui5N8';
     }
 

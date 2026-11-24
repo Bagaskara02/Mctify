@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+if (!globalThis.localStorage) {
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+    clear: () => store.clear(),
+  };
+}
+
 import {
   computeTrackBpmAndKey,
   computeCamelotCompatibility,
@@ -165,6 +175,22 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(autoPairCfg.volume, 'mashup');
     assert.equal(autoPairCfg.introOffsetSec, 33.0);
     assert.equal(autoPairCfg.activeOutroSec, 150.0);
+
+    // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
+    const pairKey = storageService._makeTransitionPairKey(trackA, trackB);
+    const outdatedCache = {
+      [pairKey]: {
+        bars: '8 bars',
+        durationSec: 13.6,
+        introOffsetSec: 0,
+        activeOutroSec: 168.0,
+      },
+    };
+    global.localStorage.setItem('mcmusic_transition_pairs_v1', JSON.stringify(outdatedCache));
+    const upgradedCfg = storageService.getTransitionForPair(trackA, trackB);
+    assert.equal(upgradedCfg.bars, '16 bars', 'Outdated 8 bars cache should auto-upgrade to 16 bars');
+    assert.equal(upgradedCfg.introOffsetSec, 33.0, 'Outdated 0s intro cache should auto-upgrade to 33.0s');
+    assert.equal(upgradedCfg.activeOutroSec, 150.0, 'Outdated 168s outro cache should auto-upgrade to 150.0s');
 
     // Verify Spotify Mix 3-curve automation envelope
     // 1. Crossover volume curve: Ain't In LA stays 100% in first half, then fades down so Close To Me dominates

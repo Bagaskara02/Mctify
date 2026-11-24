@@ -1165,10 +1165,27 @@ export class TransitionAuditionMixer {
       : outDurationEstimate;
     const totalAuditionSec = this.leadInSec + overlapSec + this.leadOutSec;
 
-    this.outStartCueSec = Math.max(
-      0,
-      Math.min(actualOutDur - 2, actualOutDur - (this.leadInSec + overlapSec) + (isOutPreview30s && Math.abs(outroOffset) > 5 ? 0 : outroOffset))
-    );
+    const targetOutroCue =
+      typeof this.config.activeOutroSec === 'number' && this.config.activeOutroSec > 10
+        ? this.config.activeOutroSec
+        : (typeof this.config.targetOutroSec === 'number' && this.config.targetOutroSec > 10
+            ? this.config.targetOutroSec
+            : null);
+
+    if (targetOutroCue != null && !isOutPreview30s) {
+      this.outStartCueSec = Math.max(
+        0,
+        Math.min(actualOutDur - 2, targetOutroCue - this.leadInSec + outroOffset)
+      );
+    } else {
+      this.outStartCueSec = Math.max(
+        0,
+        Math.min(
+          actualOutDur - 2,
+          actualOutDur - (this.leadInSec + overlapSec) + (isOutPreview30s && Math.abs(outroOffset) > 5 ? 0 : outroOffset)
+        )
+      );
+    }
 
     // If incoming audio is a 30s preview (which typically starts near the energy intro/chorus at ~0:12..0:33),
     // an introOffsetSec >= 10 is designed for the full 3-minute YouTube track to skip acoustic guitar.

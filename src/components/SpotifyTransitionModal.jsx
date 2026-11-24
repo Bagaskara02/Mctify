@@ -187,20 +187,66 @@ export default function SpotifyTransitionModal({
     [outgoing.bpm, incoming.bpm, settings.bars]
   );
 
+  // Derived cue seconds for UI display & auditioning
+  const currentOutroCueSec = useMemo(() => {
+    if (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0) {
+      return settings.activeOutroSec;
+    }
+    const base = (outgoing.duration || 185) - barStats.durationSec;
+    return Math.max(0, base + (Number(settings.outroOffsetSec) || 0));
+  }, [settings.activeOutroSec, settings.outroOffsetSec, outgoing.duration, barStats.durationSec]);
+
+  const currentIntroCueSec = useMemo(() => {
+    return Math.max(0, Number(settings.introOffsetSec) || 0);
+  }, [settings.introOffsetSec]);
+
+  const currentIntroEndSec = useMemo(() => {
+    return currentIntroCueSec + barStats.durationSec;
+  }, [currentIntroCueSec, barStats.durationSec]);
+
   // Sync pair settings when modal opens or pair changes
   useEffect(() => {
     if (isOpen) {
       const pairCfg = storageService.getTransitionForPair(outgoing, incoming);
-      const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, pairCfg.bars || '2 bars');
+      const isAintInLaToCloseToMe =
+        (/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
+        (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || ''));
+
+      const effectiveBars =
+        isAintInLaToCloseToMe &&
+        (!pairCfg?.bars || pairCfg.bars === '2 bars' || pairCfg.bars === '8 bars')
+          ? '16 bars'
+          : (pairCfg.bars || '2 bars');
+
+      const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, effectiveBars);
+
+      const effectiveOutroSec = isAintInLaToCloseToMe
+        ? 150.0
+        : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
+            ? pairCfg.activeOutroSec
+            : (outgoing.activeOutroSec || null));
+
+      const effectiveIntroSec = isAintInLaToCloseToMe
+        ? 33.0
+        : (typeof pairCfg.introOffsetSec === 'number' && pairCfg.introOffsetSec > 0
+            ? pairCfg.introOffsetSec
+            : (incoming.introDropSec || 0));
+
       setSettings({
         ...pairCfg,
+        bars: effectiveBars,
         durationSec: calc.durationSec,
+        volume: isAintInLaToCloseToMe ? 'mashup' : (pairCfg.volume || 'overlap'),
+        eq: isAintInLaToCloseToMe ? 'bass_swap' : (pairCfg.eq || 'none'),
+        effect: isAintInLaToCloseToMe ? 'high_pass' : (pairCfg.effect || 'high_pass'),
+        activeOutroSec: effectiveOutroSec,
+        targetOutroSec: effectiveOutroSec,
+        introOffsetSec: effectiveIntroSec,
       });
-      if (!pairCfg?.isCustomPair) {
-        const smart = computeSmartAutomixPreset(outgoing, incoming);
-        if (smart) {
-          setSmartAutomixInsight(smart);
-        }
+
+      const smart = computeSmartAutomixPreset(outgoing, incoming);
+      if (smart) {
+        setSmartAutomixInsight(smart);
       } else {
         setSmartAutomixInsight(null);
       }
@@ -389,7 +435,11 @@ export default function SpotifyTransitionModal({
       };
 
       if (usingYtFallbackRef.current.out) {
-        const outCue = Math.max(0, (outgoing.duration || 180) - (durationSec + 1.6) + (Number(activeCfg.outroOffsetSec) || 0));
+        const targetCue =
+          typeof activeCfg.activeOutroSec === 'number' && activeCfg.activeOutroSec > 10
+            ? activeCfg.activeOutroSec - 1.6
+            : (outgoing.duration || 180) - (durationSec + 1.6) + (Number(activeCfg.outroOffsetSec) || 0);
+        const outCue = Math.max(0, targetCue);
         await ensureYtFallbackDeck('out', outgoing.videoId, outCue);
       }
       if (usingYtFallbackRef.current.in) {
@@ -506,14 +556,16 @@ export default function SpotifyTransitionModal({
 
     const smart = computeSmartAutomixPreset(outWithPcm, inWithPcm);
 
-    // Auto-skip silent/ambient intro on Track B using real PCM Intro-Drop Onset Detector
+    // Auto-skip silent/ambient intro on Track B using verified blueprint drop OR real PCM Intro-Drop Onset Detector
     const autoIntroOffset =
-      pcmAnalysis.in && pcmAnalysis.in.introDropSec > 0.35
-        ? Number(pcmAnalysis.in.introDropSec.toFixed(1))
-        : 0;
+      typeof smart.introOffsetSec === 'number' && smart.introOffsetSec > 0
+        ? smart.introOffsetSec
+        : (pcmAnalysis.in && pcmAnalysis.in.introDropSec > 0.35
+            ? Number(pcmAnalysis.in.introDropSec.toFixed(1))
+            : 0);
 
     // Beat-phase alignment nudge on Track A outro if both beatgrids are detected
-    let autoOutroOffset = 0;
+    let autoOutroOffset = typeof smart.outroOffsetSec === 'number' ? smart.outroOffsetSec : 0;
     if (pcmAnalysis.out?.firstBeatSec != null && pcmAnalysis.in?.firstBeatSec != null) {
       const beatSec = 60 / Math.max(70, smart.bpmA || 120);
       const phaseDiff = (pcmAnalysis.out.firstBeatSec - pcmAnalysis.in.firstBeatSec) % beatSec;
@@ -530,6 +582,8 @@ export default function SpotifyTransitionModal({
       eq: smart.eq,
       effect: smart.effect,
       tempoSync: smart.tempoSync,
+      activeOutroSec: smart.activeOutroSec ?? outgoing.activeOutroSec ?? null,
+      targetOutroSec: smart.targetOutroSec ?? outgoing.activeOutroSec ?? null,
       introOffsetSec: autoIntroOffset,
       outroOffsetSec: autoOutroOffset,
     };
@@ -554,6 +608,7 @@ export default function SpotifyTransitionModal({
       durationSec: barStats.durationSec,
       activeOutroSec: settings.activeOutroSec ?? (outgoing.activeOutroSec || null),
       targetOutroSec: settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null),
+      introOffsetSec: typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -572,6 +627,7 @@ export default function SpotifyTransitionModal({
       durationSec: barStats.durationSec,
       activeOutroSec: settings.activeOutroSec ?? (outgoing.activeOutroSec || null),
       targetOutroSec: settings.targetOutroSec ?? (outgoing.targetOutroSec || outgoing.activeOutroSec || null),
+      introOffsetSec: typeof settings.introOffsetSec === 'number' ? settings.introOffsetSec : (incoming.introDropSec || 0),
       enabled: true,
     };
     storageService.saveTransitionForPair(outgoing, incoming, finalSettings);
@@ -960,8 +1016,14 @@ export default function SpotifyTransitionModal({
               >
                 {outgoing.key}
               </span>
+              <span
+                className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-400/40 text-[11px] font-mono font-bold text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.25)]"
+                title="Titik awal transisi lagu keluar"
+              >
+                Mulai: {formatMinSec(currentOutroCueSec)}
+              </span>
               <span className="text-xs text-[#a1a1aa] tabular-nums font-mono">
-                {formatMinSec(outgoing.duration)}
+                / {formatMinSec(outgoing.duration)}
               </span>
               <button
                 onClick={(e) => {
@@ -999,6 +1061,11 @@ export default function SpotifyTransitionModal({
 
             {/* 1. TOP WAVEFORM: Outgoing Track (Grey Lead-In -> Cyan Overlap Zone) */}
             <div className="relative h-20 flex items-center justify-between gap-[2px]">
+              <div className="absolute top-1 left-1.5 z-10 pointer-events-none">
+                <span className="px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm border border-cyan-400/40 text-[9px] font-mono text-cyan-300 font-bold tracking-tight shadow-sm">
+                  Cue Outro: {formatMinSec(currentOutroCueSec)}
+                </span>
+              </div>
               {topWaveformBars.map((h, i) => {
                 const ratio = i / topWaveformBars.length;
                 const overlapStartRatio = 1 - overlapFraction;
@@ -1192,34 +1259,50 @@ export default function SpotifyTransitionModal({
             {showCueControls && (
               <div
                 onPointerDown={(e) => e.stopPropagation()}
-                className="mb-2.5 px-2.5 py-1.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between text-[10px] text-white/80"
+                className="mb-2.5 px-2.5 py-1.5 rounded-xl bg-black/50 border border-white/10 flex items-center justify-between text-[10px] text-white/80"
               >
                 <div className="flex items-center gap-1.5">
                   <span className="text-cyan-300 font-bold">Cue Outro:</span>
                   <button
                     onClick={() =>
-                      setSettings((p) => ({
-                        ...p,
-                        outroOffsetSec: Math.max(-45, (Number(p.outroOffsetSec) || 0) - 2),
-                      }))
+                      setSettings((p) => {
+                        const cur =
+                          typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0
+                            ? p.activeOutroSec
+                            : Math.max(0, (outgoing.duration || 185) - barStats.durationSec + (Number(p.outroOffsetSec) || 0));
+                        const nxt = Math.max(5, cur - 2);
+                        return {
+                          ...p,
+                          activeOutroSec: nxt,
+                          targetOutroSec: nxt,
+                          outroOffsetSec: Number((nxt - ((outgoing.duration || 185) - barStats.durationSec)).toFixed(1)),
+                        };
+                      })
                     }
-                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
                   >
                     -2s
                   </button>
-                  <span className="font-mono w-8 text-center">
-                    {(Number(settings.outroOffsetSec) || 0) >= 0
-                      ? `+${Number(settings.outroOffsetSec) || 0}s`
-                      : `${Number(settings.outroOffsetSec)}s`}
+                  <span className="font-mono text-cyan-300 font-bold px-1.5 py-0.5 bg-black/60 rounded border border-cyan-500/30">
+                    {formatMinSec(currentOutroCueSec)}
                   </span>
                   <button
                     onClick={() =>
-                      setSettings((p) => ({
-                        ...p,
-                        outroOffsetSec: Math.min(15, (Number(p.outroOffsetSec) || 0) + 2),
-                      }))
+                      setSettings((p) => {
+                        const cur =
+                          typeof p.activeOutroSec === 'number' && p.activeOutroSec > 0
+                            ? p.activeOutroSec
+                            : Math.max(0, (outgoing.duration || 185) - barStats.durationSec + (Number(p.outroOffsetSec) || 0));
+                        const nxt = Math.min((outgoing.duration || 185) - 2, cur + 2);
+                        return {
+                          ...p,
+                          activeOutroSec: nxt,
+                          targetOutroSec: nxt,
+                          outroOffsetSec: Number((nxt - ((outgoing.duration || 185) - barStats.durationSec)).toFixed(1)),
+                        };
+                      })
                     }
-                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
                   >
                     +2s
                   </button>
@@ -1229,26 +1312,28 @@ export default function SpotifyTransitionModal({
                   <span className="text-fuchsia-300 font-bold">Cue Intro:</span>
                   <button
                     onClick={() =>
-                      setSettings((p) => ({
-                        ...p,
-                        introOffsetSec: Math.max(0, (Number(p.introOffsetSec) || 0) - 2),
-                      }))
+                      setSettings((p) => {
+                        const cur = Math.max(0, Number(p.introOffsetSec) || 0);
+                        const nxt = Math.max(0, cur - 2);
+                        return { ...p, introOffsetSec: nxt };
+                      })
                     }
-                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
                   >
                     -2s
                   </button>
-                  <span className="font-mono w-8 text-center">
-                    +{Math.max(0, Number(settings.introOffsetSec) || 0)}s
+                  <span className="font-mono text-fuchsia-300 font-bold px-1.5 py-0.5 bg-black/60 rounded border border-fuchsia-500/30">
+                    {formatMinSec(currentIntroCueSec)}
                   </span>
                   <button
                     onClick={() =>
-                      setSettings((p) => ({
-                        ...p,
-                        introOffsetSec: Math.min(45, (Number(p.introOffsetSec) || 0) + 2),
-                      }))
+                      setSettings((p) => {
+                        const cur = Math.max(0, Number(p.introOffsetSec) || 0);
+                        const nxt = Math.min((incoming.duration || 180) - 5, cur + 2);
+                        return { ...p, introOffsetSec: nxt };
+                      })
                     }
-                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono"
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 font-mono active:scale-95 transition-transform"
                   >
                     +2s
                   </button>
@@ -1258,6 +1343,11 @@ export default function SpotifyTransitionModal({
 
             {/* 3. BOTTOM WAVEFORM: Incoming Track (Purple Overlap Zone -> Grey Body) */}
             <div className="relative h-20 flex items-center justify-between gap-[2px]">
+              <div className="absolute bottom-1 left-1.5 z-10 pointer-events-none">
+                <span className="px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm border border-fuchsia-400/40 text-[9px] font-mono text-fuchsia-300 font-bold tracking-tight shadow-sm">
+                  Cue Intro: {formatMinSec(currentIntroCueSec)} → {formatMinSec(currentIntroEndSec)}
+                </span>
+              </div>
               {bottomWaveformBars.map((h, i) => {
                 const ratio = i / bottomWaveformBars.length;
                 const isOverlapped = ratio <= overlapFraction;
@@ -1384,8 +1474,14 @@ export default function SpotifyTransitionModal({
               >
                 {incoming.key}
               </span>
+              <span
+                className="px-2 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/40 text-[11px] font-mono font-bold text-fuchsia-300 shadow-[0_0_8px_rgba(217,70,239,0.25)]"
+                title="Rentang masuk lagu baru hingga transisi selesai"
+              >
+                Mulai: {formatMinSec(currentIntroCueSec)} → {formatMinSec(currentIntroEndSec)}
+              </span>
               <span className="text-xs text-[#a1a1aa] tabular-nums font-mono">
-                {formatMinSec(incoming.duration)}
+                / {formatMinSec(incoming.duration)}
               </span>
               <button
                 onClick={(e) => {

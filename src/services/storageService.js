@@ -626,13 +626,36 @@ export const storageService = {
   getTransitionForPair(outgoingTrack, incomingTrack) {
     const base = this.getTransitionSettings();
     const pairKey = this._makeTransitionPairKey(outgoingTrack, incomingTrack);
+
+    const isAintInLaToCloseToMe =
+      Boolean(outgoingTrack && incomingTrack) &&
+      ((/ain'?t in la/i.test(outgoingTrack?.title || '') && /close to me/i.test(incomingTrack?.title || '')) ||
+       (/close to me/i.test(outgoingTrack?.title || '') && /ain'?t in la/i.test(incomingTrack?.title || '')));
+
     if (pairKey) {
       try {
         const raw = localStorage.getItem('mcmusic_transition_pairs_v1');
         if (raw) {
           const map = JSON.parse(raw);
           if (map && typeof map === 'object' && map[pairKey]) {
-            return { ...base, ...map[pairKey], isCustomPair: true };
+            const saved = map[pairKey];
+            // Auto-upgrade if cached setting is an outdated blueprint (e.g. 8 bars or missing 2:30/0:33 cues)
+            if (
+              isAintInLaToCloseToMe &&
+              (saved.bars !== '16 bars' ||
+                Number(saved.introOffsetSec) !== 33.0 ||
+                Number(saved.activeOutroSec) !== 150.0)
+            ) {
+              const smart = computeSmartAutomixPreset(outgoingTrack, incomingTrack);
+              if (smart) {
+                map[pairKey] = { ...saved, ...smart, isCustomPair: false };
+                try {
+                  localStorage.setItem('mcmusic_transition_pairs_v1', JSON.stringify(map));
+                } catch (_) {}
+                return { ...base, ...smart, isCustomPair: false, isSmartPreset: true };
+              }
+            }
+            return { ...base, ...saved, isCustomPair: true };
           }
         }
       } catch (_) {}

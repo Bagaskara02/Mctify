@@ -566,6 +566,22 @@ export default function YouTubePlayer({
                       endedVideoIdRef.current = '';
                     }
                   } catch {}
+                } else if (transitionStateRef.current.active) {
+                  // Standby deck has started playing during active transition!
+                  // Enforce introCue pin (e.g. 0:33) so it NEVER plays from 0:00!
+                  const cfg = transitionConfigRef.current;
+                  const introCue =
+                    typeof transitionStateRef.current.forcedIntroCue === 'number'
+                      ? transitionStateRef.current.forcedIntroCue
+                      : Math.max(0, Number(cfg?.introOffsetSec) || 0);
+                  if (introCue > 1) {
+                    try {
+                      const cur = player?.getCurrentTime?.() || 0;
+                      if (cur < introCue - 1.5 || cur > introCue + 4.0) {
+                        player?.seekTo?.(introCue, true);
+                      }
+                    } catch {}
+                  }
                 }
               } else if (st === window.YT.PlayerState.ENDED) {
                 if (isPrimary) triggerEnded(deckIdx);
@@ -852,6 +868,7 @@ export default function YouTubePlayer({
       toDeck: toIdx,
       outgoingVid: curVid,
       incomingVid: nextVid,
+      forcedIntroCue: introCue,
       startedAtMs: performance.now(),
       startTrackTimeSec: currentSec,
       trackDurSec: totalDurSec,
@@ -870,25 +887,31 @@ export default function YouTubePlayer({
       toPlayer.setVolume?.(0);
       const st = toPlayer.getPlayerState?.();
       if (st === window.YT?.PlayerState?.CUED) {
-        if (introCue > 0) toPlayer.seekTo?.(introCue, true);
         toPlayer.playVideo?.();
+        if (introCue > 0) {
+          try { toPlayer.seekTo?.(introCue, true); } catch {}
+        }
       } else {
         try {
           toPlayer.loadVideoById({ videoId: nextVid, startSeconds: introCue });
         } catch {
-          toPlayer.loadVideoById(nextVid, introCue);
+          toPlayer.loadVideoById?.(nextVid, introCue);
         }
-        toPlayer.playVideo?.();
       }
-      // Seek guard: guarantee standby deck starts at introCue (e.g. 0:33) and never from 0:00
-      setTimeout(() => {
-        try {
-          const cur = toPlayer.getCurrentTime?.() || 0;
-          if (introCue > 1 && cur < introCue - 1.5) {
-            toPlayer.seekTo?.(introCue, true);
-          }
-        } catch {}
-      }, 400);
+      // Multi-stage seek guards: guarantee standby deck stays strictly at introCue (e.g. 0:33) and never slips to 0:00
+      if (introCue > 1) {
+        [100, 300, 600, 1100].forEach((delayMs) => {
+          setTimeout(() => {
+            if (!transitionStateRef.current.active) return;
+            try {
+              const cur = toPlayer.getCurrentTime?.() || 0;
+              if (cur < introCue - 1.5 || cur > introCue + 4.0) {
+                toPlayer.seekTo?.(introCue, true);
+              }
+            } catch {}
+          }, delayMs);
+        });
+      }
     } catch (e) {
       console.warn('[YouTubePlayer] Standby deck start warning:', e);
     }
@@ -1028,8 +1051,18 @@ export default function YouTubePlayer({
           // Wait until standby deck is actually PLAYING before advancing the transition clock
           // so YouTube IFrame buffering never eats up the first 1-2s of the Mashup/Drop transition!
           const toState = toPlayer?.getPlayerState?.();
+          const introCue =
+            typeof tr.forcedIntroCue === 'number'
+              ? tr.forcedIntroCue
+              : Math.max(0, Number(cfg?.introOffsetSec) || 0);
+
           if (!tr.standbyRolling) {
             if (toState === window.YT?.PlayerState?.PLAYING) {
+              const curStandby = toPlayer?.getCurrentTime?.() || 0;
+              if (introCue > 1 && curStandby < introCue - 1.5) {
+                try { toPlayer?.seekTo?.(introCue, true); } catch {}
+                return;
+              }
               tr.standbyRolling = true;
               tr.startedAtMs = performance.now();
             } else {
@@ -1042,10 +1075,22 @@ export default function YouTubePlayer({
                 try { toPlayer?.playVideo?.(); } catch {}
               }
               if (performance.now() - tr.startedAtMs > 2200) {
+                if (introCue > 1) {
+                  try { toPlayer?.seekTo?.(introCue, true); } catch {}
+                }
                 tr.standbyRolling = true;
                 tr.startedAtMs = performance.now();
               } else {
                 return;
+              }
+            }
+          } else if (introCue > 1) {
+            // In the first 2 seconds of transition, keep enforcing introCue if standby player lagged or reset
+            const elapsed = (performance.now() - tr.startedAtMs) / 1000;
+            if (elapsed < 2.0) {
+              const curStandby = toPlayer?.getCurrentTime?.() || 0;
+              if (curStandby < introCue - 1.5) {
+                try { toPlayer?.seekTo?.(introCue, true); } catch {}
               }
             }
           }
