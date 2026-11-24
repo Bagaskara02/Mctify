@@ -34,7 +34,7 @@ const VERIFIED_TRACK_BPM_KEY = [
   { match: /sanctuary/i, bpm: 84, key: '11B' },
   { match: /best part/i, bpm: 75, key: '9B' },
   { match: /location unknown/i, bpm: 92, key: '5B' },
-  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 150.0, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
+  { match: /ain'?t in la/i, bpm: 139, key: '12B', introDropSec: 0.2, activeOutroSec: 154.0, totalDurSec: 185, videoId: '0ijm2Xui5N8' },
   { match: /close to me/i, bpm: 72, key: '12B', introDropSec: 33.0, totalDurSec: 183, videoId: 'ajN57m_OSpY' },
 ];
 
@@ -102,6 +102,7 @@ export function computeTrackBpmAndKey(track) {
         activeOutroSec: entry.activeOutroSec,
         targetOutroSec: entry.activeOutroSec,
         totalDurSec: entry.totalDurSec,
+        videoId: entry.videoId,
       };
     }
   }
@@ -232,20 +233,12 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   let inGain = 0.0;
 
   if (volumeMode === 'mashup') {
-    // Spotify Mashup Blend:
-    // First Half (p <= 0.48): Both tracks play at 100% full volume energy.
-    // Midpoint Crossover (p = 0.48..0.88): Outgoing track fades down gracefully (1.0 -> 0.18)
-    // so incoming track (Close To Me) dominates the mix cleanly, as requested by user.
-    // Final Bars (p >= 0.88): Outgoing fades to 0.0, Incoming stays 100%.
-    if (p <= 0.48) {
-      outGain = 1.0;
-    } else if (p < 0.88) {
-      const t = (p - 0.48) / 0.40;
-      outGain = 0.18 + 0.82 * Math.cos(t * (Math.PI / 2));
-    } else {
-      const t = (p - 0.88) / 0.12;
-      outGain = 0.18 * (1 - t);
-    }
+    // Authentic Spotify Mix Mashup Blend (no volume fade during transition):
+    // Both tracks stay at 100% full volume energy across the transition!
+    // Outgoing stays at 100% until 95% (end of transition), then drops to 0%.
+    // Incoming is at 100% from the very first beat!
+    // Separation is achieved through Bass Swap (yellow line) and High-Pass Filter (pink S-curve).
+    outGain = p < 0.95 ? 1.0 : Math.cos(((p - 0.95) / 0.05) * (Math.PI / 2));
     inGain = 1.0;
   } else if (volumeMode === 'overlap') {
     // Spotify Overlap: Outgoing stays at 100% until 45%, then smooth cosine fade out;
@@ -412,17 +405,23 @@ export function evaluateTransitionEnvelope(progress, config = {}) {
   // 5. Effective IFrame Volume Contour (projects EQ/Filter energy onto 0..100 for YouTube IFrame dual decks)
   let outAcousticalFactor = 1.0;
   let inAcousticalFactor = 1.0;
-  if (volumeMode === 'mashup' || eqMode === 'bass_swap') {
-    outAcousticalFactor *= p < 0.5 ? 1.0 : 0.78;
-    inAcousticalFactor *= p < 0.5 ? 0.82 : 1.05;
-  } else if (eqMode === 'high_pass') {
-    outAcousticalFactor *= 1 - 0.22 * p;
-  }
-  if (effectMode === 'high_pass' || effectMode === 'low_pass') {
-    outAcousticalFactor *= 1 - 0.25 * Math.pow(p, 1.2);
-  } else if (effectMode === 'echo_fade' || effectMode === 'reverb_tail') {
-    // Sustain tail slightly longer for ambient wash
-    outAcousticalFactor *= 1 + 0.14 * Math.sin(p * Math.PI);
+  if (volumeMode === 'mashup') {
+    // Mashup mode: keep both tracks at full 100% volume without artificial attenuation
+    outAcousticalFactor = 1.0;
+    inAcousticalFactor = 1.0;
+  } else {
+    if (eqMode === 'bass_swap') {
+      outAcousticalFactor *= p < 0.5 ? 1.0 : 0.82;
+      inAcousticalFactor *= p < 0.5 ? 0.82 : 1.05;
+    } else if (eqMode === 'high_pass') {
+      outAcousticalFactor *= 1 - 0.22 * p;
+    }
+    if (effectMode === 'high_pass' || effectMode === 'low_pass') {
+      outAcousticalFactor *= 1 - 0.25 * Math.pow(p, 1.2);
+    } else if (effectMode === 'echo_fade' || effectMode === 'reverb_tail') {
+      // Sustain tail slightly longer for ambient wash
+      outAcousticalFactor *= 1 + 0.14 * Math.sin(p * Math.PI);
+    }
   }
 
   const effectiveOutIframeVol = Math.max(0, Math.min(100, Math.round(outGain * outAcousticalFactor * 100)));
@@ -478,8 +477,8 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       effect: 'high_pass',
       tempoSync: true,
       outroOffsetSec: 0.0,
-      activeOutroSec: 150.0, // Mulai tepat di menit 2:30 pada Ain't In LA
-      targetOutroSec: 150.0,
+      activeOutroSec: 154.0, // Mulai tepat di menit 2:34 pada Ain't In LA
+      targetOutroSec: 154.0,
       introOffsetSec: 33.0, // Mulai tepat di menit 0:33 pada Close To Me sampai 1:01
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
@@ -487,7 +486,7 @@ export function computeSmartAutomixPreset(outgoing, incoming) {
       keyB: metaB.key,
       deltaBpm,
       compatibility: compat,
-      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:30, Close To Me mulai di 0:33 sampai 1:01. Di tengah (Bar 8➔9), Ain\'t In LA di-fade halus agar Close To Me mendominasi, ditambah Bass Swap & Pink S-Curve HPF.',
+      explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:34, Close To Me mulai di 0:33 sampai 1:01. Full volume energi mashup tanpa fade, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
     };
   }
 

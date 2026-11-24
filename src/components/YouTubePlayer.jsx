@@ -969,8 +969,9 @@ export default function YouTubePlayer({
           ? explicitOutroCue
           : Math.max(2.0, dur - triggerRemainingSec);
 
-        const isAtTriggerPoint =
-          current >= targetTriggerSec || (remainingSec <= triggerRemainingSec && remainingSec > 0.7);
+        const isAtTriggerPoint = explicitOutroCue != null
+          ? (current >= targetTriggerSec)
+          : (current >= targetTriggerSec || (remainingSec <= triggerRemainingSec && remainingSec > 0.7));
 
         // Honor explicit introOffsetSec (e.g. +33s for Close To Me chorus drop)
         const effectiveIntroCueSec = typeof cfg?.introOffsetSec === 'number'

@@ -1446,7 +1446,7 @@ export default function App() {
           : (metaB.introDropSec ?? (Number(pairCfg.introOffsetSec) || 0)));
 
     const resolvedActiveOutroSec = isAintInLaToCloseToMe
-      ? 150.0
+      ? 154.0
       : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
           ? pairCfg.activeOutroSec
           : (metaA.activeOutroSec ?? null));
@@ -1606,6 +1606,32 @@ export default function App() {
       `Menguji Transisi Live (${saved.bars} • ${saved.volume}): Mulai di ${formatPlaybackSeconds(testStartSec)} → Transisi di ${formatPlaybackSeconds(targetOutroCue)}...`
     );
     setTimeout(() => setSmartToast(null), 4500);
+  };
+
+  const handleAuditionTransition = async (activeCfg) => {
+    if (!activeCfg?.outgoingTrack || !activeCfg?.incomingTrack) return;
+    const { outTrack, updatedQueue } = await alignQueueForTransitionPair(
+      activeCfg.outgoingTrack,
+      activeCfg.incomingTrack
+    );
+    const outDur = Number(outTrack.duration) || 185;
+    const overlapSec = Number(activeCfg.durationSec) || 27.6;
+    const outroOffset = Number(activeCfg.outroOffsetSec) || 0;
+    const triggerRemainingSec = Math.max(2.0, overlapSec - outroOffset);
+
+    const targetOutroCue =
+      typeof activeCfg.activeOutroSec === 'number' && activeCfg.activeOutroSec > 10
+        ? activeCfg.activeOutroSec
+        : (typeof activeCfg.targetOutroSec === 'number' && activeCfg.targetOutroSec > 10
+            ? activeCfg.targetOutroSec
+            : Math.max(0, outDur - triggerRemainingSec));
+
+    // Start 2.5s before the target cue (or at startOverrideSec if user tapped waveform) so user hears the vocal cue phrase before the blend begins
+    const testStartSec = typeof activeCfg.startOverrideSec === 'number'
+      ? activeCfg.startOverrideSec
+      : Math.max(0, Number((targetOutroCue - 2.5).toFixed(1)));
+
+    await handlePlayTrack(outTrack, updatedQueue, testStartSec);
   };
 
   return (
@@ -2099,6 +2125,13 @@ export default function App() {
         onPlayTrack={handlePlayTrack}
         onSaveTransition={handleSaveTransition}
         onTestLiveTransition={handleTestLiveTransition}
+        onAuditionTransition={handleAuditionTransition}
+        liveTransitionState={liveTransitionState}
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={duration}
+        onPlayPause={handlePlayPause}
+        onSeek={handleSeek}
       />
 
       {/* --- SPOTIFY CONTEXT MENU (KLIK KANAN PADA MUSIK & PLAYLIST) --- */}

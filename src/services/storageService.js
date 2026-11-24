@@ -644,7 +644,7 @@ export const storageService = {
               isAintInLaToCloseToMe &&
               (saved.bars !== '16 bars' ||
                 Number(saved.introOffsetSec) !== 33.0 ||
-                Number(saved.activeOutroSec) !== 150.0)
+                Number(saved.activeOutroSec) !== 154.0)
             ) {
               const smart = computeSmartAutomixPreset(outgoingTrack, incomingTrack);
               if (smart) {

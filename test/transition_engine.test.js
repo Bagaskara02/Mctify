@@ -154,7 +154,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const metaB = computeTrackBpmAndKey(trackB);
     assert.equal(metaA.bpm, 139, 'Ain\'t In LA studio BPM should be 139');
     assert.equal(metaA.key, '12B', 'Ain\'t In LA Camelot key should be 12B');
-    assert.equal(metaA.activeOutroSec, 150.0, 'Ain\'t In LA active outro must cue at 150s (2:30)');
+    assert.equal(metaA.activeOutroSec, 154.0, 'Ain\'t In LA active outro must cue at 154s (2:34)');
     assert.equal(metaB.bpm, 72, 'Close To Me studio BPM should be 72');
     assert.equal(metaB.key, '12B', 'Close To Me Camelot key should be 12B');
     assert.equal(metaB.introDropSec, 33.0, 'Close To Me chorus drop cues at 33s (0:33)');
@@ -166,7 +166,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(preset.effect, 'high_pass');
     assert.equal(preset.tempoSync, true);
     assert.equal(preset.introOffsetSec, 33.0, 'Must cue Close To Me at its 33.0s chorus drop');
-    assert.equal(preset.activeOutroSec, 150.0, 'Must cue Ain\'t In LA at 2:30 (150s)');
+    assert.equal(preset.activeOutroSec, 154.0, 'Must cue Ain\'t In LA at 2:34 (154s)');
     assert.ok(preset.durationSec >= 27.0 && preset.durationSec <= 28.5, '16 bars at 139 BPM should be ~27.6s (0:33 to 1:01)');
 
     // Verify storageService automatically resolves the TikTok Smart Automix blueprint
@@ -174,7 +174,7 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(autoPairCfg.bars, '16 bars');
     assert.equal(autoPairCfg.volume, 'mashup');
     assert.equal(autoPairCfg.introOffsetSec, 33.0);
-    assert.equal(autoPairCfg.activeOutroSec, 150.0);
+    assert.equal(autoPairCfg.activeOutroSec, 154.0);
 
     // Verify storageService auto-upgrades an outdated saved cache entry in localStorage
     const pairKey = storageService._makeTransitionPairKey(trackA, trackB);
@@ -190,10 +190,10 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     const upgradedCfg = storageService.getTransitionForPair(trackA, trackB);
     assert.equal(upgradedCfg.bars, '16 bars', 'Outdated 8 bars cache should auto-upgrade to 16 bars');
     assert.equal(upgradedCfg.introOffsetSec, 33.0, 'Outdated 0s intro cache should auto-upgrade to 33.0s');
-    assert.equal(upgradedCfg.activeOutroSec, 150.0, 'Outdated 168s outro cache should auto-upgrade to 150.0s');
+    assert.equal(upgradedCfg.activeOutroSec, 154.0, 'Outdated 168s outro cache should auto-upgrade to 154.0s');
 
     // Verify Spotify Mix 3-curve automation envelope
-    // 1. Crossover volume curve: Ain't In LA stays 100% in first half, then fades down so Close To Me dominates
+    // 1. Crossover volume curve: Ain't In LA and Close To Me both stay at 100% full power (no volume fade)
     const envBar1 = evaluateTransitionEnvelope(0.1, preset);
     const envMid = evaluateTransitionEnvelope(0.48, preset);
     const envFade = evaluateTransitionEnvelope(0.70, preset);
@@ -203,9 +203,9 @@ describe('Web Audio DSP Transition & Dual-Deck Automix Engine Tests', () => {
     assert.equal(envBar1.inGain, 1.0);
     assert.equal(envMid.outGain, 1.0);
     assert.equal(envMid.inGain, 1.0);
-    assert.ok(envFade.outGain < 0.75, 'Ain\'t In LA fades down during crossover so Close To Me dominates');
+    assert.equal(envFade.outGain, 1.0, 'Ain\'t In LA stays at 100% full volume power without volume fade');
     assert.equal(envFade.inGain, 1.0, 'Close To Me stays full energy at 100%');
-    assert.equal(envEnd.outGain, 0.0, 'Outgoing track finishes fading out at the end');
+    assert.equal(envEnd.outGain, 0.0, 'Outgoing track finishes at the very end');
     assert.equal(envEnd.inGain, 1.0);
 
     // 2. Yellow bass swap curve: step swap at p = 0.50

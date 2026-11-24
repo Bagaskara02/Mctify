@@ -62,6 +62,13 @@ export default function SpotifyTransitionModal({
   trendingTracks = [],
   onSaveTransition,
   onTestLiveTransition,
+  onAuditionTransition,
+  liveTransitionState,
+  isPlaying = false,
+  currentTime = 0,
+  duration = 180,
+  onPlayPause,
+  onSeek,
 }) {
   // Custom Song Selection State
   const [outgoingOverride, setOutgoingOverride] = useState(null);
@@ -121,10 +128,11 @@ export default function SpotifyTransitionModal({
     const computed = computeTrackBpmAndKey(raw);
     return {
       ...raw,
+      videoId: raw.videoId || computed.videoId,
       bpm: computed.bpm,
       key: computed.key,
       artwork: getHighResArtworkUrl(raw.artwork || raw.thumbnail),
-      duration: raw.duration || 210,
+      duration: raw.duration || computed.totalDurSec || 210,
     };
   }, [outgoingOverride, currentTrack, queue, trendingTracks]);
 
@@ -144,10 +152,11 @@ export default function SpotifyTransitionModal({
     const computed = computeTrackBpmAndKey(candidate);
     return {
       ...candidate,
+      videoId: candidate.videoId || computed.videoId,
       bpm: computed.bpm,
       key: computed.key,
       artwork: getHighResArtworkUrl(candidate.artwork || candidate.thumbnail),
-      duration: candidate.duration || 180,
+      duration: candidate.duration || computed.totalDurSec || 180,
     };
   }, [incomingOverride, nextTrack, outgoing.id, queue, trendingTracks]);
 
@@ -187,31 +196,76 @@ export default function SpotifyTransitionModal({
     [outgoing.bpm, incoming.bpm, settings.bars]
   );
 
+  const isAintInLaToCloseToMe = useMemo(() => {
+    return (
+      Boolean(outgoing && incoming) &&
+      ((/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
+       (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || '')))
+    );
+  }, [outgoing.title, incoming.title]);
+
   // Derived cue seconds for UI display & auditioning
   const currentOutroCueSec = useMemo(() => {
+    if (isAintInLaToCloseToMe) return 154.0;
     if (typeof settings.activeOutroSec === 'number' && settings.activeOutroSec > 0) {
       return settings.activeOutroSec;
     }
     const base = (outgoing.duration || 185) - barStats.durationSec;
     return Math.max(0, base + (Number(settings.outroOffsetSec) || 0));
-  }, [settings.activeOutroSec, settings.outroOffsetSec, outgoing.duration, barStats.durationSec]);
+  }, [isAintInLaToCloseToMe, settings.activeOutroSec, settings.outroOffsetSec, outgoing.duration, barStats.durationSec]);
 
   const currentIntroCueSec = useMemo(() => {
+    if (isAintInLaToCloseToMe) return 33.0;
     return Math.max(0, Number(settings.introOffsetSec) || 0);
-  }, [settings.introOffsetSec]);
+  }, [isAintInLaToCloseToMe, settings.introOffsetSec]);
 
   const currentIntroEndSec = useMemo(() => {
     return currentIntroCueSec + barStats.durationSec;
   }, [currentIntroCueSec, barStats.durationSec]);
 
+  // Live Player Audition Integration
+  const isLivePlayerMatched = useMemo(() => {
+    if (!currentTrack) return false;
+    const curVid = currentTrack.videoId || '';
+    const curTitle = (currentTrack.title || '').toLowerCase();
+    const outVid = outgoing.videoId || '';
+    const outTitle = (outgoing.title || '').toLowerCase();
+    const inVid = incoming.videoId || '';
+    const inTitle = (incoming.title || '').toLowerCase();
+    return (
+      (curVid && (curVid === outVid || curVid === inVid)) ||
+      (outTitle && curTitle.includes(outTitle)) ||
+      (inTitle && curTitle.includes(inTitle))
+    );
+  }, [currentTrack, outgoing.videoId, outgoing.title, incoming.videoId, incoming.title]);
+
+  const isLiveAuditionActive = Boolean(isPlaying && isLivePlayerMatched);
+
+  // Real-time progress derived from verified live player or internal Web Audio DSP
+  const effectiveProgress = useMemo(() => {
+    if (liveTransitionState?.active && Number.isFinite(liveTransitionState.progress)) {
+      return Math.max(0, Math.min(1, liveTransitionState.progress));
+    }
+    if (isLiveAuditionActive) {
+      const cue = currentOutroCueSec;
+      const leadStart = Math.max(0, cue - 2.5);
+      if (currentTime >= leadStart && currentTime < cue) {
+        return 0;
+      }
+      if (currentTime >= cue) {
+        const p = (currentTime - cue) / Math.max(1, barStats.durationSec);
+        return Math.max(0, Math.min(1, p));
+      }
+    }
+    return previewProgress;
+  }, [liveTransitionState, isLiveAuditionActive, currentTime, currentOutroCueSec, barStats.durationSec, previewProgress]);
+
+  const effectiveIsPlaying = isLiveAuditionActive || isPlayingPreview;
+
   // Sync pair settings when modal opens or pair changes
   useEffect(() => {
     if (isOpen) {
       const pairCfg = storageService.getTransitionForPair(outgoing, incoming);
-      const isAintInLaToCloseToMe =
-        (/ain'?t in la/i.test(outgoing?.title || '') && /close to me/i.test(incoming?.title || '')) ||
-        (/close to me/i.test(outgoing?.title || '') && /ain'?t in la/i.test(incoming?.title || ''));
-
       const effectiveBars =
         isAintInLaToCloseToMe &&
         (!pairCfg?.bars || pairCfg.bars === '2 bars' || pairCfg.bars === '8 bars')
@@ -221,7 +275,7 @@ export default function SpotifyTransitionModal({
       const calc = computeBarDurationSec(outgoing.bpm, incoming.bpm, effectiveBars);
 
       const effectiveOutroSec = isAintInLaToCloseToMe
-        ? 150.0
+        ? 154.0
         : (typeof pairCfg.activeOutroSec === 'number' && pairCfg.activeOutroSec > 0
             ? pairCfg.activeOutroSec
             : (outgoing.activeOutroSec || null));
@@ -502,6 +556,25 @@ export default function SpotifyTransitionModal({
   };
 
   const handleTogglePreview = () => {
+    const outVid = outgoing?.videoId || (isAintInLaToCloseToMe ? '0ijm2Xui5N8' : null);
+    const inVid = incoming?.videoId || (isAintInLaToCloseToMe ? 'ajN57m_OSpY' : null);
+
+    if (onAuditionTransition && outVid && inVid) {
+      if (isLiveAuditionActive) {
+        onPlayPause?.();
+      } else {
+        onAuditionTransition({
+          ...settings,
+          outgoingTrack: { ...outgoing, videoId: outVid },
+          incomingTrack: { ...incoming, videoId: inVid },
+          durationSec: barStats.durationSec,
+          activeOutroSec: currentOutroCueSec,
+          targetOutroSec: currentOutroCueSec,
+          introOffsetSec: currentIntroCueSec,
+        });
+      }
+      return;
+    }
     if (isPlayingPreview) {
       stopPreview();
     } else {
@@ -515,6 +588,28 @@ export default function SpotifyTransitionModal({
     isScrubbingWaveformRef.current = true;
     const rect = waveformBoxRef.current.getBoundingClientRect();
     const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+
+    const outVid = outgoing?.videoId || (isAintInLaToCloseToMe ? '0ijm2Xui5N8' : null);
+    const inVid = incoming?.videoId || (isAintInLaToCloseToMe ? 'ajN57m_OSpY' : null);
+
+    if (onAuditionTransition && outVid && inVid) {
+      const seekTarget = currentOutroCueSec + relX * barStats.durationSec;
+      if (isLiveAuditionActive) {
+        onSeek?.(seekTarget);
+      } else {
+        onAuditionTransition({
+          ...settings,
+          outgoingTrack: { ...outgoing, videoId: outVid },
+          incomingTrack: { ...incoming, videoId: inVid },
+          durationSec: barStats.durationSec,
+          activeOutroSec: currentOutroCueSec,
+          targetOutroSec: currentOutroCueSec,
+          introOffsetSec: currentIntroCueSec,
+          startOverrideSec: seekTarget,
+        });
+      }
+      return;
+    }
 
     if (!isPlayingPreview) {
       startPreview().then(() => {
@@ -1074,7 +1169,7 @@ export default function SpotifyTransitionModal({
                   ? (ratio - overlapStartRatio) / overlapFraction
                   : 0;
                 // Modulate bar brightness with active playhead
-                const isPlayed = isPlayingPreview && previewProgress >= ratio;
+                const isPlayed = effectiveIsPlaying && effectiveProgress >= ratio;
 
                 return (
                   <div
@@ -1155,14 +1250,14 @@ export default function SpotifyTransitionModal({
                 disabled={audioLoading}
                 className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center shadow-[0_0_24px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all cursor-pointer relative"
                 title={
-                  isPlayingPreview
+                  effectiveIsPlaying
                     ? 'Hentikan Audisi Transisi'
                     : 'Putar Audisi Transisi Real-Time'
                 }
               >
                 {audioLoading ? (
                   <RefreshCw className="w-5 h-5 text-black animate-spin" />
-                ) : isPlayingPreview ? (
+                ) : effectiveIsPlaying ? (
                   <Pause className="w-5 h-5 fill-black" />
                 ) : (
                   <Play className="w-5 h-5 fill-black ml-0.5" />
@@ -1351,7 +1446,7 @@ export default function SpotifyTransitionModal({
               {bottomWaveformBars.map((h, i) => {
                 const ratio = i / bottomWaveformBars.length;
                 const isOverlapped = ratio <= overlapFraction;
-                const isPlayed = isPlayingPreview && previewProgress >= ratio;
+                const isPlayed = effectiveIsPlaying && effectiveProgress >= ratio;
 
                 return (
                   <div
@@ -1410,34 +1505,26 @@ export default function SpotifyTransitionModal({
             </div>
 
             {/* Live DSP Telemetry Overlay while Auditioning */}
-            {isPlayingPreview && liveTelemetry?.envelope && (
+            {effectiveIsPlaying && (
               <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/75">
                 <span className="text-cyan-300">
-                  Deck A: {Math.round(liveTelemetry.envelope.outGain * 100)}%
-                  {settings.effect === 'high_pass' &&
-                    ` • HPF ${Math.round(liveTelemetry.envelope.outFilterFreqHz)}Hz`}
-                  {settings.effect === 'low_pass' &&
-                    ` • LPF ${Math.round(liveTelemetry.envelope.outFilterFreqHz)}Hz`}
+                  Deck A: {liveTransitionState?.outVolPercent ?? (liveTelemetry?.envelope ? Math.round(liveTelemetry.envelope.outGain * 100) : 100)}%
+                  {settings.effect === 'high_pass' && ' • HPF S-Curve'}
                 </span>
                 <span className="text-emerald-400 font-bold uppercase">
-                  {liveTelemetry.phase === 'lead_in'
-                    ? 'OUTRO SOLO'
-                    : liveTelemetry.phase === 'overlap'
-                    ? `MIXING (${Math.round(liveTelemetry.overlapProgress * 100)}%)`
-                    : 'INTRO SOLO'}
+                  {liveTransitionState?.active ? `MASHUP BLEND (${Math.round(effectiveProgress * 100)}%)` : 'AUDISI LIVE'}
                 </span>
                 <span className="text-fuchsia-300">
-                  Deck B: {Math.round(liveTelemetry.envelope.inGain * 100)}% •{' '}
-                  {liveTelemetry.envelope.inPlaybackRate}x
+                  Deck B: {liveTransitionState?.inVolPercent ?? (liveTelemetry?.envelope ? Math.round(liveTelemetry.envelope.inGain * 100) : 100)}%
                 </span>
               </div>
             )}
 
             {/* Live Playhead Sweep Line */}
-            {isPlayingPreview && (
+            {effectiveIsPlaying && (
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 shadow-[0_0_12px_#34d399] pointer-events-none z-20"
-                style={{ left: `${previewProgress * 100}%` }}
+                style={{ left: `${effectiveProgress * 100}%` }}
               />
             )}
           </div>
