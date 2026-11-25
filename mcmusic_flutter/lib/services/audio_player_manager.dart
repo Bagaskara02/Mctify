@@ -280,14 +280,21 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (url == null || url.isEmpty || MusicApiService.isPreviewUrl(url)) return;
 
-      // Pre-warm first 2 chunks (~512 KB / ~32s) into RAM BEFORE calling setAudioSource
-      // so iOS AVPlayer & Android ExoPlayer parse MP4 moov + initial samples in <5ms from RAM!
+      // Pre-warm first 2 chunks (~512 KB / ~32s) + target intro fraction into RAM BEFORE
+      // calling setAudioSource so iOS AVPlayer & Android ExoPlayer parse MP4 moov + initial samples in <5ms!
+      final isCuratedPair = StorageService.isAintInLaToCloseToMe(_currentTrack, nextTrack);
+      final introSec = isCuratedPair ? 34.0 : _activePairTransitionConfig.introOffsetSec.clamp(0.0, 45.0);
       final proxyId = Uri.tryParse(url)?.queryParameters['id'];
       if (proxyId != null && proxyId.isNotEmpty) {
-        await AudioProxyServer.instance.prewarmHead(proxyId, chunks: 2);
+        if (introSec > 1.0) {
+          final estDur = nextTrack.duration > 30 ? nextTrack.duration : 183;
+          final frac = (introSec / estDur).clamp(0.0, 0.90);
+          await AudioProxyServer.instance.prewarmAtFraction(proxyId, frac);
+        } else {
+          await AudioProxyServer.instance.prewarmHead(proxyId, chunks: 2);
+        }
       }
 
-      final introSec = _activePairTransitionConfig.introOffsetSec.clamp(0.0, 28.0);
       final source = ja.AudioSource.uri(
         Uri.parse(url),
         headers: const {'Accept': '*/*'},
@@ -301,7 +308,7 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                 : null,
             preload: true,
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 10));
       await _standbyPlayer.setVolume(0.0);
       _standbyDeckArmed = true;
       _standbyArmedKey = key;
@@ -464,8 +471,8 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
 
     try {
-      await oldDeck.pause();
       await oldDeck.setVolume(0.0);
+      await oldDeck.pause();
       await oldDeck.setSpeed(1.0);
     } catch (_) {}
 
@@ -540,8 +547,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       final totalSec = (_currentTrack?.id == outgoing.id && _duration.inSeconds > 20)
           ? _duration.inSeconds
           : (outgoing.duration > 20 ? outgoing.duration : 180);
+      final isCuratedPair = StorageService.isAintInLaToCloseToMe(outgoing, incoming);
       final leadSec = (saved.durationSec.round() + saved.outroOffsetSec.round().abs() + 6).clamp(8, 30);
-      final targetSec = max(5, totalSec - leadSec);
+      final targetSec = isCuratedPair ? 147 : max(5, totalSec - leadSec);
 
       if (_currentTrack?.id == outgoing.id && !_isPreparingTrack) {
         await seek(Duration(seconds: targetSec));
@@ -1494,8 +1502,9 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
                     max(0.0, -_activePairTransitionConfig.outroOffsetSec))
                 .clamp(1.2, 32.0);
             final currentSec = pos.inMilliseconds / 1000.0;
+            final isCuratedPair = StorageService.isAintInLaToCloseToMe(_currentTrack, nextTrackInQueue);
             final isTrigger = (remainingSec > 0.3 && remainingSec <= triggerSec) ||
-                (currentSec >= 150.0 && remainingSec > 0.7);
+                (isCuratedPair && currentSec >= 152.5 && remainingSec > 0.7);
             if (isTrigger) {
               unawaited(_startLiveDualDeckTransition());
             }
@@ -2584,6 +2593,12 @@ class AudioPlayerManager extends ChangeNotifier with WidgetsBindingObserver {
       _queue.insert(newIndex, item);
       if (_currentTrack != null) {
         _currentQueueIndex = _queue.indexWhere((t) => t.id == _currentTrack!.id);
+      }
+      if (!_isTransitioning) {
+        _standbyDeckArmed = false;
+        _standbyArmedKey = null;
+        _hasPrefetchedNextTrack = false;
+        unawaited(_refreshPairTransitionConfig());
       }
       _prefetchNextTrackStream();
       notifyListeners();

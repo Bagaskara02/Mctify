@@ -171,6 +171,29 @@ class StorageService {
     playlistRevision.value++;
   }
 
+  Future<void> saveLikedTracks(List<Track> tracks) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLiked, jsonEncode(tracks.map((t) => t.toJson()).toList()));
+    playlistRevision.value++;
+  }
+
+  Future<List<Playlist>> reorderPlaylistTracks(String playlistId, List<Track> newTracks) async {
+    final all = await getPlaylists();
+    final idx = all.indexWhere((p) => p.id == playlistId);
+    if (idx != -1) {
+      final pl = all[idx];
+      all[idx] = Playlist(
+        id: pl.id,
+        name: pl.name,
+        description: pl.description,
+        cover: pl.cover,
+        tracks: newTracks,
+      );
+      await savePlaylists(all);
+    }
+    return all;
+  }
+
   Future<Playlist?> updatePlaylistDetails(String playlistId, {String? name, String? cover, String? description}) async {
     final all = await getPlaylists();
     final idx = all.indexWhere((p) => p.id == playlistId);
@@ -444,25 +467,67 @@ class StorageService {
     return '${norm(outgoing)}__to__${norm(incoming)}';
   }
 
+  static bool isAintInLaToCloseToMe(Track? outgoing, Track? incoming) {
+    if (outgoing == null || incoming == null) return false;
+    final titleA = outgoing.title.toLowerCase();
+    final titleB = incoming.title.toLowerCase();
+    return RegExp(r"ain'?t in la").hasMatch(titleA) &&
+        RegExp(r'close to me').hasMatch(titleB);
+  }
+
   Future<TransitionConfig> getTransitionSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_keyTransitionSettings);
-      if (raw == null || raw.isEmpty) return const TransitionConfig();
+      if (raw == null || raw.isEmpty) {
+        return const TransitionConfig(
+          bars: '2 bars',
+          volumeMode: 'crossfade',
+          eqMode: 'none',
+          effectsMode: 'none',
+          syncTempo: false,
+        );
+      }
       final decoded = jsonDecode(raw);
-      if (decoded is! Map) return const TransitionConfig();
-      return TransitionConfig.fromJson(Map<String, dynamic>.from(decoded));
+      if (decoded is! Map) {
+        return const TransitionConfig(
+          bars: '2 bars',
+          volumeMode: 'crossfade',
+          eqMode: 'none',
+          effectsMode: 'none',
+          syncTempo: false,
+        );
+      }
+      final parsed = TransitionConfig.fromJson(Map<String, dynamic>.from(decoded));
+      // Purge any leaked curated Ain't In LA -> Close To Me cues from global settings
+      return parsed.copyWith(
+        outroOffsetSec: 0.0,
+        introOffsetSec: 0.0,
+        volumeMode: parsed.volumeMode == 'mashup' ? 'crossfade' : parsed.volumeMode,
+        eqMode: parsed.eqMode == 'bass_swap' ? 'none' : parsed.eqMode,
+        effectsMode: parsed.effectsMode == 'high_pass' ? 'none' : parsed.effectsMode,
+      );
     } catch (_) {
-      return const TransitionConfig();
+      return const TransitionConfig(
+        bars: '2 bars',
+        volumeMode: 'crossfade',
+        eqMode: 'none',
+        effectsMode: 'none',
+        syncTempo: false,
+      );
     }
   }
 
   Future<TransitionConfig> saveTransitionSettings(TransitionConfig config) async {
+    final sanitized = config.copyWith(
+      outroOffsetSec: 0.0,
+      introOffsetSec: 0.0,
+    );
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyTransitionSettings, jsonEncode(config.toJson()));
+      await prefs.setString(_keyTransitionSettings, jsonEncode(sanitized.toJson()));
     } catch (_) {}
-    return config;
+    return sanitized;
   }
 
   Future<TransitionConfig> getTransitionForPair(Track? outgoing, Track? incoming) async {
@@ -471,8 +536,10 @@ class StorageService {
     final metaB = TransitionEngine.computeTrackBpmAndKey(incoming);
 
     if (outgoing == null || incoming == null) {
-      return base.copyWith(bpmA: metaA.bpm, bpmB: metaB.bpm);
+      return base.copyWith(bpmA: metaA.bpm, bpmB: metaB.bpm, outroOffsetSec: 0.0, introOffsetSec: 0.0);
     }
+
+    final isCuratedPair = isAintInLaToCloseToMe(outgoing, incoming);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -483,25 +550,28 @@ class StorageService {
           final key = _pairKey(outgoing, incoming);
           final pairEntry = decoded[key];
           if (pairEntry is Map) {
-            return TransitionConfig.fromJson({
+            final loaded = TransitionConfig.fromJson({
               ...base.toJson(),
               ...Map<String, dynamic>.from(pairEntry),
               'bpmA': metaA.bpm,
               'bpmB': metaB.bpm,
               'pairKey': key,
             });
+            // Strictly isolate 0:34 introOffsetSec to Ain't In LA -> Close To Me
+            return loaded.copyWith(
+              introOffsetSec: isCuratedPair ? 34.0 : 0.0,
+              outroOffsetSec: isCuratedPair ? loaded.outroOffsetSec : 0.0,
+              bars: isCuratedPair && (loaded.bars == '2 bars' || loaded.bars == '8 bars')
+                  ? '16 bars'
+                  : loaded.bars,
+            );
           }
         }
       }
     } catch (_) {}
 
-    final smartPreset = TransitionEngine.computeSmartAutomixPreset(outgoing, incoming);
-    final titleA = outgoing.title.toLowerCase();
-    final titleB = incoming.title.toLowerCase();
-    final isCuratedBlueprint = (titleA.contains("ain't in la") && titleB.contains("close to me")) ||
-        (titleA.contains("close to me") && titleB.contains("ain't in la"));
-    if (isCuratedBlueprint || smartPreset.compatibilityScore >= 90) {
-      return smartPreset.config;
+    if (isCuratedPair) {
+      return TransitionEngine.computeSmartAutomixPreset(outgoing, incoming).config;
     }
 
     final barStats = TransitionEngine.computeBarDurationSec(metaA.bpm, metaB.bpm, base.bars);
@@ -509,6 +579,8 @@ class StorageService {
       durationSec: barStats.durationSec,
       bpmA: metaA.bpm,
       bpmB: metaB.bpm,
+      outroOffsetSec: 0.0,
+      introOffsetSec: 0.0,
     );
   }
 
@@ -517,8 +589,27 @@ class StorageService {
     Track? incoming,
     TransitionConfig config,
   ) async {
-    final savedGlobal = await saveTransitionSettings(config);
-    if (outgoing == null || incoming == null) return savedGlobal;
+    final isCuratedPair = isAintInLaToCloseToMe(outgoing, incoming);
+    final cleanConfig = config.copyWith(
+      bars: isCuratedPair ? (config.bars.isEmpty ? '16 bars' : config.bars) : config.bars,
+      volumeMode: isCuratedPair
+          ? config.volumeMode
+          : (config.volumeMode == 'mashup' ? 'crossfade' : config.volumeMode),
+      eqMode: isCuratedPair
+          ? config.eqMode
+          : (config.eqMode == 'bass_swap' ? 'none' : config.eqMode),
+      effectsMode: isCuratedPair
+          ? config.effectsMode
+          : (config.effectsMode == 'high_pass' ? 'none' : config.effectsMode),
+      introOffsetSec: isCuratedPair ? 34.0 : 0.0,
+      outroOffsetSec: isCuratedPair ? config.outroOffsetSec : 0.0,
+    );
+
+    // Never leak curated Ain't In LA -> Close To Me settings into global defaults
+    if (!isCuratedPair) {
+      await saveTransitionSettings(cleanConfig);
+    }
+    if (outgoing == null || incoming == null) return cleanConfig;
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -533,7 +624,7 @@ class StorageService {
 
       final key = _pairKey(outgoing, incoming);
       map[key] = {
-        ...savedGlobal.toJson(),
+        ...cleanConfig.toJson(),
         'pairKey': key,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -544,9 +635,9 @@ class StorageService {
       }
 
       await prefs.setString(_keyTransitionPairs, jsonEncode(map));
-      return savedGlobal.copyWith(pairKey: key);
+      return cleanConfig.copyWith(pairKey: key);
     } catch (_) {
-      return savedGlobal;
+      return cleanConfig;
     }
   }
 }

@@ -1211,19 +1211,25 @@ class MusicApiService {
     final matchRatio = matchedTokens / qTokens.length;
     score += (matchRatio * 700).round();
 
-    // 1. Prefix match bonus (Spotify-like instant hit suggestion on short prefixes like "im the ")
-    if (tTitle.startsWith(qNorm)) {
+    // 1. Core title & Prefix match bonus (collab songs like "No Promises (feat. Demi Lovato)" match "no promises")
+    final coreTitle = track.title
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s*[\(\[](?:feat|ft|with|prod)\.?\s*[^\)\]]*[\)\]]', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s*(?:feat|ft)\.?\s+.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[^\w\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (coreTitle == qNorm || tTitle == qNorm) {
+      score += 750;
+    } else if (coreTitle.startsWith(qNorm) || tTitle.startsWith(qNorm)) {
       score += 550;
     } else if (combined.startsWith(qNorm)) {
       score += 400;
     }
 
     // Exact phrase match bonus
-    if (tTitle.contains(qNorm) || combined.contains(qNorm)) {
+    if (coreTitle.contains(qNorm) || tTitle.contains(qNorm) || combined.contains(qNorm)) {
       score += 450;
-    }
-    if (tTitle == qNorm) {
-      score += 650;
     }
 
     // 2. Global Popularity Boost (Deezer rank & YouTube Music stream weighting)
@@ -1273,8 +1279,11 @@ class MusicApiService {
       score += 300;
     }
 
-    if (!isRemixRequested && !qNorm.contains('remix') && tTitle.contains('remix')) {
-      score -= 850;
+    if (!isRemixRequested &&
+        !qNorm.contains('remix') &&
+        RegExp(r'\b(remix|club edit|radio edit|stripped|eden prince|bassjackers|ashworth)\b', caseSensitive: false)
+            .hasMatch(track.title)) {
+      score -= 1200;
     }
     final liveRegex = RegExp(r'\b(live at|live in|live from|\(live\)|\[live\]|- live|concert|konser|fancam)\b', caseSensitive: false);
     if (!isLiveRequested && !isAcousticRequested && !qNorm.contains('live') &&

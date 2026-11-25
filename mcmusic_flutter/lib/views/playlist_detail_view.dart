@@ -196,6 +196,29 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     }
   }
 
+  Future<void> _reorderTrack(int oldIndex, int newIndex) async {
+    if (_sortOption != PlaylistSortOption.custom || _filterQuery.isNotEmpty || widget.isVirtualMix) return;
+    HapticFeedback.selectionClick();
+    final updatedTracks = List<Track>.from(_currentPlaylist.tracks);
+    if (oldIndex < newIndex) newIndex -= 1;
+    if (oldIndex < 0 || oldIndex >= updatedTracks.length || newIndex < 0 || newIndex >= updatedTracks.length) return;
+    final moved = updatedTracks.removeAt(oldIndex);
+    updatedTracks.insert(newIndex, moved);
+
+    final updatedPl = Playlist(
+      id: _currentPlaylist.id,
+      name: _currentPlaylist.name,
+      description: _currentPlaylist.description,
+      cover: _currentPlaylist.cover,
+      tracks: updatedTracks,
+    );
+    setState(() {
+      _currentPlaylist = updatedPl;
+    });
+    await _storage.reorderPlaylistTracks(_currentPlaylist.id, updatedTracks);
+    widget.onPlaylistChanged?.call();
+  }
+
   Future<void> _removeTrackFromPlaylist(Track track) async {
     final updatedTracks = _currentPlaylist.tracks.where((t) => t.id != track.id).toList();
     final updatedPl = Playlist(
@@ -920,6 +943,91 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                   ],
                 ),
               ),
+            )
+          else if (_sortOption == PlaylistSortOption.custom && _filterQuery.isEmpty && !widget.isVirtualMix)
+            SliverReorderableList(
+              itemCount: filteredTracks.length,
+              onReorder: _reorderTrack,
+              itemBuilder: (context, index) {
+                final track = filteredTracks[index];
+                final isCurrentlyPlaying = widget.player.currentTrack?.id == track.id;
+
+                return Material(
+                  key: ValueKey('${track.id}_$index'),
+                  color: Colors.transparent,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isCurrentlyPlaying ? const Color(0xFF14243C) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 22,
+                            child: isCurrentlyPlaying
+                                ? const Icon(Icons.graphic_eq, color: AppTheme.primaryAzure, size: 18)
+                                : Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold),
+                                  ),
+                          ),
+                          const SizedBox(width: 8),
+                          OptimizedImage(
+                            imageUrl: track.artwork,
+                            width: 44,
+                            height: 44,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ],
+                      ),
+                      title: Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrentlyPlaying ? const Color(0xFF00E5FF) : Colors.white,
+                          fontSize: 14,
+                          fontWeight: isCurrentlyPlaying ? FontWeight.w900 : FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${track.artist} • ${_formatDuration(track.duration)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ReorderableDragStartListener(
+                            index: index,
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                              child: Icon(Icons.drag_indicator, color: Colors.white38, size: 20),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                            onPressed: () => _showTrackMenu(track),
+                          ),
+                        ],
+                      ),
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        widget.player.playTrack(track, filteredTracks);
+                      },
+                      onLongPress: () {
+                        HapticFeedback.mediumImpact();
+                        _showTrackMenu(track);
+                      },
+                    ),
+                  ),
+                );
+              },
             )
           else
             SliverList(

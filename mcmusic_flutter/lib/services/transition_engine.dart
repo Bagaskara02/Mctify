@@ -27,10 +27,10 @@ class TransitionConfig {
     this.enabled = true,
     this.bars = '2 bars',
     this.durationSec = 5.5,
-    this.volumeMode = 'overlap',
+    this.volumeMode = 'crossfade',
     this.eqMode = 'none',
-    this.effectsMode = 'high_pass',
-    this.syncTempo = true,
+    this.effectsMode = 'none',
+    this.syncTempo = false,
     this.outroOffsetSec = 0.0,
     this.introOffsetSec = 0.0,
     this.bpmA = 120,
@@ -100,7 +100,7 @@ class TransitionConfig {
           ? (json['outroOffsetSec'] as num).toDouble().clamp(-15.0, 15.0)
           : 0.0,
       introOffsetSec: (json['introOffsetSec'] is num)
-          ? (json['introOffsetSec'] as num).toDouble().clamp(0.0, 30.0)
+          ? (json['introOffsetSec'] as num).toDouble().clamp(0.0, 60.0)
           : 0.0,
       bpmA: (json['bpmA'] is num) ? (json['bpmA'] as num).round().clamp(55, 210) : 120,
       bpmB: (json['bpmB'] is num) ? (json['bpmB'] as num).round().clamp(55, 210) : 120,
@@ -706,11 +706,13 @@ class TransitionEngine {
     final bpmDelta = initialStats.bpmDelta;
 
     // Specific Curated Blueprint: ADÉLA - Ain't In LA ➔ Ellie Goulding - Close To Me (TikTok Spotify Mix)
+    // Strictly directional: Only when Ain't In LA transitions into Close To Me
     final titleA = (outgoingTrack?.title ?? '').toLowerCase();
     final titleB = (incomingTrack?.title ?? '').toLowerCase();
+    final aintInLaRe = RegExp(r"ain'?t in la");
+    final closeToMeRe = RegExp(r'close to me');
     final isAintInLaToCloseToMe =
-        (titleA.contains("ain't in la") && titleB.contains('close to me')) ||
-        (titleA.contains('close to me') && titleB.contains("ain't in la"));
+        aintInLaRe.hasMatch(titleA) && closeToMeRe.hasMatch(titleB);
 
     if (isAintInLaToCloseToMe) {
       final barStats = computeBarDurationSec(metaA.bpm, metaB.bpm, '16 bars');
@@ -731,44 +733,42 @@ class TransitionEngine {
         config: config,
         metaA: metaA,
         metaB: metaB,
+        harmonic: harmonic,
+        barStats: barStats,
         compatibilityScore: 99,
-        explanation: 'Spotify Mix Blueprint (TikTok Reference): ADÉLA (139 BPM, 12B) ➔ Ellie Goulding/Diplo (72/144 BPM, 12B). 16 Bars Mashup: Ain\'t In LA mulai di 2:32.5, Close To Me di 0:34 seimbang sama besar volumenya tanpa saling mendominasi, Bass Swap di Bar 8➔9, dan Pink S-Curve HPF.',
-        bars: '16 bars',
-        volumeMode: 'mashup',
-        eqMode: 'bass_swap',
-        effectsMode: 'high_pass',
+        summary: 'Spotify Mix Blueprint: Ain\'t In LA (2:32.5) ➔ Close To Me (0:34) • 16 Bars Mashup',
       );
     }
 
     String bars = '2 bars';
-    String volumeMode = 'overlap';
-    String eqMode = 'bass_swap';
-    String effectsMode = 'high_pass';
-    bool syncTempo = true;
+    String volumeMode = 'crossfade';
+    String eqMode = 'none';
+    String effectsMode = 'none';
+    bool syncTempo = false;
 
     if (bpmDelta <= 4 && harmonic.score >= 90) {
-      bars = '8 bars';
-      volumeMode = 'mashup';
-      eqMode = 'bass_swap';
-      effectsMode = 'high_pass';
+      bars = '4 bars';
+      volumeMode = 'crossfade';
+      eqMode = 'smooth_blend';
+      effectsMode = 'none';
       syncTempo = true;
     } else if (bpmDelta <= 10 && harmonic.score >= 78) {
-      bars = '4 bars';
-      volumeMode = 'mashup';
-      eqMode = 'bass_swap';
-      effectsMode = 'high_pass';
+      bars = '2 bars';
+      volumeMode = 'crossfade';
+      eqMode = 'smooth_blend';
+      effectsMode = 'none';
       syncTempo = true;
     } else if (bpmDelta <= 18) {
       bars = '2 bars';
-      volumeMode = 'rise_drop';
-      eqMode = 'high_pass';
-      effectsMode = 'echo_fade';
+      volumeMode = 'crossfade';
+      eqMode = 'none';
+      effectsMode = 'none';
       syncTempo = false;
     } else {
       bars = '1 bar';
       volumeMode = 'fade';
-      eqMode = 'smooth_blend';
-      effectsMode = 'reverb_tail';
+      eqMode = 'none';
+      effectsMode = 'none';
       syncTempo = false;
     }
 

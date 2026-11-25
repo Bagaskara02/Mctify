@@ -1121,10 +1121,10 @@ class _SpotifyTransitionModalState extends State<SpotifyTransitionModal> {
                                     label: 'Intro',
                                     color: const Color(0xFFA855F7),
                                     onMinus: () => _updateConfig(_config.copyWith(
-                                      introOffsetSec: (_config.introOffsetSec - 1.0).clamp(0.0, 25.0),
+                                      introOffsetSec: (_config.introOffsetSec - 1.0).clamp(0.0, 45.0),
                                     )),
                                     onPlus: () => _updateConfig(_config.copyWith(
-                                      introOffsetSec: (_config.introOffsetSec + 1.0).clamp(0.0, 25.0),
+                                      introOffsetSec: (_config.introOffsetSec + 1.0).clamp(0.0, 45.0),
                                     )),
                                   ),
                                 ],

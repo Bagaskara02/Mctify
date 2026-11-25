@@ -183,7 +183,9 @@ class PlaylistImporterService {
     // Method 1: Internal McMusic Backend Proxy (/api/yt/playlist) - 100% reliable with LockupView & Music support
     try {
       onProgress?.call(0, 1, 'Menghubungkan ke API YouTube...');
-      final apiUrl = Uri.parse('https://mctify.vercel.app/api/yt/playlist?id=${Uri.encodeQueryComponent(playlistId)}');
+      final apiUrl = Uri.parse(
+        'https://mctify.vercel.app/api/yt/playlist?id=${Uri.encodeQueryComponent(playlistId)}&_t=${DateTime.now().millisecondsSinceEpoch}',
+      );
       final res = await http.get(apiUrl).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));

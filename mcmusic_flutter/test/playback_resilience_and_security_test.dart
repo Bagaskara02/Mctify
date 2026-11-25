@@ -343,11 +343,26 @@ void main() {
       expect(endEnv.outLowDb, lessThan(-10.0));
     });
 
-    test('persists and retrieves per-pair TransitionConfig in StorageService', () async {
+    test('strictly isolates 0:34 cue to Ain\'t In LA -> Close To Me and prevents bleed to generic pairs', () async {
       final storage = StorageService();
+      final aintInLa = Track(id: 'yt_0ijm2Xui5N8', title: "Ain't In LA", artist: 'ADÉLA', artwork: '');
+      final closeToMe = Track(id: 'yt_ajN57m_OSpY', title: 'Close To Me', artist: 'Ellie Goulding', artwork: '');
       final outgoing = Track(id: 'song-a', title: 'Keep You Safe', artist: 'New West', artwork: '');
       final incoming = Track(id: 'song-b', title: 'Fall In Love Alone', artist: 'Stacey Ryan', artwork: '');
 
+      // 1. Curated directional pair gets 16 bars mashup and 34.0s intro cue
+      final curated = await storage.getTransitionForPair(aintInLa, closeToMe);
+      expect(curated.bars, '16 bars');
+      expect(curated.volumeMode, 'mashup');
+      expect(curated.introOffsetSec, 34.0);
+      await storage.saveTransitionForPair(aintInLa, closeToMe, curated);
+
+      // 2. Reverse direction must NOT inherit curated blueprint
+      final reverse = await storage.getTransitionForPair(closeToMe, aintInLa);
+      expect(reverse.introOffsetSec, 0.0);
+      expect(reverse.volumeMode, isNot('mashup'));
+
+      // 3. Generic pair saves mode without leaking outro/intro cue offsets
       const custom = TransitionConfig(
         bars: '4 bars',
         durationSec: 8.2,
@@ -356,7 +371,7 @@ void main() {
         effectsMode: 'echo_fade',
         syncTempo: true,
         outroOffsetSec: -2.0,
-        introOffsetSec: 3.0,
+        introOffsetSec: 34.0,
       );
 
       await storage.saveTransitionForPair(outgoing, incoming, custom);
@@ -364,11 +379,26 @@ void main() {
 
       expect(loaded.bars, '4 bars');
       expect(loaded.volumeMode, 'rise_drop');
-      expect(loaded.eqMode, 'bass_swap');
+      expect(loaded.eqMode, 'none');
       expect(loaded.effectsMode, 'echo_fade');
-      expect(loaded.outroOffsetSec, -2.0);
-      expect(loaded.introOffsetSec, 3.0);
+      expect(loaded.outroOffsetSec, 0.0);
+      expect(loaded.introOffsetSec, 0.0);
       expect(loaded.pairKey, isNotNull);
+    });
+
+    test('StorageService.reorderPlaylistTracks updates track order persistently', () async {
+      final storage = StorageService();
+      final t1 = Track(id: 't1', title: 'Song 1', artist: 'Artist 1', artwork: '');
+      final t2 = Track(id: 't2', title: 'Song 2', artist: 'Artist 2', artwork: '');
+      final t3 = Track(id: 't3', title: 'Song 3', artist: 'Artist 3', artwork: '');
+      await storage.savePlaylists([
+        Playlist(id: 'pl-reorder', name: 'Test Mix', cover: '', tracks: [t1, t2, t3]),
+      ]);
+
+      await storage.reorderPlaylistTracks('pl-reorder', [t3, t1, t2]);
+      final pls = await storage.getPlaylists();
+      final updated = pls.firstWhere((p) => p.id == 'pl-reorder');
+      expect(updated.tracks.map((t) => t.id).toList(), ['t3', 't1', 't2']);
     });
   });
 }
