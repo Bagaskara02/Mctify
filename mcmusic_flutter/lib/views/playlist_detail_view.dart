@@ -215,7 +215,11 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
     setState(() {
       _currentPlaylist = updatedPl;
     });
-    await _storage.reorderPlaylistTracks(_currentPlaylist.id, updatedTracks);
+    if (_currentPlaylist.id == 'pl-liked') {
+      await _storage.saveLikedTracks(updatedTracks);
+    } else {
+      await _storage.reorderPlaylistTracks(_currentPlaylist.id, updatedTracks);
+    }
     widget.onPlaylistChanged?.call();
   }
 
@@ -952,78 +956,77 @@ class _PlaylistDetailViewState extends State<PlaylistDetailView> {
                 final track = filteredTracks[index];
                 final isCurrentlyPlaying = widget.player.currentTrack?.id == track.id;
 
-                return Material(
+                return ReorderableDelayedDragStartListener(
                   key: ValueKey('${track.id}_$index'),
-                  color: Colors.transparent,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isCurrentlyPlaying ? const Color(0xFF14243C) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                      leading: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 22,
-                            child: isCurrentlyPlaying
-                                ? const Icon(Icons.graphic_eq, color: AppTheme.primaryAzure, size: 18)
-                                : Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold),
-                                  ),
-                          ),
-                          const SizedBox(width: 8),
-                          OptimizedImage(
-                            imageUrl: track.artwork,
-                            width: 44,
-                            height: 44,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                        ],
+                  index: index,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isCurrentlyPlaying ? const Color(0xFF14243C) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      title: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: isCurrentlyPlaying ? const Color(0xFF00E5FF) : Colors.white,
-                          fontSize: 14,
-                          fontWeight: isCurrentlyPlaying ? FontWeight.w900 : FontWeight.w600,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '${track.artist} • ${_formatDuration(track.duration)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ReorderableDragStartListener(
-                            index: index,
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                              child: Icon(Icons.drag_indicator, color: Colors.white38, size: 20),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                        leading: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 22,
+                              child: isCurrentlyPlaying
+                                  ? const Icon(Icons.graphic_eq, color: AppTheme.primaryAzure, size: 18)
+                                  : Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
                             ),
+                            const SizedBox(width: 8),
+                            OptimizedImage(
+                              imageUrl: track.artwork,
+                              width: 44,
+                              height: 44,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ],
+                        ),
+                        title: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isCurrentlyPlaying ? const Color(0xFF00E5FF) : Colors.white,
+                            fontSize: 14,
+                            fontWeight: isCurrentlyPlaying ? FontWeight.w900 : FontWeight.w600,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
-                            onPressed: () => _showTrackMenu(track),
-                          ),
-                        ],
+                        ),
+                        subtitle: Text(
+                          '${track.artist} • ${_formatDuration(track.duration)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                child: Icon(Icons.drag_indicator, color: Colors.white54, size: 22),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                              onPressed: () => _showTrackMenu(track),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          widget.player.playTrack(track, filteredTracks);
+                        },
                       ),
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        widget.player.playTrack(track, filteredTracks);
-                      },
-                      onLongPress: () {
-                        HapticFeedback.mediumImpact();
-                        _showTrackMenu(track);
-                      },
                     ),
                   ),
                 );

@@ -186,7 +186,7 @@ class PlaylistImporterService {
       final apiUrl = Uri.parse(
         'https://mctify.vercel.app/api/yt/playlist?id=${Uri.encodeQueryComponent(playlistId)}&_t=${DateTime.now().millisecondsSinceEpoch}',
       );
-      final res = await http.get(apiUrl).timeout(const Duration(seconds: 15));
+      final res = await http.get(apiUrl).timeout(const Duration(seconds: 35));
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         if (data is Map && data['tracks'] is List && (data['tracks'] as List).isNotEmpty) {

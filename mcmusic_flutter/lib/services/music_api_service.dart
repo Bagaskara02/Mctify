@@ -347,7 +347,7 @@ class MusicApiService {
       try {
         final url = Uri.parse(
             'https://mctify.vercel.app/api/yt/search?title=${Uri.encodeComponent(title)}&artist=${Uri.encodeComponent(artist)}&duration=${expectedDuration ?? 0}&q=${Uri.encodeComponent('$title $artist')}');
-        final res = await http.get(url).timeout(const Duration(milliseconds: 2400));
+        final res = await http.get(url).timeout(const Duration(milliseconds: 6500));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           final vid = data['videoId'] as String?;
@@ -668,7 +668,10 @@ class MusicApiService {
         score -= 900;
       }
     } else {
-      if (combined.contains('remix')) score -= 850;
+      if (RegExp(r'\b(remix|club edit|radio edit|vip|extended|eden prince|bassjackers|ashworth|fitness dance)\b', caseSensitive: false)
+          .hasMatch(combined)) {
+        score -= 3500;
+      }
     }
 
     if (isLiveRequested) {
@@ -984,7 +987,7 @@ class MusicApiService {
     final List<Track> list = [];
     try {
       final url = Uri.parse('https://itunes.apple.com/search?term=${Uri.encodeComponent(query)}&entity=song&limit=30');
-      final res = await http.get(url).timeout(const Duration(milliseconds: 3200));
+      final res = await http.get(url).timeout(const Duration(milliseconds: 6000));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final results = (data['results'] as List? ?? []);
@@ -1058,7 +1061,7 @@ class MusicApiService {
     final List<Track> list = [];
     try {
       final url = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent(query)}');
-      final res = await http.get(url).timeout(const Duration(milliseconds: 3200));
+      final res = await http.get(url).timeout(const Duration(milliseconds: 6000));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         final songs = (data['songs'] as List? ?? []);
@@ -1716,7 +1719,7 @@ class MusicApiService {
     final ytMusicFuture = () async {
       try {
         final url = Uri.parse('https://mctify.vercel.app/api/yt/search-multi?q=${Uri.encodeComponent(clean)}');
-        final res = await http.get(url).timeout(const Duration(milliseconds: 3200));
+        final res = await http.get(url).timeout(const Duration(milliseconds: 6000));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           final songs = (data['songs'] as List? ?? []);
