@@ -847,12 +847,19 @@ export const musicApi = {
 
     // Fallback to /api/yt/search-multi (returns multiple embeddable song matches)
     try {
+      const firstArtist = cleanArtist.split(',')[0].split('ft.')[0].split('feat.')[0].trim().toLowerCase();
       const qMulti = `${cleanTitle} ${cleanArtist}`.trim();
       const res = await fetch(`/api/yt/search-multi?q=${encodeURIComponent(qMulti)}`);
       if (res.ok) {
         const data = await res.json();
         const songs = Array.isArray(data?.songs) ? data.songs : [];
-        const match = songs.find((s) => s?.videoId && !excludeSet.has(s.videoId));
+        const available = songs.filter((s) => s?.videoId && !excludeSet.has(s.videoId));
+        const match = (firstArtist
+          ? available.find((s) =>
+              (s.artist || '').toLowerCase().includes(firstArtist) ||
+              (s.title || '').toLowerCase().includes(firstArtist)
+            )
+          : null) || available[0];
         if (match) {
           const result = {
             videoId: match.videoId,
@@ -863,6 +870,23 @@ export const musicApi = {
           };
           _ytMatchCache.set(cacheKey, result);
           return result;
+        }
+      }
+    } catch (_) {}
+
+    // Final free-text fallback without strict title/artist constraints
+    try {
+      const firstArtist = cleanArtist.split(',')[0].split('ft.')[0].split('feat.')[0].trim();
+      const qFree = `${cleanTitle} ${firstArtist}`.trim();
+      const res = await fetch(`/api/yt/search?q=${encodeURIComponent(qFree)}${excludeParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.videoId && !excludeSet.has(data.videoId)) {
+          if (data.thumbnail) {
+            data.thumbnail = getHighResArtworkUrl(data.thumbnail);
+          }
+          _ytMatchCache.set(cacheKey, data);
+          return data;
         }
       }
     } catch (_) {}

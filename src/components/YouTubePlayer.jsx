@@ -428,11 +428,22 @@ export default function YouTubePlayer({
       if (!player || !isPlayingRef.current || loadedVidByDeckRef.current[deckIdx] !== targetVid) return;
       try {
         const st = player.getPlayerState?.();
+        const dur = player.getDuration?.() || 0;
         if (st === window.YT?.PlayerState?.CUED || st === window.YT?.PlayerState?.PAUSED || st === -1) {
           player.playVideo?.();
         }
-        if (st !== window.YT?.PlayerState?.PLAYING && attempt < 4) {
-          backgroundKickTimerRef.current = setTimeout(() => kick(attempt + 1), attempt === 1 ? 350 : 750);
+        if (st !== window.YT?.PlayerState?.PLAYING) {
+          if (attempt < 5) {
+            backgroundKickTimerRef.current = setTimeout(() => kick(attempt + 1), attempt === 1 ? 350 : 900);
+          } else if (
+            deckIdx === activeDeckIdxRef.current &&
+            !document.hidden &&
+            dur === 0 &&
+            (st === -1 || st === window.YT?.PlayerState?.CUED)
+          ) {
+            // Silent embed restriction or dead videoId that failed without firing onError
+            onErrorRef.current?.({ data: 150, reason: 'unstarted_stall' });
+          }
         }
       } catch {}
     };

@@ -87,8 +87,9 @@ export default async function handler(req, res) {
 
     const extractCoreTitle = (str) => {
       return cleanText(str)
-        .replace(/\s*[\(\[](feat|ft|with|prod\.)[^\)\]]*[\)\]]/gi, '')
-        .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*).*/gi, '')
+        .replace(/\s*[\(\[](feat|ft|with|prod\.|remaster(?:ed)?|deluxe|explicit|clean|bonus|from\b)[^\)\]]*[\)\]]/gi, '')
+        .replace(/\s*-\s*(acoustic|live|remix|version|official|remastered.*|deluxe.*|radio edit.*).*/gi, '')
+        .replace(/[.!?]+$/g, '')
         .trim();
     };
 
@@ -172,12 +173,25 @@ export default async function handler(req, res) {
         // 2. Strict Artist check:
         if (targetArtist) {
           const targetTokens = targetArtist.split(/[\s,&]+/).filter(w => w.length > 1);
-          const hasArtistMatch = (authorStr && authorStr.includes(targetArtist)) ||
-                                 (authorStr && targetArtist.includes(authorStr)) ||
-                                 combined.includes(targetArtist) ||
-                                 (targetTokens.length > 0 && targetTokens.some(tok => (authorStr && authorStr.includes(tok)) || normTitle.includes(tok)));
+          const authorMatches = Boolean(authorStr) && (
+            authorStr.includes(targetArtist) ||
+            targetArtist.includes(authorStr) ||
+            (targetTokens.length > 0 && targetTokens.some(tok => authorStr.includes(tok)))
+          );
+          const titleStartsWithArtist = normTitle.startsWith(targetArtist) ||
+            normTitle.includes(`${targetArtist} -`) ||
+            normTitle.includes(`${targetArtist} ft`) ||
+            normTitle.includes(`${targetArtist} feat`);
+          const isCoverParenArtist = !authorMatches &&
+            (normTitle.includes(`(${targetArtist})`) || normTitle.includes(`[${targetArtist}]`));
+          const hasArtistMatch = !isCoverParenArtist && (
+            authorMatches ||
+            titleStartsWithArtist ||
+            combined.includes(targetArtist) ||
+            (targetTokens.length > 0 && targetTokens.every(tok => normTitle.includes(tok)))
+          );
           if (hasArtistMatch) {
-            score += 1500;
+            score += authorMatches ? 1600 : 1200;
           } else {
             score -= 5000; // WRONG ARTIST: Completely disqualifies different artist tracks!
           }
@@ -225,7 +239,7 @@ export default async function handler(req, res) {
           if (isRemixOrAlt) score += 1000;
           else score -= 1200;
         } else {
-          if (isRemixOrAlt) score -= 3500; // Heavily penalizes remixes/alts when original is requested!
+          if (isRemixOrAlt) score -= 4500; // Heavily penalizes remixes/alts when original is requested!
         }
 
         if (isLiveRequested) {
@@ -244,6 +258,11 @@ export default async function handler(req, res) {
         // Heavy boost for clean studio original audio (Topic track, Official Audio, Album Audio)
         if (authorStr.includes('- topic') || normTitle.includes('- topic') || combined.includes('official audio') || combined.includes('provided to youtube by') || combined.includes('original track')) {
           score += 1500;
+        }
+
+        // Global hitmaker boost so iconic studio hits (e.g. Cheat Codes feat. Demi Lovato) beat lesser-known homonyms
+        if (!rawArtist && /\b(demi lovato|cheat codes|the weeknd|taylor swift|billie eilish|bruno mars|lady gaga|ariana grande|justin bieber|ed sheeran|dua lipa|coldplay|post malone|chainsmokers|calvin harris|zedd)\b/i.test(combined)) {
+          score += 600;
         }
 
         // Heavy penalty for Music Videos (skits, dialogue, car sounds, movie scenes that ruin audio listening)
@@ -326,10 +345,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // Fallback 2: general search
+    // Fallback 2: general search (relax minScore slightly so Official MVs by the real artist never 404)
     const generalAny = await yt.search(searchQuery, { type: 'video' }).catch(() => ({}));
     const anyVideos = generalAny.videos || [];
-    const anyVideo = pickBestPlayable(anyVideos);
+    const anyVideo = pickBestPlayable(anyVideos, -800);
     if (anyVideo) {
       const vid = (anyVideo.id || anyVideo.content_id || anyVideo.videoId || '').trim();
       if (isValidVideoId(vid)) {
