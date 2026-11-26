@@ -93,6 +93,7 @@ describe('Music API Artwork & Filter Tests', () => {
 
     assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 30 }), false);
     assert.equal(isCleanPopularTrack({ title: 'Yellow', artist: 'Coldplay', duration: 600 }), false);
+    assert.equal(isCleanPopularTrack({ title: 'Cinderella (feat. Ty Dolla $ign)', artist: 'Mac Miller', duration: 481 }, { maxDuration: 900 }), true);
 
     assert.equal(isCleanPopularTrack(null), false);
     assert.equal(isCleanPopularTrack({ title: '' }), false);

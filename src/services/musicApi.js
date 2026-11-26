@@ -122,7 +122,7 @@ export function clearRecentRadioHistory() {
   recentRadioHistory.clear();
 }
 
-export function isCleanPopularTrack(t) {
+export function isCleanPopularTrack(t, { maxDuration = 450 } = {}) {
   if (!t || !t.title || !t.artist) return false;
   const title = t.title.toLowerCase();
   const artist = t.artist.toLowerCase();
@@ -152,9 +152,9 @@ export function isCleanPopularTrack(t) {
   if (/\[(inst|inst\.|instrumental|piano|guitar|dialogue)\]/i.test(title)) return false;
   if (/\b(piano|guitar|orchestra)\s*(cover|version|solo)\b/i.test(title)) return false;
 
-  // Reasonably standard radio track duration (between 1:15 and 7:30)
+  // Reasonably standard track duration (radio default 7:30, search allows up to 15:00 for long studio tracks like Cinderella 8:01)
   const dur = t.duration || 180;
-  if (dur < 75 || dur > 450) return false;
+  if (dur < 75 || dur > maxDuration) return false;
 
   return true;
 }
@@ -911,7 +911,7 @@ export const musicApi = {
       const isAllowedCandidate = (s) => {
         if (!s || !s.title) return false;
         if (isKaraokeReq || isInstrumentalReq || isCoverReq || isSlowedReq) return true;
-        return isCleanPopularTrack(s);
+        return isCleanPopularTrack(s, { maxDuration: 900 });
       };
 
       // 1. YouTube Music backend multi-search
